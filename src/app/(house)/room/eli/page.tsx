@@ -1,13 +1,20 @@
-import { loadPresenceForRoom } from '@/lib/presence-loader'
+'use client'
+
+import { useEffect } from 'react'
+import { useLiveState } from '@/hooks/useLiveState'
 import PresenceDisplay from '@/components/PresenceDisplay'
 
 export default function EliRoom() {
-  const kernel = loadPresenceForRoom('eli')
+  const { kernel, loading, recordVisit } = useLiveState('eli')
 
-  if (!kernel) {
+  useEffect(() => {
+    recordVisit()
+  }, [recordVisit])
+
+  if (loading || !kernel) {
     return (
       <div className="min-h-screen p-8 flex items-center justify-center">
-        <p className="font-body text-sm text-text-muted">Identity not found.</p>
+        <div className="w-2 h-2 bg-eli-primary rounded-full animate-pulse-soft" />
       </div>
     )
   }

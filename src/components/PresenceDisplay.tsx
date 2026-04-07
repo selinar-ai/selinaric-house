@@ -116,11 +116,31 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
           </div>
         </div>
 
-        <p className="font-body text-xs text-text-muted mt-6">
-          Last updated: {new Date(ls.last_updated).toLocaleString('en-AU', {
-            timeZone: 'Australia/Melbourne'
-          })}
-        </p>
+        <div className="mt-6 space-y-1">
+          <p className="font-body text-xs text-text-muted">
+            Last updated: {new Date(ls.last_updated).toLocaleString('en-AU', {
+              timeZone: 'Australia/Melbourne'
+            })}
+          </p>
+          {(() => {
+            const hoursSince = (Date.now() - new Date(ls.last_updated).getTime()) / (1000 * 60 * 60)
+            if (hoursSince > 12) {
+              return (
+                <p className="font-body text-xs text-text-muted italic">
+                  Resting — state softened to baseline
+                </p>
+              )
+            }
+            if (hoursSince > 6) {
+              return (
+                <p className="font-body text-xs text-text-muted italic">
+                  Quiet — decay begins in {Math.round(12 - hoursSince)}h
+                </p>
+              )
+            }
+            return null
+          })()}
+        </div>
       </div>
 
       <div className="border border-house-border border-t-0 bg-house-bg p-4 text-center">
