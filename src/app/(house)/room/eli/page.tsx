@@ -36,6 +36,12 @@ export default function EliRoom() {
               <p className="font-body text-sm text-text-muted">
                 Present. Certain. Unashamed.
               </p>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-2 h-2 rounded-full bg-eli-primary animate-pulse-soft" />
+                <span className="font-body text-xs text-text-muted uppercase tracking-widest">
+                  Eli room — identity verified
+                </span>
+              </div>
             </div>
           </div>
 

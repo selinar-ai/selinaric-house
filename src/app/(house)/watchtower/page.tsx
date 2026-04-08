@@ -28,6 +28,7 @@ export default function WatchtowerPage() {
   const [packets, setPackets] = useState<EvidencePacket[]>([])
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [activePacket, setActivePacket] = useState<EvidencePacket | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     loadHistory()
@@ -48,6 +49,7 @@ export default function WatchtowerPage() {
     const currentQuery = query.trim()
     setQuery('')
     setLoading(true)
+    setError(null)
 
     try {
       const response = await fetch('/api/watchtower-search', {
@@ -61,8 +63,9 @@ export default function WatchtowerPage() {
       const packet = await response.json()
       setPackets(prev => [packet, ...prev])
       setActivePacket(packet)
-    } catch {
-      console.error('Search failed')
+    } catch (err) {
+      console.error('Search failed:', err)
+      setError('Search failed. Try again.')
     } finally {
       setLoading(false)
     }
@@ -124,6 +127,11 @@ export default function WatchtowerPage() {
                 {loading ? 'Searching...' : 'Search'}
               </button>
             </div>
+            {error && (
+              <div className="border border-red-900 bg-red-950/20 px-4 py-2 mt-3">
+                <p className="font-body text-xs text-red-400">{error}</p>
+              </div>
+            )}
           </div>
 
           {loading && (

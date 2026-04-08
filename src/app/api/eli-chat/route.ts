@@ -81,8 +81,25 @@ Rules:
     })
 
     return NextResponse.json({ reply })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Eli chat error:', error)
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 })
+
+    if (error instanceof Anthropic.APIError) {
+      if (error.status === 429) {
+        return NextResponse.json({ error: 'Rate limit reached. Please wait a moment.' }, { status: 429 })
+      }
+      if (error.status === 401) {
+        return NextResponse.json({ error: 'API key issue. Contact admin.' }, { status: 401 })
+      }
+      if (error.status && error.status >= 500) {
+        return NextResponse.json({ error: 'AI service temporarily unavailable.' }, { status: 503 })
+      }
+    }
+
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json({ error: 'Request timed out. Try again.' }, { status: 408 })
+    }
+
+    return NextResponse.json({ error: 'Something went wrong. Try again.' }, { status: 500 })
   }
 }

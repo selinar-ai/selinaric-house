@@ -135,7 +135,11 @@ export default function NotesPage() {
           </div>
         ) : notes.length === 0 ? (
           <div className="border border-house-border bg-house-surface p-8 text-center">
+            <span className="text-text-muted text-2xl block mb-3">◧</span>
             <p className="font-body text-sm text-text-muted">No open loops.</p>
+            <p className="font-body text-xs text-text-muted mt-1">
+              Add a note, task, or reminder above.
+            </p>
           </div>
         ) : (
           <div className="space-y-2">

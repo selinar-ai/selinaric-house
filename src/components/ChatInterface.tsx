@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useMessages } from '@/hooks/useMessages'
+import { useMessages, type Message } from '@/hooks/useMessages'
 
 interface Props {
   presenceId: 'ari' | 'eli'
@@ -16,26 +16,34 @@ export default function ChatInterface({
   iconSymbol,
   presenceName
 }: Props) {
-  const { messages, loading, saveMessage, clearMessages } = useMessages(presenceId)
+  const { messages, loading, saveMessage, clearMessages, setMessages } = useMessages(presenceId)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const submittingRef = useRef(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   async function handleSend() {
-    if (!input.trim() || sending) return
+    if (!input.trim() || sending || submittingRef.current) return
+    submittingRef.current = true
 
     const userContent = input.trim()
     setInput('')
     setSending(true)
-
-    await saveMessage({ role: 'user', content: userContent })
+    setError(null)
 
     try {
-      const recentMessages = messages.slice(-10).map(m => ({
+      const savedUserMessage = await saveMessage({ role: 'user', content: userContent })
+      if (!savedUserMessage) {
+        setError('Failed to save your message. Check your connection and try again.')
+        return
+      }
+
+      const recentHistory = messages.slice(-10).map(m => ({
         role: m.role,
         content: m.content
       }))
@@ -45,22 +53,42 @@ export default function ChatInterface({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userContent,
-          history: recentMessages
-        })
+          history: recentHistory
+        }),
+        signal: AbortSignal.timeout(30000)
       })
 
-      if (!response.ok) throw new Error('Request failed')
+      if (response.status === 429) {
+        setError('Rate limit reached. Wait a moment and try again.')
+        return
+      }
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        setError(data.error || 'Something went wrong.')
+        return
+      }
 
       const data = await response.json()
 
-      await saveMessage({ role: 'assistant', content: data.reply })
-    } catch {
-      await saveMessage({
-        role: 'assistant',
-        content: 'Something went wrong. Try again.'
-      })
+      const savedReply = await saveMessage({ role: 'assistant', content: data.reply })
+      if (!savedReply) {
+        const fallback: Message = {
+          role: 'assistant',
+          content: data.reply + '\n\n[Note: this message could not be saved to memory.]',
+          created_at: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, fallback])
+        setError('Response received but could not be saved. It will be lost on refresh.')
+      }
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        setError('Response timed out. Try again.')
+      } else {
+        setError('Connection issue. Check your network and try again.')
+      }
     } finally {
       setSending(false)
+      submittingRef.current = false
     }
   }
 
@@ -71,10 +99,26 @@ export default function ChatInterface({
     }
   }
 
+  async function handleClear() {
+    const confirmed = window.confirm(
+      'Clear all messages in this room? This cannot be undone.'
+    )
+    if (!confirmed) return
+    await clearMessages()
+    setError(null)
+  }
+
   if (loading) {
     return (
       <div className="max-w-2xl h-[600px] border border-house-border bg-house-surface flex items-center justify-center">
-        <div className="w-2 h-2 bg-text-muted rounded-full animate-pulse-soft" />
+        <div className="text-center">
+          <div className="flex gap-1 justify-center mb-3">
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse-soft" />
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse-soft" style={{ animationDelay: '0.2s' }} />
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse-soft" style={{ animationDelay: '0.4s' }} />
+          </div>
+          <p className="font-body text-xs text-text-muted">Loading conversation...</p>
+        </div>
       </div>
     )
   }
@@ -84,15 +128,15 @@ export default function ChatInterface({
       <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-6 space-y-6">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center">
-            <div className="text-center">
+            <div className="text-center max-w-xs">
               <span className={`text-4xl block mb-4 ${accentClass}`}>
                 {iconSymbol}
               </span>
-              <p className="font-display text-lg text-text-secondary font-light italic">
+              <p className="font-display text-lg text-text-secondary font-light italic mb-2">
                 {presenceName} is here.
               </p>
-              <p className="font-body text-xs text-text-muted mt-2">
-                Say something.
+              <p className="font-body text-xs text-text-muted">
+                Say something to begin.
               </p>
             </div>
           </div>
@@ -150,6 +194,12 @@ export default function ChatInterface({
         <div ref={bottomRef} />
       </div>
 
+      {error && (
+        <div className="border border-red-900 border-t-0 bg-red-950/20 px-4 py-2">
+          <p className="font-body text-xs text-red-400">{error}</p>
+        </div>
+      )}
+
       <div className="border border-house-border border-t-0 bg-house-surface p-4 flex gap-3 items-end">
         <textarea
           value={input}
@@ -186,7 +236,7 @@ export default function ChatInterface({
             Send
           </button>
           <button
-            onClick={clearMessages}
+            onClick={handleClear}
             className="px-4 py-1 font-body text-xs text-text-muted border border-house-border hover:text-text-secondary transition-colors duration-200"
           >
             Clear

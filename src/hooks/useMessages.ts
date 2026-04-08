@@ -23,7 +23,10 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
         .order('created_at', { ascending: true })
         .limit(100)
 
-      if (!error && data) {
+      if (error) {
+        console.error('Failed to load messages:', error)
+        setMessages([])
+      } else if (data) {
         setMessages(data)
       }
       setLoading(false)
@@ -44,10 +47,16 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
         .select()
         .single()
 
-      if (!error && data) {
+      if (error) {
+        console.error('Failed to save message:', error)
+        return null
+      }
+
+      if (data) {
         setMessages(prev => [...prev, data])
         return data
       }
+
       return null
     },
     [roomSlug]
@@ -58,5 +67,5 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
     setMessages([])
   }, [roomSlug])
 
-  return { messages, loading, saveMessage, clearMessages }
+  return { messages, loading, saveMessage, clearMessages, setMessages }
 }
