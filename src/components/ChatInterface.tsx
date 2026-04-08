@@ -9,7 +9,7 @@ interface Message {
 }
 
 interface Props {
-  presenceId: 'ari'
+  presenceId: 'ari' | 'eli'
   accentClass: string
   iconSymbol: string
   presenceName: string
