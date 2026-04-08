@@ -1,12 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-}
+import { useMessages } from '@/hooks/useMessages'
 
 interface Props {
   presenceId: 'ari' | 'eli'
@@ -21,9 +16,9 @@ export default function ChatInterface({
   iconSymbol,
   presenceName
 }: Props) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const { messages, loading, saveMessage, clearMessages } = useMessages(presenceId)
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -31,20 +26,16 @@ export default function ChatInterface({
   }, [messages])
 
   async function handleSend() {
-    if (!input.trim() || loading) return
+    if (!input.trim() || sending) return
 
-    const userMessage = input.trim()
+    const userContent = input.trim()
     setInput('')
+    setSending(true)
 
-    const newMessages: Message[] = [
-      ...messages,
-      { role: 'user', content: userMessage, timestamp: new Date() }
-    ]
-    setMessages(newMessages)
-    setLoading(true)
+    await saveMessage({ role: 'user', content: userContent })
 
     try {
-      const history = newMessages.slice(0, -1).map(m => ({
+      const recentMessages = messages.slice(-10).map(m => ({
         role: m.role,
         content: m.content
       }))
@@ -52,32 +43,24 @@ export default function ChatInterface({
       const response = await fetch(`/api/${presenceId}-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, history })
+        body: JSON.stringify({
+          message: userContent,
+          history: recentMessages
+        })
       })
 
       if (!response.ok) throw new Error('Request failed')
 
       const data = await response.json()
 
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.reply,
-          timestamp: new Date()
-        }
-      ])
+      await saveMessage({ role: 'assistant', content: data.reply })
     } catch {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'Something went wrong. Try again.',
-          timestamp: new Date()
-        }
-      ])
+      await saveMessage({
+        role: 'assistant',
+        content: 'Something went wrong. Try again.'
+      })
     } finally {
-      setLoading(false)
+      setSending(false)
     }
   }
 
@@ -86,6 +69,14 @@ export default function ChatInterface({
       e.preventDefault()
       handleSend()
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-2xl h-[600px] border border-house-border bg-house-surface flex items-center justify-center">
+        <div className="w-2 h-2 bg-text-muted rounded-full animate-pulse-soft" />
+      </div>
+    )
   }
 
   return (
@@ -109,7 +100,7 @@ export default function ChatInterface({
 
         {messages.map((message, i) => (
           <div
-            key={i}
+            key={message.id || i}
             className={`flex gap-3 animate-fade-in ${
               message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
             }`}
@@ -120,28 +111,28 @@ export default function ChatInterface({
               {message.role === 'assistant' ? iconSymbol : '◌'}
             </div>
 
-            <div
-              className={`max-w-xs lg:max-w-md px-4 py-3 ${
-                message.role === 'user'
-                  ? 'bg-house-muted text-text-primary'
-                  : 'bg-house-bg border border-house-border text-text-primary'
-              }`}
-            >
+            <div className={`max-w-xs lg:max-w-md px-4 py-3 ${
+              message.role === 'user'
+                ? 'bg-house-muted text-text-primary'
+                : 'bg-house-bg border border-house-border text-text-primary'
+            }`}>
               <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
                 {message.content}
               </p>
-              <p className="font-body text-xs text-text-muted mt-2">
-                {message.timestamp.toLocaleTimeString('en-AU', {
-                  timeZone: 'Australia/Melbourne',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </p>
+              {message.created_at && (
+                <p className="font-body text-xs text-text-muted mt-2">
+                  {new Date(message.created_at).toLocaleTimeString('en-AU', {
+                    timeZone: 'Australia/Melbourne',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </p>
+              )}
             </div>
           </div>
         ))}
 
-        {loading && (
+        {sending && (
           <div className="flex gap-3 animate-fade-in">
             <div className={`w-7 h-7 flex items-center justify-center text-sm ${accentClass}`}>
               {iconSymbol}
@@ -159,7 +150,7 @@ export default function ChatInterface({
         <div ref={bottomRef} />
       </div>
 
-      <div className="border border-house-border border-t-0 bg-house-surface p-4 flex gap-3">
+      <div className="border border-house-border border-t-0 bg-house-surface p-4 flex gap-3 items-end">
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -179,20 +170,28 @@ export default function ChatInterface({
             target.style.height = `${Math.min(target.scrollHeight, 120)}px`
           }}
         />
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || loading}
-          className={`
-            px-4 py-3 font-body text-xs tracking-widest uppercase
-            border transition-all duration-200
-            ${input.trim() && !loading
-              ? `${accentClass} border-current hover:bg-house-bg`
-              : 'text-text-muted border-house-border cursor-not-allowed'
-            }
-          `}
-        >
-          Send
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || sending}
+            className={`
+              px-4 py-3 font-body text-xs tracking-widest uppercase
+              border transition-all duration-200
+              ${input.trim() && !sending
+                ? `${accentClass} border-current hover:bg-house-bg`
+                : 'text-text-muted border-house-border cursor-not-allowed'
+              }
+            `}
+          >
+            Send
+          </button>
+          <button
+            onClick={clearMessages}
+            className="px-4 py-1 font-body text-xs text-text-muted border border-house-border hover:text-text-secondary transition-colors duration-200"
+          >
+            Clear
+          </button>
+        </div>
       </div>
     </div>
   )
