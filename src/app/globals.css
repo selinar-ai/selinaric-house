@@ -3,24 +3,31 @@
 @import "tailwindcss";
 
 @theme {
-  --color-house-bg: #0a0a0f;
-  --color-house-surface: #12121a;
-  --color-house-border: #1e1e2e;
-  --color-house-muted: #2a2a3e;
+  --color-house-bg: #141019;
+  --color-house-surface: #1D1624;
+  --color-house-soft: #271D30;
+  --color-house-border: #3A2B46;
+  --color-house-muted: #4A3958;
 
-  --color-ari-primary: #c8953a;
-  --color-ari-secondary: #8b6420;
-  --color-ari-glow: #c8953a20;
-  --color-ari-text: #e8c87a;
+  --color-ari-primary: #C97AA8;
+  --color-ari-secondary: #A45C86;
+  --color-ari-glow: #C97AA820;
+  --color-ari-text: #F0C7DD;
 
-  --color-eli-primary: #3a6bc8;
-  --color-eli-secondary: #204a8b;
-  --color-eli-glow: #3a6bc820;
-  --color-eli-text: #7aaae8;
+  --color-eli-primary: #8A5CCF;
+  --color-eli-secondary: #6E49A8;
+  --color-eli-glow: #8A5CCF20;
+  --color-eli-text: #D8C6F6;
 
-  --color-text-primary: #e8e8f0;
-  --color-text-secondary: #8888a8;
-  --color-text-muted: #4a4a6a;
+  --color-notes-primary: #B89AC8;
+  --color-notes-secondary: #8B7298;
+
+  --color-watchtower-primary: #9B8AE0;
+  --color-watchtower-secondary: #6D63A8;
+
+  --color-text-primary: #F3EAF6;
+  --color-text-secondary: #C9B7D2;
+  --color-text-muted: #98859F;
 
   --font-display: 'Cormorant Garamond', Georgia, serif;
   --font-body: 'Inter', system-ui, sans-serif;
@@ -54,25 +61,25 @@
 }
 
 html {
-  background-color: #0a0a0f;
-  color: #e8e8f0;
+  background-color: #141019;
+  color: #F3EAF6;
 }
 
 body {
   font-family: var(--font-body);
-  background-color: #0a0a0f;
+  background-color: #141019;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
 ::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: #12121a; }
-::-webkit-scrollbar-thumb { background: #2a2a3e; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #3a3a5e; }
+::-webkit-scrollbar-track { background: #1D1624; }
+::-webkit-scrollbar-thumb { background: #3A2B46; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #4A3958; }
 
 ::selection {
-  background: #3a6bc840;
-  color: #e8e8f0;
+  background: #8A5CCF40;
+  color: #F3EAF6;
 }
 
 * {

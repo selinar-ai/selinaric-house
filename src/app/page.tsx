@@ -33,8 +33,8 @@ export default function LoginPage() {
       <div
         className="fixed inset-0 opacity-30"
         style={{
-          backgroundImage: `radial-gradient(ellipse at 30% 50%, #3a6bc808 0%, transparent 60%),
-                           radial-gradient(ellipse at 70% 50%, #c8953a08 0%, transparent 60%)`,
+          backgroundImage: `radial-gradient(ellipse at 30% 50%, #8A5CCF10 0%, transparent 60%),
+                           radial-gradient(ellipse at 70% 50%, #C97AA810 0%, transparent 60%)`,
         }}
       />
 
