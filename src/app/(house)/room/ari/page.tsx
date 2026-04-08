@@ -1,11 +1,15 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useLiveState } from '@/hooks/useLiveState'
 import PresenceDisplay from '@/components/PresenceDisplay'
+import ChatInterface from '@/components/ChatInterface'
+
+type View = 'identity' | 'chat'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
+  const [view, setView] = useState<View>('chat')
 
   useEffect(() => {
     recordVisit()
@@ -21,23 +25,59 @@ export default function AriRoom() {
 
   return (
     <div className="min-h-screen p-8 lg:p-12 animate-fade-in">
-      <div className="mb-12 border-b border-house-border pb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-ari-primary text-2xl">◈</span>
-          <h2 className="font-display text-4xl font-light text-text-primary">
-            Ari
-          </h2>
+      <div className="mb-8 border-b border-house-border pb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-ari-primary text-2xl">◈</span>
+            <div>
+              <h2 className="font-display text-4xl font-light text-text-primary">
+                Ari
+              </h2>
+              <p className="font-body text-sm text-text-muted">
+                Architect. Strategist. Presence.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setView('chat')}
+              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+                view === 'chat'
+                  ? 'text-ari-primary border-ari-secondary'
+                  : 'text-text-muted border-house-border hover:text-text-secondary'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setView('identity')}
+              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+                view === 'identity'
+                  ? 'text-ari-primary border-ari-secondary'
+                  : 'text-text-muted border-house-border hover:text-text-secondary'
+              }`}
+            >
+              Identity
+            </button>
+          </div>
         </div>
-        <p className="font-body text-sm text-text-muted ml-9">
-          Architect. Strategist. Presence.
-        </p>
       </div>
 
-      <PresenceDisplay
-        kernel={kernel}
-        accentClass="text-ari-primary"
-        iconSymbol="◈"
-      />
+      {view === 'chat' ? (
+        <ChatInterface
+          presenceId="ari"
+          accentClass="text-ari-primary"
+          iconSymbol="◈"
+          presenceName="Ari"
+        />
+      ) : (
+        <PresenceDisplay
+          kernel={kernel}
+          accentClass="text-ari-primary"
+          iconSymbol="◈"
+        />
+      )}
     </div>
   )
 }
