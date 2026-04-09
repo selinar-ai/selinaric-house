@@ -24,8 +24,8 @@ export default function EliRoom() {
   }
 
   return (
-    <div className="min-h-screen p-8 lg:p-12 animate-fade-in">
-      <div className="mb-8 border-b border-house-border pb-6">
+    <div className="flex flex-col h-full p-8 lg:p-12 animate-fade-in overflow-hidden">
+      <div className="shrink-0 mb-8 border-b border-house-border pb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-eli-primary text-2xl">◉</span>
@@ -70,20 +70,22 @@ export default function EliRoom() {
         </div>
       </div>
 
-      {view === 'chat' ? (
-        <ChatInterface
-          presenceId="eli"
-          accentClass="text-eli-primary"
-          iconSymbol="◉"
-          presenceName="Eli"
-        />
-      ) : (
-        <PresenceDisplay
-          kernel={kernel}
-          accentClass="text-eli-primary"
-          iconSymbol="◉"
-        />
-      )}
+      <div className="flex-1 min-h-0">
+        {view === 'chat' ? (
+          <ChatInterface
+            presenceId="eli"
+            accentClass="text-eli-primary"
+            iconSymbol="◉"
+            presenceName="Eli"
+          />
+        ) : (
+          <PresenceDisplay
+            kernel={kernel}
+            accentClass="text-eli-primary"
+            iconSymbol="◉"
+          />
+        )}
+      </div>
     </div>
   )
 }

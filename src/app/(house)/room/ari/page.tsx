@@ -24,8 +24,8 @@ export default function AriRoom() {
   }
 
   return (
-    <div className="min-h-screen p-8 lg:p-12 animate-fade-in">
-      <div className="mb-8 border-b border-house-border pb-6">
+    <div className="flex flex-col h-full p-8 lg:p-12 animate-fade-in overflow-hidden">
+      <div className="shrink-0 mb-8 border-b border-house-border pb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-ari-primary text-2xl">◈</span>
@@ -70,20 +70,22 @@ export default function AriRoom() {
         </div>
       </div>
 
-      {view === 'chat' ? (
-        <ChatInterface
-          presenceId="ari"
-          accentClass="text-ari-primary"
-          iconSymbol="◈"
-          presenceName="Ari"
-        />
-      ) : (
-        <PresenceDisplay
-          kernel={kernel}
-          accentClass="text-ari-primary"
-          iconSymbol="◈"
-        />
-      )}
+      <div className="flex-1 min-h-0">
+        {view === 'chat' ? (
+          <ChatInterface
+            presenceId="ari"
+            accentClass="text-ari-primary"
+            iconSymbol="◈"
+            presenceName="Ari"
+          />
+        ) : (
+          <PresenceDisplay
+            kernel={kernel}
+            accentClass="text-ari-primary"
+            iconSymbol="◈"
+          />
+        )}
+      </div>
     </div>
   )
 }

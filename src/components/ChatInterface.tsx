@@ -116,7 +116,7 @@ export default function ChatInterface({
 
   if (loading) {
     return (
-      <div className="max-w-2xl h-[600px] border border-house-border bg-house-surface flex items-center justify-center">
+      <div className="max-w-2xl h-full border border-house-border bg-house-surface flex items-center justify-center">
         <div className="text-center">
           <div className="flex gap-1 justify-center mb-3">
             <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse-soft" />
@@ -130,7 +130,7 @@ export default function ChatInterface({
   }
 
   return (
-    <div className="max-w-2xl flex flex-col h-[600px]">
+    <div className="max-w-2xl flex flex-col h-full">
       <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-6 space-y-6">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center">
