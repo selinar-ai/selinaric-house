@@ -8,9 +8,9 @@ export default function HouseLayout({
 }) {
   return (
     <AuthGuard>
-      <div className="flex h-screen overflow-hidden bg-house-bg">
+      <div className="flex h-full overflow-hidden bg-house-bg">
         <Sidebar />
-        <main className="flex-1 ml-56 h-screen overflow-hidden flex flex-col">
+        <main className="flex-1 ml-56 flex flex-col overflow-hidden">
           {children}
         </main>
       </div>

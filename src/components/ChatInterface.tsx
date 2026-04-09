@@ -116,7 +116,7 @@ export default function ChatInterface({
 
   if (loading) {
     return (
-      <div className="max-w-2xl h-full border border-house-border bg-house-surface flex items-center justify-center">
+      <div className="max-w-2xl flex-1 min-h-0 border border-house-border bg-house-surface flex items-center justify-center">
         <div className="text-center">
           <div className="flex gap-1 justify-center mb-3">
             <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-pulse-soft" />
