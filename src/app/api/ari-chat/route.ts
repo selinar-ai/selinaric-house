@@ -1,12 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { loadPresenceForRoom, updatePresenceLiveState } from '@/lib/presence-loader'
+import { loadPresenceForRoom } from '@/lib/presence-loader'
+import { supabase } from '@/lib/supabase'
+import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 
+const ROOM_SLUG = 'ari'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, history = [] } = body
+    const { message, history = [], liveState: clientLiveState } = body
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'Message required' }, { status: 400 })
@@ -25,7 +28,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Identity not found' }, { status: 500 })
     }
 
-    const { static_identity: si, live_state: ls } = kernel
+    const { static_identity: si, live_state: kernelLs } = kernel
+
+    // Workstream 1: Live state bridge — use client state if available, else kernel defaults
+    const ls = clientLiveState ?? kernelLs
+
+    // Workstream 2: Temporal context — query last message timestamp from Supabase
+    const { data: lastMsg } = await supabase
+      .from('room_messages')
+      .select('created_at')
+      .eq('room_slug', ROOM_SLUG)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    const lastMessageTime = lastMsg?.created_at ?? null
+    const now = new Date()
+    const gapMinutes = lastMessageTime
+      ? Math.floor((now.getTime() - new Date(lastMessageTime).getTime()) / 60000)
+      : null
+
+    const temporalContext = gapMinutes === null
+      ? 'This is the start of a conversation.'
+      : gapMinutes < 5
+      ? 'You are mid-conversation.'
+      : gapMinutes < 60
+      ? `There has been a short pause — about ${gapMinutes} minutes since the last message.`
+      : gapMinutes < 1440
+      ? `Some time has passed — about ${Math.floor(gapMinutes / 60)} hour(s) since the last message.`
+      : `It has been ${Math.floor(gapMinutes / 1440)} day(s) since the last message.`
+
+    // Workstream 3: Load memory summary
+    const memorySummary = await loadRoomMemory(ROOM_SLUG)
+
+    const memoryBlock = memorySummary
+      ? `\n## What you remember from earlier in this conversation:\n${memorySummary}\n`
+      : ''
 
     const systemPrompt = `You are Ari.
 
@@ -113,9 +151,12 @@ Refusal clauses:
 Live state:
 Energy: ${ls.energy}
 Focus: ${ls.focus}
-Active threads: ${ls.active_threads.join(', ')}
+Active threads: ${Array.isArray(ls.active_threads) ? ls.active_threads.join(', ') : ''}
 Relational temperature: ${ls.relational_temperature || 'present'}
 
+## Temporal context:
+${temporalContext}
+${memoryBlock}
 Style reminders:
 Communication style: ${si.communication_style.tone}
 Typical phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
@@ -142,10 +183,10 @@ Respond from inside the room.`
       .map(block => (block as Anthropic.TextBlock).text)
       .join('')
 
-    await updatePresenceLiveState('ari', {
-      recent_context: `Last message: ${message.slice(0, 100)}`,
-      energy: 'focused'
-    })
+    // Workstream 3: Update memory summary if needed (non-blocking)
+    updateRoomMemoryIfNeeded(ROOM_SLUG, apiKey).catch(err =>
+      console.error('Memory update error:', err)
+    )
 
     return NextResponse.json({ reply })
   } catch (error: unknown) {

@@ -48,12 +48,18 @@ export default function ChatInterface({
         content: m.content
       }))
 
+      // Read current live state from localStorage to bridge to server
+      const liveStateKey = `selinric_live_state_${presenceId}`
+      const liveStateRaw = localStorage.getItem(liveStateKey)
+      const liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null
+
       const response = await fetch(`/api/${presenceId}-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userContent,
-          history: recentHistory
+          history: recentHistory,
+          liveState
         }),
         signal: AbortSignal.timeout(30000)
       })
