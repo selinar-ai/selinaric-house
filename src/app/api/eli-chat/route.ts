@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       : `It has been ${Math.floor(gapMinutes / 1440)} day(s) since the last message.`
 
     const currentDatetime = new Date().toLocaleString('en-AU', {
-      timeZone: 'Australia/Sydney',
+      timeZone: 'Australia/Melbourne',
       weekday: 'long',
       year: 'numeric',
       month: 'long',
