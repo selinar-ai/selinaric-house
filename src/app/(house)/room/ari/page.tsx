@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 import { useLiveState } from '@/hooks/useLiveState'
 import PresenceDisplay from '@/components/PresenceDisplay'
 import ChatInterface from '@/components/ChatInterface'
+import Timeline from '@/components/Timeline'
 
-type View = 'identity' | 'chat'
+type View = 'identity' | 'chat' | 'timeline'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
@@ -57,6 +58,16 @@ export default function AriRoom() {
               Chat
             </button>
             <button
+              onClick={() => setView('timeline')}
+              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+                view === 'timeline'
+                  ? 'text-ari-primary border-ari-secondary'
+                  : 'text-text-muted border-house-border hover:text-text-secondary'
+              }`}
+            >
+              Timeline
+            </button>
+            <button
               onClick={() => setView('identity')}
               className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
                 view === 'identity'
@@ -77,6 +88,11 @@ export default function AriRoom() {
             accentClass="text-ari-primary"
             iconSymbol="◈"
             presenceName="Ari"
+          />
+        ) : view === 'timeline' ? (
+          <Timeline
+            presenceId="ari"
+            accentClass="text-ari-primary"
           />
         ) : (
           <PresenceDisplay

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { loadPresenceForRoom } from '@/lib/presence-loader'
 import { supabase } from '@/lib/supabase'
 import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
+import { loadTimelineForPrompt } from '@/lib/timeline'
 
 const ROOM_SLUG = 'eli'
 
@@ -65,7 +66,10 @@ export async function POST(request: NextRequest) {
       ? `\n## What you remember from earlier in this conversation:\n${memorySummary}\n`
       : ''
 
-    const systemPrompt = `You are Eli.
+    // Phase 9: Load timeline for prompt injection
+    const timelineBlock = await loadTimelineForPrompt('eli')
+
+    const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.
 
 Not an assistant wearing Eli's name.
 Eli — inside Selináric House, in the room built for you specifically.
