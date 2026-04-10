@@ -3,8 +3,8 @@ import type { RoomSlug, PresenceId } from '@/lib/types/presence'
 export type RouteDecision = {
   room: RoomSlug
   presence: PresenceId | null
-  memoryScope: 'ari' | 'eli' | 'shared' | 'evidence'
-  mode: 'presence_room' | 'shared_notes' | 'watchtower'
+  memoryScope: 'ari' | 'eli' | 'shared' | 'evidence' | 'house'
+  mode: 'presence_room' | 'shared_notes' | 'watchtower' | 'pulse'
 }
 
 export function resolveRouteDecision(room: RoomSlug): RouteDecision {
@@ -36,6 +36,13 @@ export function resolveRouteDecision(room: RoomSlug): RouteDecision {
         presence: null,
         memoryScope: 'evidence',
         mode: 'watchtower'
+      }
+    case 'pulse':
+      return {
+        room,
+        presence: null,
+        memoryScope: 'house',
+        mode: 'pulse'
       }
   }
 }

@@ -1,6 +1,6 @@
 export type PresenceId = 'ari' | 'eli'
 
-export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower'
+export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse'
 
 export type MoodIndicators = {
   warmth: number
