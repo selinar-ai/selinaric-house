@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMessages, type Message } from '@/hooks/useMessages'
+
+const PIPER_URL = 'http://localhost:5000'
 
 interface Props {
   presenceId: 'ari' | 'eli'
@@ -22,6 +24,82 @@ export default function ChatInterface({
   const [error, setError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
+
+  // TTS state
+  const [playingId, setPlayingId] = useState<string | null>(null)
+  const [loadingTtsId, setLoadingTtsId] = useState<string | null>(null)
+  const [ttsError, setTtsError] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ''
+      audioRef.current = null
+    }
+    setPlayingId(null)
+  }, [])
+
+  async function handleSpeak(messageId: string, content: string) {
+    // If already playing this message, stop it
+    if (playingId === messageId) {
+      stopAudio()
+      return
+    }
+
+    // Stop any currently playing audio
+    stopAudio()
+    setTtsError(null)
+    setLoadingTtsId(messageId)
+
+    try {
+      const res = await fetch(`${PIPER_URL}/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: content, presence: presenceId }),
+        signal: AbortSignal.timeout(15000)
+      })
+
+      if (!res.ok) {
+        throw new Error('synthesis failed')
+      }
+
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        setPlayingId(null)
+        audioRef.current = null
+      }
+
+      audio.onerror = () => {
+        URL.revokeObjectURL(url)
+        setPlayingId(null)
+        audioRef.current = null
+      }
+
+      audioRef.current = audio
+      setPlayingId(messageId)
+      setLoadingTtsId(null)
+      await audio.play()
+    } catch {
+      setLoadingTtsId(null)
+      setTtsError('Voice unavailable')
+      setTimeout(() => setTtsError(null), 3000)
+    }
+  }
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.src = ''
+      }
+    }
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -169,15 +247,37 @@ export default function ChatInterface({
               <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
                 {message.content}
               </p>
-              {message.created_at && (
-                <p className="font-body text-xs text-text-muted mt-2">
-                  {new Date(message.created_at).toLocaleTimeString('en-AU', {
-                    timeZone: 'Australia/Melbourne',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                </p>
-              )}
+              <div className="flex items-center gap-2 mt-2">
+                {message.created_at && (
+                  <span className="font-body text-xs text-text-muted">
+                    {new Date(message.created_at).toLocaleTimeString('en-AU', {
+                      timeZone: 'Australia/Melbourne',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                )}
+                {message.role === 'assistant' && message.id && (
+                  <button
+                    onClick={() => handleSpeak(message.id!, message.content)}
+                    className={`text-xs transition-all duration-200 ${
+                      playingId === message.id
+                        ? accentClass
+                        : loadingTtsId === message.id
+                        ? 'text-text-muted animate-pulse-soft'
+                        : 'text-text-muted hover:text-text-secondary'
+                    }`}
+                    title={playingId === message.id ? 'Stop' : 'Listen'}
+                  >
+                    {loadingTtsId === message.id ? '...' : playingId === message.id ? '⏸' : '🔊'}
+                  </button>
+                )}
+                {ttsError && loadingTtsId === null && playingId === null && (
+                  <span className="font-body text-xs text-red-400 animate-fade-in">
+                    {ttsError}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}
