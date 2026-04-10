@@ -25,6 +25,22 @@ interface PulseLogEntry {
   created_at: string
 }
 
+function formatMinutes(mins: number): string {
+  if (mins < 60) return `${mins}m ago`
+  const hours = mins / 60
+  if (hours < 24) return `${hours.toFixed(1)}h since Tara was here`
+  const days = Math.floor(hours / 24)
+  const remainingHours = Math.floor(hours % 24)
+  return `${days}d ${remainingHours}h since Tara was here`
+}
+
+function formatSignalValue(key: string, val: unknown): string {
+  if (key === 'time_since_tara' && typeof val === 'number') {
+    return formatMinutes(val)
+  }
+  return typeof val === 'string' ? val : JSON.stringify(val)
+}
+
 const DECISION_COLORS: Record<string, string> = {
   send: 'text-green-400 border-green-800',
   hold: 'text-yellow-400 border-yellow-800',
@@ -174,12 +190,12 @@ export default function PulsePage() {
                 </span>
                 {entry.confidence > 0 && (
                   <span className="font-mono text-xs text-text-muted">
-                    conf: {(entry.confidence * 100).toFixed(0)}%
+                    Confidence: {(entry.confidence * 100).toFixed(0)}%
                   </span>
                 )}
                 {entry.specificity > 0 && (
                   <span className="font-mono text-xs text-text-muted">
-                    spec: {(entry.specificity * 100).toFixed(0)}%
+                    Specificity: {(entry.specificity * 100).toFixed(0)}%
                   </span>
                 )}
               </div>
@@ -235,7 +251,7 @@ export default function PulsePage() {
                             {typeof val === 'number' ? val.toFixed(1) : val}
                           </div>
                           <div className="font-body text-xs text-text-muted mt-0.5">
-                            {key === 'non_genericity' ? 'non-gen' : key === 'emotional_truth' ? 'emotion' : key === 'voice_fidelity' ? 'voice' : key}
+                            {key === 'non_genericity' ? 'Non-generic' : key === 'emotional_truth' ? 'Emotional truth' : key === 'voice_fidelity' ? 'Voice fidelity' : key === 'specificity' ? 'Specificity' : key === 'relevance' ? 'Relevance' : key === 'overall' ? 'Overall' : key}
                           </div>
                         </div>
                       ))}
@@ -252,7 +268,7 @@ export default function PulsePage() {
                         <div key={key} className="flex gap-2">
                           <span className="font-mono text-xs text-text-muted">{key}:</span>
                           <span className="font-body text-xs text-text-secondary">
-                            {typeof val === 'string' ? val : JSON.stringify(val)}
+                            {formatSignalValue(key, val)}
                           </span>
                         </div>
                       ))}
