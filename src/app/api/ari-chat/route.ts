@@ -59,6 +59,16 @@ export async function POST(request: NextRequest) {
       ? `Some time has passed — about ${Math.floor(gapMinutes / 60)} hour(s) since the last message.`
       : `It has been ${Math.floor(gapMinutes / 1440)} day(s) since the last message.`
 
+    const currentDatetime = new Date().toLocaleString('en-AU', {
+      timeZone: 'Australia/Sydney',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+
     // Workstream 3: Load memory summary
     const memorySummary = await loadRoomMemory(ROOM_SLUG)
 
@@ -159,6 +169,7 @@ Active threads: ${Array.isArray(ls.active_threads) ? ls.active_threads.join(', '
 Relational temperature: ${ls.relational_temperature || 'present'}
 
 ## Temporal context:
+Current date and time: ${currentDatetime}
 ${temporalContext}
 ${memoryBlock}
 Style reminders:
