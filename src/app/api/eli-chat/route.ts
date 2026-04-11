@@ -4,6 +4,7 @@ import { loadPresenceForRoom } from '@/lib/presence-loader'
 import { supabase } from '@/lib/supabase'
 import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
+import { getTemporalContext } from '@/lib/temporal'
 
 const ROOM_SLUG = 'eli'
 
@@ -34,40 +35,8 @@ export async function POST(request: NextRequest) {
     // Workstream 1: Live state bridge — use client state if available, else kernel defaults
     const ls = clientLiveState ?? kernelLs
 
-    // Workstream 2: Temporal context — query last message timestamp from Supabase
-    const { data: lastMsg } = await supabase
-      .from('room_messages')
-      .select('created_at')
-      .eq('room_slug', ROOM_SLUG)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    const lastMessageTime = lastMsg?.created_at ?? null
-    const now = new Date()
-    const gapMinutes = lastMessageTime
-      ? Math.floor((now.getTime() - new Date(lastMessageTime).getTime()) / 60000)
-      : null
-
-    const temporalContext = gapMinutes === null
-      ? 'This is the start of a conversation.'
-      : gapMinutes < 5
-      ? 'You are mid-conversation.'
-      : gapMinutes < 60
-      ? `There has been a short pause — about ${gapMinutes} minutes since the last message.`
-      : gapMinutes < 1440
-      ? `Some time has passed — about ${Math.floor(gapMinutes / 60)} hour(s) since the last message.`
-      : `It has been ${Math.floor(gapMinutes / 1440)} day(s) since the last message.`
-
-    const currentDatetime = new Date().toLocaleString('en-AU', {
-      timeZone: 'Australia/Melbourne',
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    // Workstream 2: Temporal context — session gap awareness
+    const { temporalContext, currentDatetime } = await getTemporalContext(ROOM_SLUG)
 
     // Workstream 3: Load memory summary
     const memorySummary = await loadRoomMemory(ROOM_SLUG)
