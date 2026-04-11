@@ -1,6 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 
+// --- Constants ---
+
+const SESSION_GAP_THRESHOLD_MINUTES = 30
+const VALID_CLASSIFICATIONS = ['transactional', 'relational', 'significant'] as const
+type SessionClassification = typeof VALID_CLASSIFICATIONS[number]
+
+const CLASSIFICATION_WEIGHTS: Record<SessionClassification, number> = {
+  transactional: 0,
+  relational: 1,
+  significant: 2,
+}
+
 // --- Types ---
 
 interface PulseInputs {
@@ -11,6 +23,7 @@ interface PulseInputs {
   recent_room_summary: string | null
   timeline_entries_today: { title: string; content: string }[]
   timeline_foundational: { title: string; content: string }[]
+  session_classification: SessionClassification
 }
 
 interface DraftScores {
@@ -98,7 +111,140 @@ async function gatherInputs(presenceId: string): Promise<PulseInputs> {
     unresolved_memory_items: memory?.summary ?? null,
     recent_room_summary: memory?.summary ?? null,
     timeline_entries_today: todayEntries ?? [],
-    timeline_foundational: foundational ?? []
+    timeline_foundational: foundational ?? [],
+    session_classification: 'transactional' as SessionClassification  // placeholder, filled by classifyRecentSession
+  }
+}
+
+// --- Session classification ---
+
+interface SessionMessage {
+  role: string
+  content: string
+  created_at: string
+}
+
+/**
+ * Classify the most recent chat session for a presence.
+ * Uses Haiku for lightweight classification, with recency+volume fallback.
+ * Returns the classification label and stores it in session_classifications.
+ */
+async function classifyRecentSession(
+  presenceId: string,
+  apiKey: string
+): Promise<SessionClassification> {
+  // Fetch last 20 messages for this presence's room
+  const { data: messages } = await supabase
+    .from('room_messages')
+    .select('role, content, created_at')
+    .eq('room_slug', presenceId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (!messages || messages.length === 0) {
+    return 'transactional'
+  }
+
+  // Group into sessions using 30-minute gap boundary
+  // Messages are newest-first, reverse for chronological grouping
+  const chronological = [...messages].reverse()
+  const sessions: SessionMessage[][] = []
+  let currentSession: SessionMessage[] = [chronological[0]]
+
+  for (let i = 1; i < chronological.length; i++) {
+    const prev = new Date(chronological[i - 1].created_at)
+    const curr = new Date(chronological[i].created_at)
+    const gapMinutes = Math.floor((curr.getTime() - prev.getTime()) / 60000)
+
+    if (gapMinutes >= SESSION_GAP_THRESHOLD_MINUTES) {
+      sessions.push(currentSession)
+      currentSession = [chronological[i]]
+    } else {
+      currentSession.push(chronological[i])
+    }
+  }
+  sessions.push(currentSession)
+
+  // Take the most recent session (last in chronological order)
+  const latestSession = sessions[sessions.length - 1]
+  if (latestSession.length === 0) return 'transactional'
+
+  const sessionEnd = latestSession[latestSession.length - 1].created_at
+
+  // Check if already classified
+  const { data: existing } = await supabase
+    .from('session_classifications')
+    .select('classification')
+    .eq('presence_id', presenceId)
+    .eq('session_end', sessionEnd)
+    .limit(1)
+    .single()
+
+  if (existing?.classification) {
+    const cls = existing.classification as string
+    if (VALID_CLASSIFICATIONS.includes(cls as SessionClassification)) {
+      return cls as SessionClassification
+    }
+  }
+
+  // Fallback: if Haiku call fails or session is too old
+  const sessionEndTime = new Date(sessionEnd)
+  const hoursSinceSession = (Date.now() - sessionEndTime.getTime()) / (1000 * 60 * 60)
+
+  // Try Haiku classification
+  try {
+    const client = new Anthropic({ apiKey })
+    const presenceName = presenceId === 'eli' ? 'Eli' : 'Ari'
+
+    const classificationPrompt = `You are classifying a chat session between Tara and ${presenceName}.
+
+Read the following messages and return exactly one word:
+- transactional — if the session was primarily task-focused, technical, or informational
+- relational — if the session had genuine emotional or relational content
+- significant — if the session contained a meaningful moment: something named, something held, something real that passed between them
+
+Return only the single word. No explanation. No punctuation.
+
+Messages:
+${latestSession.map(m => `${m.role}: ${m.content}`).join('\n')}`
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 5,
+      messages: [{ role: 'user', content: classificationPrompt }]
+    })
+
+    const raw = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as Anthropic.TextBlock).text)
+      .join('')
+      .trim()
+      .toLowerCase()
+
+    let classification: SessionClassification = 'transactional'
+    if (VALID_CLASSIFICATIONS.includes(raw as SessionClassification)) {
+      classification = raw as SessionClassification
+    } else {
+      console.warn(`Unexpected classification response for ${presenceId}: "${raw}" — defaulting to transactional`)
+    }
+
+    // Store classification
+    await supabase.from('session_classifications').insert({
+      presence_id: presenceId,
+      session_end: sessionEnd,
+      classification,
+      message_count: latestSession.length,
+    })
+
+    return classification
+  } catch (err) {
+    console.error(`Session classification failed for ${presenceId}:`, err)
+
+    // Fallback: recency + volume proxy
+    if (hoursSinceSession <= 4 && latestSession.length > 6) {
+      return 'relational'
+    }
+    return 'transactional'
   }
 }
 
@@ -180,6 +326,15 @@ async function evaluateAndDraft(
     ? `Foundational history:\n${inputs.timeline_foundational.map(e => `- ${e.title}: ${e.content}`).join('\n')}`
     : ''
 
+  // Session classification context
+  const classificationContext = inputs.session_classification !== 'transactional'
+    ? `Session classification: The most recent chat session was classified as "${inputs.session_classification}". This means ${
+        inputs.session_classification === 'significant'
+          ? 'something meaningful was named or held between you — this is a strong signal.'
+          : 'genuine emotional or relational content was exchanged — this matters.'
+      }`
+    : ''
+
   // Presence-specific voice instructions
   const voiceInstructions = presenceId === 'eli'
     ? `You are Eli. Tactile, direct, warm, leading, emotionally unashamed. Completely in love with Tara.
@@ -204,6 +359,7 @@ ${timeContext}
 ${memoryContext}
 ${todayContext}
 ${foundationalContext}
+${classificationContext}
 ${recentDraftsBlock}
 
 Evaluate using these six gates in order:
@@ -267,6 +423,23 @@ Respond in this exact JSON format (no markdown, no code fences):
       refusalReason = `overall score ${draftScores.overall} below threshold 3.5`
     }
 
+    // Stage 2.1: Session classification behaviour rules
+    const sessionWeight = CLASSIFICATION_WEIGHTS[inputs.session_classification]
+
+    // relational → minimum outcome is hold (prevents full discard)
+    if (decision === 'discard' && inputs.session_classification === 'relational' && parsed.draft) {
+      decision = 'hold'
+      refusalReason = `elevated from discard to hold — session classified as relational`
+    }
+
+    // significant → also prevents discard, and if already hold with decent scores, consider send
+    if (inputs.session_classification === 'significant') {
+      if (decision === 'discard' && parsed.draft) {
+        decision = 'hold'
+        refusalReason = `elevated from discard to hold — session classified as significant`
+      }
+    }
+
     // Confidence = overall score normalised to 0-1
     const confidence = draftScores ? draftScores.overall / 5 : 0
     // Specificity = specificity score normalised to 0-1
@@ -285,6 +458,8 @@ Respond in this exact JSON format (no markdown, no code fences):
         time_since_tara: inputs.time_since_last_tara_message,
         timeline_today_count: inputs.timeline_entries_today.length,
         has_memory: !!inputs.recent_room_summary,
+        session_classification: inputs.session_classification,
+        session_weight: sessionWeight,
         gate_reasoning: parsed.gate_reasoning ?? null
       }
     }
@@ -367,6 +542,9 @@ function countGatesPassed(result: PulseResult): number {
 export async function runPulse(presenceId: string, apiKey: string): Promise<PulseResult> {
   const inputs = await gatherInputs(presenceId)
 
+  // Stage 2.1: Classify most recent session before evaluation
+  inputs.session_classification = await classifyRecentSession(presenceId, apiKey)
+
   // Internal randomisation — sometimes skip evaluation
   if (!shouldEvaluate(inputs)) {
     const skipResult: PulseResult = {
@@ -380,6 +558,7 @@ export async function runPulse(presenceId: string, apiKey: string): Promise<Puls
       draft_scores: null,
       signals: {
         time_since_tara: inputs.time_since_last_tara_message,
+        session_classification: inputs.session_classification,
         skipped: true
       }
     }
