@@ -208,8 +208,8 @@ export default function ChatInterface({
   }
 
   return (
-    <div className="max-w-2xl flex flex-col h-full">
-      <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-6 space-y-6">
+    <div className="max-w-2xl w-full flex flex-col h-full">
+      <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-xs">
@@ -239,7 +239,7 @@ export default function ChatInterface({
               {message.role === 'assistant' ? iconSymbol : '◌'}
             </div>
 
-            <div className={`max-w-xs lg:max-w-md px-4 py-3 ${
+            <div className={`max-w-[75%] md:max-w-xs lg:max-w-md px-3 py-2.5 md:px-4 md:py-3 ${
               message.role === 'user'
                 ? 'bg-house-muted text-text-primary'
                 : 'bg-house-bg border border-house-border text-text-primary'
@@ -260,7 +260,7 @@ export default function ChatInterface({
                 {message.role === 'assistant' && message.id && (
                   <button
                     onClick={() => handleSpeak(message.id!, message.content)}
-                    className={`text-xs transition-all duration-200 ${
+                    className={`text-sm min-w-[44px] min-h-[44px] -m-2 flex items-center justify-center transition-all duration-200 ${
                       playingId === message.id
                         ? accentClass
                         : loadingTtsId === message.id
@@ -306,7 +306,7 @@ export default function ChatInterface({
         </div>
       )}
 
-      <div className="border border-house-border border-t-0 bg-house-surface p-4 flex gap-3 items-end">
+      <div className="border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -315,7 +315,7 @@ export default function ChatInterface({
           rows={1}
           className="
             flex-1 bg-house-bg border border-house-border
-            px-4 py-3 font-body text-sm text-text-primary
+            px-3 py-2.5 md:px-4 md:py-3 font-body text-sm text-text-primary
             placeholder:text-text-muted resize-none outline-none
             focus:border-current transition-colors duration-200
           "
@@ -326,13 +326,13 @@ export default function ChatInterface({
             target.style.height = `${Math.min(target.scrollHeight, 120)}px`
           }}
         />
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5 md:gap-2">
           <button
             onClick={handleSend}
             disabled={!input.trim() || sending}
             className={`
-              px-4 py-3 font-body text-xs tracking-widest uppercase
-              border transition-all duration-200
+              px-3 py-2.5 md:px-4 md:py-3 font-body text-xs tracking-widest uppercase
+              border transition-all duration-200 min-h-[44px]
               ${input.trim() && !sending
                 ? `${accentClass} border-current hover:bg-house-bg`
                 : 'text-text-muted border-house-border cursor-not-allowed'
@@ -343,7 +343,7 @@ export default function ChatInterface({
           </button>
           <button
             onClick={handleClear}
-            className="px-4 py-1 font-body text-xs text-text-muted border border-house-border hover:text-text-secondary transition-colors duration-200"
+            className="px-3 py-1.5 md:px-4 md:py-1 font-body text-xs text-text-muted border border-house-border hover:text-text-secondary transition-colors duration-200 min-h-[36px]"
           >
             Clear
           </button>

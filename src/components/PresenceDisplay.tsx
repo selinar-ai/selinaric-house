@@ -12,7 +12,7 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
   return (
     <div className="max-w-2xl animate-fade-in">
       {/* Identity header */}
-      <div className="border border-house-border bg-house-surface p-8 mb-4">
+      <div className="border border-house-border bg-house-surface p-4 md:p-8 mb-4">
         <div className="flex items-center gap-3 mb-6">
           <span className={`text-3xl ${accentClass}`}>{iconSymbol}</span>
           <div>
@@ -52,12 +52,12 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
       </div>
 
       {/* Live state */}
-      <div className="border border-house-border bg-house-surface p-8">
+      <div className="border border-house-border bg-house-surface p-4 md:p-8">
         <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-6">
           Live state
         </p>
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           <div>
             <p className="font-body text-xs text-text-muted mb-1">Energy</p>
             <p className={`font-body text-sm font-medium ${accentClass}`}>

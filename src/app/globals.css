@@ -82,6 +82,10 @@ body {
   color: #F3EAF6;
 }
 
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 * {
   transition-property: background-color, border-color, color, opacity;
   transition-duration: 150ms;

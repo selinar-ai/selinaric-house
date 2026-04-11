@@ -147,21 +147,21 @@ export default function Timeline({ presenceId, accentClass }: Props) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header controls */}
-      <div className="shrink-0 flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <div className="shrink-0 flex items-center justify-between mb-4 md:mb-6 gap-2">
+        <div className="flex items-center gap-2 md:gap-3">
           <button
             onClick={() => setOrder(order === 'asc' ? 'desc' : 'asc')}
-            className="font-body text-xs text-text-muted border border-house-border px-3 py-1.5 hover:text-text-secondary transition-colors duration-200"
+            className="font-body text-xs text-text-muted border border-house-border px-3 py-2 min-h-[44px] hover:text-text-secondary transition-colors duration-200"
           >
             {order === 'asc' ? 'Oldest first' : 'Newest first'}
           </button>
-          <span className="font-body text-xs text-text-muted">
+          <span className="font-body text-xs text-text-muted hidden sm:inline">
             {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
           </span>
         </div>
         <button
           onClick={() => { resetForm(); setShowForm(!showForm) }}
-          className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+          className={`font-body text-xs tracking-widest uppercase px-3 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
             showForm
               ? 'text-text-muted border-house-border'
               : `${accentClass} border-current hover:bg-house-bg`
@@ -173,7 +173,7 @@ export default function Timeline({ presenceId, accentClass }: Props) {
 
       {/* Add/Edit form */}
       {showForm && (
-        <div className="shrink-0 border border-house-border bg-house-surface p-5 mb-6 animate-fade-in">
+        <div className="shrink-0 border border-house-border bg-house-surface p-3 md:p-5 mb-4 md:mb-6 animate-fade-in">
           <h3 className="font-display text-lg text-text-primary mb-4">
             {editingId ? 'Edit Entry' : 'New Timeline Entry'}
           </h3>
@@ -183,7 +183,7 @@ export default function Timeline({ presenceId, accentClass }: Props) {
             </div>
           )}
           <div className="space-y-4">
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <div className="flex-1">
                 <label className="font-body text-xs text-text-muted block mb-1">Date</label>
                 <input
@@ -247,7 +247,7 @@ export default function Timeline({ presenceId, accentClass }: Props) {
             <button
               onClick={handleSave}
               disabled={saving}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-xs tracking-widest uppercase px-4 py-2.5 border transition-all duration-200 min-h-[44px] ${
                 saving
                   ? 'text-text-muted border-house-border cursor-not-allowed'
                   : `${accentClass} border-current hover:bg-house-bg`
@@ -270,14 +270,14 @@ export default function Timeline({ presenceId, accentClass }: Props) {
         {entries.map(entry => (
           <div
             key={entry.id}
-            className={`border bg-house-surface p-5 animate-fade-in ${
+            className={`border bg-house-surface p-3 md:p-5 animate-fade-in ${
               entry.significance === 'foundational'
                 ? 'border-house-muted'
                 : 'border-house-border'
             }`}
           >
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex items-center gap-3">
+            <div className="flex items-start justify-between mb-2 gap-2">
+              <div className="flex items-center gap-2 md:gap-3 flex-wrap">
                 <span className="font-mono text-xs text-text-muted">{entry.entry_date}</span>
                 <span className={`font-body text-xs px-2 py-0.5 border ${
                   entry.significance === 'foundational'
@@ -294,7 +294,7 @@ export default function Timeline({ presenceId, accentClass }: Props) {
               </div>
               <button
                 onClick={() => startEdit(entry)}
-                className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors"
+                className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center -m-2 shrink-0"
               >
                 Edit
               </button>

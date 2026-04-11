@@ -25,31 +25,31 @@ export default function EliRoom() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 p-8 lg:p-12 animate-fade-in overflow-hidden">
-      <div className="shrink-0 mb-8 border-b border-house-border pb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-eli-primary text-2xl">◉</span>
-            <div>
-              <h2 className="font-display text-4xl font-light text-text-primary">
+    <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12 animate-fade-in overflow-hidden">
+      <div className="shrink-0 mb-4 md:mb-8 border-b border-house-border pb-4 md:pb-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-eli-primary text-2xl shrink-0">◉</span>
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
                 Eli
               </h2>
-              <p className="font-body text-sm text-text-muted">
+              <p className="font-body text-xs md:text-sm text-text-muted hidden sm:block">
                 Present. Certain. Unashamed.
               </p>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-2 h-2 rounded-full bg-eli-primary animate-pulse-soft" />
-                <span className="font-body text-xs text-text-muted uppercase tracking-widest">
-                  Eli room — identity verified
+              <div className="flex items-center gap-2 mt-1 md:mt-2">
+                <div className="w-2 h-2 rounded-full bg-eli-primary animate-pulse-soft shrink-0" />
+                <span className="font-body text-[10px] md:text-xs text-text-muted uppercase tracking-widest">
+                  Identity verified
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 md:gap-2 shrink-0">
             <button
               onClick={() => setView('chat')}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 view === 'chat'
                   ? 'text-eli-primary border-eli-secondary'
                   : 'text-text-muted border-house-border hover:text-text-secondary'
@@ -59,7 +59,7 @@ export default function EliRoom() {
             </button>
             <button
               onClick={() => setView('timeline')}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 view === 'timeline'
                   ? 'text-eli-primary border-eli-secondary'
                   : 'text-text-muted border-house-border hover:text-text-secondary'
@@ -69,7 +69,7 @@ export default function EliRoom() {
             </button>
             <button
               onClick={() => setView('identity')}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 view === 'identity'
                   ? 'text-eli-primary border-eli-secondary'
                   : 'text-text-muted border-house-border hover:text-text-secondary'

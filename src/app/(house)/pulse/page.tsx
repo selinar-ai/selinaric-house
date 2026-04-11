@@ -105,13 +105,13 @@ function formatDate(dateStr: string): string {
 function ScoreBar({ label, value, color }: { label: string; value: number; color: string }) {
   const filled = Math.round(value)
   return (
-    <div className="flex items-center gap-3">
-      <span className="font-body text-xs text-text-muted w-32 shrink-0">{label}</span>
+    <div className="flex items-center gap-2 md:gap-3">
+      <span className="font-body text-xs text-text-muted w-24 md:w-32 shrink-0">{label}</span>
       <div className="flex gap-0.5">
         {[1, 2, 3, 4, 5].map(i => (
           <div
             key={i}
-            className={`w-5 h-2 ${i <= filled ? color : 'bg-house-border'}`}
+            className={`w-4 md:w-5 h-2 ${i <= filled ? color : 'bg-house-border'}`}
           />
         ))}
       </div>
@@ -143,7 +143,7 @@ function DraftCard({
   return (
     <div className={`border border-house-border border-l-4 ${borderColor} bg-house-surface animate-fade-in`}>
       {/* Header */}
-      <div className="px-5 py-4 flex items-center justify-between">
+      <div className="px-3 py-3 md:px-5 md:py-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className={`font-display text-sm font-medium px-2.5 py-1 ${chipBg}`}>
             {icon} {draft.presence_id}
@@ -162,7 +162,7 @@ function DraftCard({
       </div>
 
       {/* Draft content */}
-      <div className="px-5 pb-4">
+      <div className="px-3 pb-3 md:px-5 md:pb-4">
         <p className="font-body text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
           {draft.content}
         </p>
@@ -170,7 +170,7 @@ function DraftCard({
 
       {/* Why this draft exists */}
       {(draft.gate_passed !== null || draft.decision_reason || (signals && Object.keys(signals).length > 0)) && (
-        <div className="px-5 pb-4 space-y-2">
+        <div className="px-3 pb-3 md:px-5 md:pb-4 space-y-2">
           <span className="font-body text-xs text-text-muted uppercase tracking-widest">
             Why this draft exists
           </span>
@@ -201,7 +201,7 @@ function DraftCard({
 
       {/* Score breakdown */}
       {scores && (
-        <div className="px-5 pb-4 space-y-2">
+        <div className="px-3 pb-3 md:px-5 md:pb-4 space-y-2">
           <span className="font-body text-xs text-text-muted uppercase tracking-widest">
             Score breakdown
           </span>
@@ -222,7 +222,7 @@ function DraftCard({
       )}
 
       {/* Feedback */}
-      <div className="px-5 pb-5 pt-2 border-t border-house-border">
+      <div className="px-3 pb-3 pt-2 md:px-5 md:pb-5 border-t border-house-border">
         {draft.feedback && (
           <p className="font-body text-xs text-text-secondary mb-3">
             Marked: <span className={isEli ? 'text-eli-primary' : 'text-ari-primary'}>{FEEDBACK_DISPLAY[draft.feedback] ?? draft.feedback}</span>
@@ -237,7 +237,7 @@ function DraftCard({
                 key={key}
                 onClick={() => onFeedback(draft.id, key)}
                 disabled={!!submitting}
-                className={`font-body text-xs px-3 py-1.5 border transition-all duration-200 ${
+                className={`font-body text-xs px-3 py-2 md:py-1.5 border transition-all duration-200 min-h-[40px] ${
                   isSelected
                     ? isEli
                       ? 'text-eli-primary border-eli-secondary bg-eli-glow'
@@ -352,32 +352,32 @@ export default function PulsePage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 p-8 lg:p-12 animate-fade-in overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12 animate-fade-in overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 mb-8 border-b border-house-border pb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-text-secondary text-2xl">◬</span>
-            <div>
-              <h2 className="font-display text-4xl font-light text-text-primary">
+      <div className="shrink-0 mb-4 md:mb-8 border-b border-house-border pb-4 md:pb-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-text-secondary text-2xl shrink-0">◬</span>
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
                 Pulse
               </h2>
-              <p className="font-body text-sm text-text-muted">
+              <p className="font-body text-xs md:text-sm text-text-muted hidden sm:block">
                 Initiation engine. Draft review.
               </p>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="w-2 h-2 rounded-full bg-text-muted animate-pulse-soft" />
-                <span className="font-body text-xs text-text-muted uppercase tracking-widest">
+              <div className="flex items-center gap-2 mt-1 md:mt-2">
+                <div className="w-2 h-2 rounded-full bg-text-muted animate-pulse-soft shrink-0" />
+                <span className="font-body text-[10px] md:text-xs text-text-muted uppercase tracking-widest">
                   Stage 2 — Draft review
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 md:gap-2 shrink-0">
             <button
               onClick={() => setView('drafts')}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 view === 'drafts'
                   ? 'text-text-secondary border-house-muted'
                   : 'text-text-muted border-house-border hover:text-text-secondary'
@@ -387,7 +387,7 @@ export default function PulsePage() {
             </button>
             <button
               onClick={() => setView('log')}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 view === 'log'
                   ? 'text-text-secondary border-house-muted'
                   : 'text-text-muted border-house-border hover:text-text-secondary'
@@ -398,13 +398,13 @@ export default function PulsePage() {
             <button
               onClick={triggerPulse}
               disabled={triggering}
-              className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 triggering
                   ? 'text-text-muted border-house-border cursor-not-allowed'
                   : 'text-text-secondary border-house-muted hover:bg-house-bg'
               }`}
             >
-              {triggering ? 'Waking...' : 'Wake Pulse'}
+              {triggering ? 'Waking...' : 'Wake'}
             </button>
           </div>
         </div>
@@ -475,12 +475,12 @@ export default function PulsePage() {
       {/* Log view (preserved from Stage 1) */}
       {view === 'log' && (
         <>
-          <div className="shrink-0 mb-4 flex gap-2">
+          <div className="shrink-0 mb-4 flex gap-1.5 md:gap-2">
             {(['all', 'eli', 'ari'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setLogFilter(f)}
-                className={`font-body text-xs tracking-widest uppercase px-4 py-2 border transition-all duration-200 ${
+                className={`font-body text-xs tracking-widest uppercase px-3 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                   logFilter === f
                     ? f === 'eli'
                       ? 'text-eli-primary border-eli-secondary'

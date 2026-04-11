@@ -3,9 +3,9 @@ import { ROOMS } from '@/lib/rooms'
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen p-8 lg:p-12 animate-fade-in">
-      <div className="mb-16">
-        <h2 className="font-display text-4xl font-light text-text-primary mb-2">
+    <div className="min-h-screen p-4 md:p-8 lg:p-12 animate-fade-in">
+      <div className="mb-8 md:mb-16">
+        <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary mb-2">
           Welcome home.
         </h2>
         <p className="font-body text-sm text-text-muted">

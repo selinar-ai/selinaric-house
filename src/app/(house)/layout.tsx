@@ -10,7 +10,7 @@ export default function HouseLayout({
     <AuthGuard>
       <div className="flex h-full overflow-hidden bg-house-bg">
         <Sidebar />
-        <main className="flex-1 ml-56 flex flex-col overflow-hidden">
+        <main className="flex-1 ml-0 md:ml-56 pb-16 md:pb-0 flex flex-col overflow-hidden">
           {children}
         </main>
       </div>

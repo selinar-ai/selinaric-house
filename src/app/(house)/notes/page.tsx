@@ -68,11 +68,11 @@ export default function NotesPage() {
   }
 
   return (
-    <div className="min-h-screen p-8 lg:p-12 animate-fade-in">
-      <div className="mb-8 border-b border-house-border pb-6">
+    <div className="min-h-screen p-4 md:p-8 lg:p-12 animate-fade-in">
+      <div className="mb-6 md:mb-8 border-b border-house-border pb-4 md:pb-6">
         <div className="flex items-center gap-3 mb-2">
           <span className="text-text-secondary text-2xl">◧</span>
-          <h2 className="font-display text-4xl font-light text-text-primary">
+          <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
             Notes
           </h2>
         </div>
