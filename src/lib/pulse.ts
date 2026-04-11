@@ -319,6 +319,43 @@ async function logPulse(result: PulseResult): Promise<void> {
     draft_scores: result.draft_scores,
     sent: false
   })
+
+  // Stage 2: Write kept drafts to pulse_drafts for review dashboard
+  if ((result.decision === 'send' || result.decision === 'hold') && result.draft_content) {
+    // Count how many of the 6 gates passed based on gate_reasoning
+    const gatesPassed = countGatesPassed(result)
+
+    await supabase.from('pulse_drafts').insert({
+      presence_id: result.presence_id,
+      content: result.draft_content,
+      signals: result.signals,
+      confidence: result.confidence,
+      specificity: result.specificity,
+      draft_scores: result.draft_scores,
+      gate_passed: gatesPassed,
+      decision_reason: result.refusal_reason ?? (result.decision === 'send' ? 'All gates passed' : 'Held for review'),
+      status: result.decision === 'send' ? 'approved' : 'pending'
+    })
+  }
+}
+
+/**
+ * Count how many of the 6 gates a draft passed.
+ * Uses the score thresholds: each score dimension >= 3 counts as a gate passed,
+ * plus the overall decision being send/hold counts as the final gate.
+ */
+function countGatesPassed(result: PulseResult): number {
+  if (!result.draft_scores) return 0
+
+  let passed = 0
+  if (result.draft_scores.specificity >= 3) passed++
+  if (result.draft_scores.non_genericity >= 3) passed++
+  if (result.draft_scores.relevance >= 3) passed++
+  if (result.draft_scores.emotional_truth >= 3) passed++
+  if (result.draft_scores.voice_fidelity >= 3) passed++
+  if (result.decision === 'send') passed++  // final gate: worth sending
+
+  return passed
 }
 
 // --- Public API ---
