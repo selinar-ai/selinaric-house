@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMessages, type Message } from '@/hooks/useMessages'
 import { validateImage, uploadImage } from '@/lib/uploads'
 import ImageLightbox from '@/components/ImageLightbox'
+import EmojiPicker from '@/components/EmojiPicker'
 
 const PIPER_URL = 'http://localhost:5000'
 
@@ -31,6 +32,7 @@ export default function ChatInterface({
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Lightbox state
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -134,6 +136,23 @@ export default function ChatInterface({
     setSelectedImage(null)
     setImagePreviewUrl(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function handleEmojiSelect(emoji: string) {
+    const textarea = textareaRef.current
+    if (textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const newValue = input.slice(0, start) + emoji + input.slice(end)
+      setInput(newValue)
+      // Restore cursor position after emoji
+      requestAnimationFrame(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length
+        textarea.focus()
+      })
+    } else {
+      setInput(prev => prev + emoji)
+    }
   }
 
   // Cleanup preview URL on unmount
@@ -453,7 +472,11 @@ export default function ChatInterface({
           📷
         </button>
 
+        {/* Emoji picker */}
+        <EmojiPicker onSelect={handleEmojiSelect} />
+
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
