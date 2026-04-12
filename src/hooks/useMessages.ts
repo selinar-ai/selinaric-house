@@ -8,6 +8,9 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
   created_at?: string
+  message_type?: 'text' | 'image' | 'text_image'
+  image_url?: string | null
+  image_path?: string | null
 }
 
 export function useMessages(roomSlug: 'ari' | 'eli') {
@@ -37,13 +40,25 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
 
   const saveMessage = useCallback(
     async (message: Omit<Message, 'id' | 'created_at'>) => {
+      const row: Record<string, unknown> = {
+        room_slug: roomSlug,
+        role: message.role,
+        content: message.content,
+      }
+
+      if (message.message_type && message.message_type !== 'text') {
+        row.message_type = message.message_type
+      }
+      if (message.image_url) {
+        row.image_url = message.image_url
+      }
+      if (message.image_path) {
+        row.image_path = message.image_path
+      }
+
       const { data, error } = await supabase
         .from('room_messages')
-        .insert({
-          room_slug: roomSlug,
-          role: message.role,
-          content: message.content
-        })
+        .insert(row)
         .select()
         .single()
 

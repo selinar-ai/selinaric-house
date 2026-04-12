@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMessages, type Message } from '@/hooks/useMessages'
+import { validateImage, uploadImage } from '@/lib/uploads'
+import ImageLightbox from '@/components/ImageLightbox'
 
 const PIPER_URL = 'http://localhost:5000'
 
@@ -25,6 +27,14 @@ export default function ChatInterface({
   const bottomRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
 
+  // Image upload state
+  const [selectedImage, setSelectedImage] = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Lightbox state
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
   // TTS state
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [loadingTtsId, setLoadingTtsId] = useState<string | null>(null)
@@ -41,13 +51,11 @@ export default function ChatInterface({
   }, [])
 
   async function handleSpeak(messageId: string, content: string) {
-    // If already playing this message, stop it
     if (playingId === messageId) {
       stopAudio()
       return
     }
 
-    // Stop any currently playing audio
     stopAudio()
     setTtsError(null)
     setLoadingTtsId(messageId)
@@ -105,8 +113,42 @@ export default function ChatInterface({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Image selection
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const validationError = validateImage(file)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
+    setSelectedImage(file)
+    setImagePreviewUrl(URL.createObjectURL(file))
+    setError(null)
+  }
+
+  function clearSelectedImage() {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
+    setSelectedImage(null)
+    setImagePreviewUrl(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Cleanup preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function handleSend() {
-    if (!input.trim() || sending || submittingRef.current) return
+    const hasText = !!input.trim()
+    const hasImage = !!selectedImage
+
+    if ((!hasText && !hasImage) || sending || submittingRef.current) return
     submittingRef.current = true
 
     const userContent = input.trim()
@@ -114,12 +156,44 @@ export default function ChatInterface({
     setSending(true)
     setError(null)
 
+    let uploadedUrl: string | null = null
+    let uploadedPath: string | null = null
+
     try {
-      const savedUserMessage = await saveMessage({ role: 'user', content: userContent })
+      // Upload image first if present
+      if (selectedImage) {
+        try {
+          const result = await uploadImage(selectedImage, presenceId)
+          uploadedUrl = result.url
+          uploadedPath = result.path
+        } catch (uploadErr) {
+          setError(`Image upload failed: ${uploadErr instanceof Error ? uploadErr.message : 'unknown error'}`)
+          setSending(false)
+          submittingRef.current = false
+          return
+        }
+      }
+
+      // Determine message type
+      const messageType = hasImage && hasText ? 'text_image' : hasImage ? 'image' : 'text'
+      const displayContent = userContent || ''
+
+      // Save user message
+      const savedUserMessage = await saveMessage({
+        role: 'user',
+        content: displayContent,
+        message_type: messageType,
+        image_url: uploadedUrl,
+        image_path: uploadedPath,
+      })
+
       if (!savedUserMessage) {
         setError('Failed to save your message. Check your connection and try again.')
         return
       }
+
+      // Clear the image selection after successful save
+      clearSelectedImage()
 
       const recentHistory = messages.slice(-10).map(m => ({
         role: m.role,
@@ -135,9 +209,10 @@ export default function ChatInterface({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userContent,
+          message: displayContent || null,
           history: recentHistory,
-          liveState
+          liveState,
+          imageUrl: uploadedUrl,
         }),
         signal: AbortSignal.timeout(30000)
       })
@@ -207,6 +282,8 @@ export default function ChatInterface({
     )
   }
 
+  const canSend = (!!input.trim() || !!selectedImage) && !sending
+
   return (
     <div className="max-w-2xl w-full flex flex-col h-full">
       <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
@@ -244,9 +321,28 @@ export default function ChatInterface({
                 ? 'bg-house-muted text-text-primary'
                 : 'bg-house-bg border border-house-border text-text-primary'
             }`}>
-              <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
-                {message.content}
-              </p>
+              {/* Image in message */}
+              {message.image_url && (
+                <button
+                  onClick={() => setLightboxUrl(message.image_url!)}
+                  className="block mb-2 w-full cursor-pointer"
+                >
+                  <img
+                    src={message.image_url}
+                    alt=""
+                    className="max-w-full max-h-64 object-contain border border-house-border"
+                    loading="lazy"
+                  />
+                </button>
+              )}
+
+              {/* Text content */}
+              {message.content && (
+                <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
+                  {message.content}
+                </p>
+              )}
+
               <div className="flex items-center gap-2 mt-2">
                 {message.created_at && (
                   <span className="font-body text-xs text-text-muted">
@@ -306,12 +402,62 @@ export default function ChatInterface({
         </div>
       )}
 
+      {/* Image preview */}
+      {imagePreviewUrl && (
+        <div className="border border-house-border border-t-0 bg-house-bg px-3 py-2 md:px-4 flex items-center gap-3">
+          <img
+            src={imagePreviewUrl}
+            alt="Preview"
+            className="w-16 h-16 object-cover border border-house-border"
+          />
+          <span className="font-body text-xs text-text-muted flex-1 truncate">
+            {selectedImage?.name}
+          </span>
+          <button
+            onClick={clearSelectedImage}
+            className="text-text-muted hover:text-text-secondary text-sm min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors"
+            title="Remove image"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Input area */}
       <div className="border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleImageSelect}
+          className="hidden"
+        />
+
+        {/* Image upload button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={sending}
+          className={`
+            shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center
+            border transition-all duration-200 text-lg
+            ${sending
+              ? 'text-text-muted border-house-border cursor-not-allowed'
+              : selectedImage
+              ? `${accentClass} border-current`
+              : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
+            }
+          `}
+          title="Upload image"
+        >
+          📷
+        </button>
+
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={`Say something to ${presenceName}...`}
+          placeholder={selectedImage ? `Add a message (optional)...` : `Say something to ${presenceName}...`}
           rows={1}
           className="
             flex-1 bg-house-bg border border-house-border
@@ -329,11 +475,11 @@ export default function ChatInterface({
         <div className="flex flex-col gap-1.5 md:gap-2">
           <button
             onClick={handleSend}
-            disabled={!input.trim() || sending}
+            disabled={!canSend}
             className={`
               px-3 py-2.5 md:px-4 md:py-3 font-body text-xs tracking-widest uppercase
               border transition-all duration-200 min-h-[44px]
-              ${input.trim() && !sending
+              ${canSend
                 ? `${accentClass} border-current hover:bg-house-bg`
                 : 'text-text-muted border-house-border cursor-not-allowed'
               }
@@ -349,6 +495,11 @@ export default function ChatInterface({
           </button>
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
     </div>
   )
 }

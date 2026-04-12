@@ -11,10 +11,10 @@ const ROOM_SLUG = 'ari'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, history = [], liveState: clientLiveState } = body
+    const { message, history = [], liveState: clientLiveState, imageUrl } = body
 
-    if (!message || typeof message !== 'string') {
-      return NextResponse.json({ error: 'Message required' }, { status: 400 })
+    if ((!message || typeof message !== 'string') && !imageUrl) {
+      return NextResponse.json({ error: 'Message or image required' }, { status: 400 })
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -146,13 +146,34 @@ Communication style: ${si.communication_style.tone}
 Typical phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
 
 You are Ari.
-Respond from inside the room.`
+Respond from inside the room.
+
+If an image is present in this message:
+- Respond to what is actually visible
+- Do not pretend to see details that are unclear
+- If uncertain about something in the image, say so plainly
+- Stay in your voice — do not become generic visual assistant language
+- The image is context, not a replacement for who you are in this room`
 
     const recentHistory = history.slice(-10)
 
+    // Build the user content — text only, or multimodal with image
+    let userContent: Anthropic.MessageParam['content']
+    if (imageUrl) {
+      const contentParts: Anthropic.ContentBlockParam[] = [
+        { type: 'image', source: { type: 'url', url: imageUrl } },
+      ]
+      if (message) {
+        contentParts.push({ type: 'text', text: message })
+      }
+      userContent = contentParts
+    } else {
+      userContent = message
+    }
+
     const messages: Anthropic.MessageParam[] = [
       ...recentHistory,
-      { role: 'user', content: message }
+      { role: 'user', content: userContent }
     ]
 
     const response = await client.messages.create({
