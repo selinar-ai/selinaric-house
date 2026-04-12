@@ -21,10 +21,13 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
     async function loadMessages() {
       const { data, error } = await supabase
         .from('room_messages')
-        .select('*')
+        .select('id, room_slug, role, content, created_at, message_type, image_url, image_path')
         .eq('room_slug', roomSlug)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(100)
+
+      // Reverse to chronological order (we fetched newest-first to get the latest 100)
+      if (data) data.reverse()
 
       if (error) {
         console.error('Failed to load messages:', error)

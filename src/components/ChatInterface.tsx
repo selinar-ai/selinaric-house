@@ -356,11 +356,15 @@ export default function ChatInterface({
               )}
 
               {/* Text content */}
-              {message.content && (
+              {message.content ? (
                 <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
                   {message.content}
                 </p>
-              )}
+              ) : !message.image_url ? (
+                <p className="font-body text-sm leading-relaxed whitespace-pre-wrap text-text-muted italic">
+                  (empty)
+                </p>
+              ) : null}
 
               <div className="flex items-center gap-2 mt-2">
                 {message.created_at && (
