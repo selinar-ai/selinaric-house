@@ -53,7 +53,8 @@ export async function GET() {
     decision_reason: d.decision_reason,
     confidence: d.confidence,
     specificity: d.specificity,
-    feedback: feedbackMap[d.id] ?? null
+    feedback: feedbackMap[d.id] ?? null,
+    trial_tag: d.trial_tag ?? null
   }))
 
   return NextResponse.json({ drafts: shaped })

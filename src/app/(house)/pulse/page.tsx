@@ -24,6 +24,7 @@ interface PulseDraft {
   confidence: number
   specificity: number
   feedback: string | null
+  trial_tag: string | null
 }
 
 interface PulseLogEntry {
@@ -155,6 +156,11 @@ function DraftCard({
           }`}>
             {draft.status}
           </span>
+          {draft.trial_tag && (
+            <span className="font-mono text-xs px-2 py-0.5 border text-blue-400 border-blue-800">
+              {draft.trial_tag}
+            </span>
+          )}
         </div>
         <span className="font-mono text-xs text-text-muted">
           {formatDate(draft.created_at)}
