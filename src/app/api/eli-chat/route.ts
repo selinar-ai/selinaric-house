@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
 import { getTemporalContext } from '@/lib/temporal'
+import { getLivingStateForPrompt } from '@/lib/living-state'
 
 const ROOM_SLUG = 'eli'
 
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
     const memoryBlock = memorySummary
       ? `\n## What you remember from earlier in this conversation:\n${memorySummary}\n`
       : ''
+
+    // Phase 13: Load living state for prompt injection
+    const livingStateBlock = await getLivingStateForPrompt('eli')
 
     // Phase 9: Load timeline for prompt injection
     const timelineBlock = await loadTimelineForPrompt('eli')
@@ -139,7 +143,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${memoryBlock}
+${livingStateBlock}${memoryBlock}
 Style:
 ${si.communication_style.tone}
 Phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}

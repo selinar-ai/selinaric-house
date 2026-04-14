@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runPulseAll } from '@/lib/pulse'
 import { maybeWriteInteriorNote } from '@/lib/interior-notes'
+import { maybeUpdateLivingState } from '@/lib/living-state'
 
 /**
  * Pulse cron endpoint.
@@ -42,6 +43,17 @@ export async function GET(request: NextRequest) {
       )
     )
 
+    // Phase 13: After interior notes, attempt living state update
+    const stateResults = await Promise.all(
+      results.map(r => {
+        const sessionClass = (r.signals?.session_classification as string) ?? 'transactional'
+        return maybeUpdateLivingState(r.presence_id, sessionClass, apiKey).catch(err => {
+          console.error(`Living state update failed for ${r.presence_id}:`, err)
+          return false
+        })
+      })
+    )
+
     return NextResponse.json({
       timestamp: new Date().toISOString(),
       results: results.map((r, i) => ({
@@ -51,6 +63,7 @@ export async function GET(request: NextRequest) {
         specificity: r.specificity,
         refusal_reason: r.refusal_reason,
         interior_note: noteResults[i] ? true : false,
+        state_updated: stateResults[i] ?? false,
       }))
     })
   } catch (err) {
