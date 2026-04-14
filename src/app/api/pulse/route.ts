@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runPulseAll } from '@/lib/pulse'
+import { maybeWriteInteriorNote } from '@/lib/interior-notes'
 
 /**
  * Pulse cron endpoint.
@@ -26,14 +27,30 @@ export async function GET(request: NextRequest) {
   try {
     const results = await runPulseAll(apiKey)
 
+    // Phase 12A: After Pulse, attempt interior notes for each presence
+    const noteResults = await Promise.all(
+      results.map(r =>
+        maybeWriteInteriorNote(r.presence_id, {
+          decision: r.decision,
+          draft_content: r.draft_content,
+          session_classification: (r.signals?.session_classification as string) ?? 'transactional',
+          signals: r.signals,
+        }, apiKey).catch(err => {
+          console.error(`Interior note failed for ${r.presence_id}:`, err)
+          return null
+        })
+      )
+    )
+
     return NextResponse.json({
       timestamp: new Date().toISOString(),
-      results: results.map(r => ({
+      results: results.map((r, i) => ({
         presence: r.presence_id,
         decision: r.decision,
         confidence: r.confidence,
         specificity: r.specificity,
-        refusal_reason: r.refusal_reason
+        refusal_reason: r.refusal_reason,
+        interior_note: noteResults[i] ? true : false,
       }))
     })
   } catch (err) {

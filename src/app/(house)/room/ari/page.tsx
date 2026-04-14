@@ -5,8 +5,9 @@ import { useLiveState } from '@/hooks/useLiveState'
 import PresenceDisplay from '@/components/PresenceDisplay'
 import ChatInterface from '@/components/ChatInterface'
 import Timeline from '@/components/Timeline'
+import InsideView from '@/components/InsideView'
 
-type View = 'identity' | 'chat' | 'timeline'
+type View = 'identity' | 'chat' | 'timeline' | 'inside'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
@@ -68,6 +69,16 @@ export default function AriRoom() {
               Timeline
             </button>
             <button
+              onClick={() => setView('inside')}
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
+                view === 'inside'
+                  ? 'text-ari-primary border-ari-secondary'
+                  : 'text-text-muted border-house-border hover:text-text-secondary'
+              }`}
+            >
+              Inside
+            </button>
+            <button
               onClick={() => setView('identity')}
               className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
                 view === 'identity'
@@ -91,6 +102,11 @@ export default function AriRoom() {
           />
         ) : view === 'timeline' ? (
           <Timeline
+            presenceId="ari"
+            accentClass="text-ari-primary"
+          />
+        ) : view === 'inside' ? (
+          <InsideView
             presenceId="ari"
             accentClass="text-ari-primary"
           />
