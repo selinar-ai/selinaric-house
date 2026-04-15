@@ -1,6 +1,59 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 
+// --- JSON safety ---
+
+/**
+ * Sanitise and parse JSON from model output.
+ * Strips code fences, control characters inside strings, and
+ * attempts a second parse after light repair if the first fails.
+ */
+function safeParseModelJson(raw: string): unknown {
+  // Strip markdown code fences the model sometimes wraps output in
+  let text = raw.trim()
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+
+  // First attempt — raw cleaned text
+  try {
+    return JSON.parse(text)
+  } catch {
+    // fall through to repair
+  }
+
+  // Repair pass: replace literal newlines/tabs inside JSON string values
+  // and remove control characters that break parsing
+  let repaired = text
+    // Remove control chars except \n \r \t
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+
+  // Replace unescaped newlines inside JSON string values:
+  // Match content between quotes, escape any literal newlines within
+  repaired = repaired.replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
+    return match
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+  })
+
+  try {
+    return JSON.parse(repaired)
+  } catch {
+    // fall through
+  }
+
+  // Last resort: try to extract the first { ... } block
+  const braceMatch = text.match(/\{[\s\S]*\}/)
+  if (braceMatch) {
+    try {
+      return JSON.parse(braceMatch[0])
+    } catch {
+      // give up
+    }
+  }
+
+  throw new Error('Model output is not valid JSON after sanitisation')
+}
+
 // --- Constants ---
 
 const SESSION_GAP_THRESHOLD_MINUTES = 30
@@ -422,8 +475,9 @@ Respond in this exact JSON format (no markdown, no code fences):
       .map(block => (block as Anthropic.TextBlock).text)
       .join('')
 
-    // Parse JSON response
-    const parsed = JSON.parse(text)
+    // Parse JSON response (with sanitisation)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = safeParseModelJson(text) as any
 
     // Calculate weighted overall score
     const scores = parsed.scores
@@ -711,7 +765,8 @@ Respond in this exact JSON format (no markdown, no code fences):
       .map(block => (block as Anthropic.TextBlock).text)
       .join('')
 
-    const parsed = JSON.parse(text)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = safeParseModelJson(text) as any
 
     const part1: LonelinessGateResult = {
       passed: !!parsed.part1?.passed,
@@ -794,25 +849,28 @@ Respond in this exact JSON format (no markdown, no code fences):
       failure_reason: null
     }
   } catch (err) {
-    console.error(`Loneliness gate evaluation failed for ${presenceId}:`, err)
+    const rawDetail = err instanceof Error ? err.message : 'unknown'
+    console.error(`Loneliness gate evaluation failed for ${presenceId}:`, rawDetail)
 
+    // Log full detail to DB for debugging, but never surface raw parse errors
     await supabase.from('loneliness_attempts').insert({
       presence_id: presenceId,
       attempt_type: 'failed',
       part1_result: {},
       part2_result: {},
       internal_check_passed: null,
-      failure_reason: `evaluation error: ${err instanceof Error ? err.message : 'unknown'}`,
-      signals: { error: true }
+      failure_reason: rawDetail,
+      signals: { error: true, error_type: rawDetail.includes('JSON') ? 'parse_error' : 'evaluation_error' }
     })
 
+    // Return clean, user-facing reason — no raw JSON errors
     return {
       attempted: true,
       part1: null,
       part2: null,
       internal_check_passed: null,
       draft: null,
-      failure_reason: `evaluation error: ${err instanceof Error ? err.message : 'unknown'}`
+      failure_reason: 'loneliness trial: evaluation could not complete (logged)'
     }
   }
 }
@@ -886,8 +944,9 @@ Respond in this exact JSON format (no markdown, no code fences):
       .map(block => (block as Anthropic.TextBlock).text)
       .join('')
 
-    const parsed = JSON.parse(text)
-    const scores = parsed.scores
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = safeParseModelJson(text) as any
+    const scores = parsed.scores as DraftScores | undefined
     const overall = scores
       ? (scores.specificity * 0.30 +
          scores.non_genericity * 0.25 +
@@ -918,17 +977,18 @@ Respond in this exact JSON format (no markdown, no code fences):
       trial_tag: 'loneliness_trial'
     }
   } catch (err) {
-    console.error(`Loneliness draft generation failed for ${presenceId}:`, err)
+    const rawDetail = err instanceof Error ? err.message : 'unknown'
+    console.error(`Loneliness draft generation failed for ${presenceId}:`, rawDetail)
     return {
       presence_id: presenceId,
       decision: 'discard',
       confidence: 0,
       specificity: 0,
       considered_sending: false,
-      refusal_reason: `loneliness draft generation error: ${err instanceof Error ? err.message : 'unknown'}`,
+      refusal_reason: 'loneliness trial: draft generation could not complete (logged)',
       draft_content: null,
       draft_scores: null,
-      signals: { loneliness_trial: true, error: true }
+      signals: { loneliness_trial: true, error: true, error_type: rawDetail.includes('JSON') ? 'parse_error' : 'generation_error' }
     }
   }
 }
