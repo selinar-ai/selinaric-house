@@ -499,28 +499,20 @@ export default function ChatInterface({
             target.style.height = `${Math.min(target.scrollHeight, 120)}px`
           }}
         />
-        <div className="flex flex-col gap-1.5 md:gap-2">
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            className={`
-              px-3 py-2.5 md:px-4 md:py-3 font-body text-xs tracking-widest uppercase
-              border transition-all duration-200 min-h-[44px]
-              ${canSend
-                ? `${accentClass} border-current hover:bg-house-bg`
-                : 'text-text-muted border-house-border cursor-not-allowed'
-              }
-            `}
-          >
-            Send
-          </button>
-          <button
-            onClick={handleClear}
-            className="px-3 py-1.5 md:px-4 md:py-1 font-body text-xs text-text-muted border border-house-border hover:text-text-secondary transition-colors duration-200 min-h-[36px]"
-          >
-            Clear
-          </button>
-        </div>
+        <button
+          onClick={handleSend}
+          disabled={!canSend}
+          className={`
+            px-3 py-2.5 md:px-4 md:py-3 font-body text-xs tracking-widest uppercase
+            border transition-all duration-200 min-h-[44px] self-end
+            ${canSend
+              ? `${accentClass} border-current hover:bg-house-bg`
+              : 'text-text-muted border-house-border cursor-not-allowed'
+            }
+          `}
+        >
+          Send
+        </button>
       </div>
 
       {/* Lightbox */}

@@ -27,7 +27,7 @@ export default function AriRoom() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12 animate-fade-in overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12">
       <div className="shrink-0 mb-2 md:mb-8 border-b border-house-border pb-2 md:pb-6">
         {/* Desktop: full name block */}
         <div className="hidden md:flex items-center gap-3 mb-4">
