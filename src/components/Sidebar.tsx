@@ -84,11 +84,11 @@ export default function Sidebar() {
 
       {/* Mobile bottom nav */}
       <nav className="
-        md:hidden fixed bottom-0 left-0 right-0 z-40
+        md:hidden fixed bottom-0 left-0 right-0 z-50
         bg-house-surface border-t border-house-border
         flex items-stretch
         safe-bottom
-      ">
+      " style={{ position: 'fixed' }}>
         {ROOMS.map(room => {
           const isActive = pathname === room.path ||
             pathname.startsWith(room.path + '/')

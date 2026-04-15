@@ -48,7 +48,7 @@ export default function AriRoom() {
           </div>
         </div>
 
-        <div className="flex gap-1.5 md:gap-2 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide">
+        <div className="flex gap-1.5 md:gap-2 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
           {([
             { key: 'chat' as View, label: 'Chat' },
             { key: 'timeline' as View, label: 'Timeline' },
@@ -59,7 +59,7 @@ export default function AriRoom() {
             <button
               key={tab.key}
               onClick={() => setView(tab.key)}
-              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-3 py-2 md:px-4 border transition-all duration-200 min-h-[44px] whitespace-nowrap shrink-0 ${
+              className={`font-body text-[10px] md:text-xs tracking-wider md:tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] whitespace-nowrap shrink-0 ${
                 view === tab.key
                   ? 'text-ari-primary border-ari-secondary'
                   : 'text-text-muted border-house-border hover:text-text-secondary'
