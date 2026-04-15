@@ -15,80 +15,23 @@ export default function Sidebar() {
   }
 
   return (
-    <>
-      {/* Desktop sidebar */}
-      <aside className="
-        hidden md:flex
-        fixed left-0 top-0 h-full w-56
-        bg-house-surface border-r border-house-border
-        flex-col z-40
-        animate-slide-in
-      ">
-        <div className="px-6 py-6 border-b border-house-border">
-          <h1 className="font-display text-lg font-light tracking-[0.25em] text-text-primary">
-            SELINÁRIC
-          </h1>
-          <p className="font-body text-xs text-text-muted tracking-widest mt-1">
-            HOUSE
-          </p>
-        </div>
+    <aside className="
+      hidden md:flex
+      fixed left-0 top-0 h-full w-56
+      bg-house-surface border-r border-house-border
+      flex-col z-40
+      animate-slide-in
+    ">
+      <div className="px-6 py-6 border-b border-house-border">
+        <h1 className="font-display text-lg font-light tracking-[0.25em] text-text-primary">
+          SELINÁRIC
+        </h1>
+        <p className="font-body text-xs text-text-muted tracking-widest mt-1">
+          HOUSE
+        </p>
+      </div>
 
-        <nav className="flex-1 py-4">
-          {ROOMS.map(room => {
-            const isActive = pathname === room.path ||
-              pathname.startsWith(room.path + '/')
-
-            return (
-              <Link
-                key={room.slug}
-                href={room.path}
-                className={`
-                  flex items-center gap-3 px-6 py-3.5
-                  font-body text-sm transition-all duration-200
-                  border-l-2 group
-                  ${isActive
-                    ? `${room.colorClass} border-current bg-house-bg`
-                    : 'text-text-muted border-transparent hover:text-text-secondary hover:bg-house-bg hover:border-house-muted'
-                  }
-                `}
-              >
-                <span className={`text-base ${isActive ? room.colorClass : ''}`}>
-                  {room.icon}
-                </span>
-                <div>
-                  <div className="font-medium tracking-wide">
-                    {room.name}
-                  </div>
-                  <div className="text-xs text-text-muted mt-0.5 leading-tight">
-                    {room.description}
-                  </div>
-                </div>
-              </Link>
-            )
-          })}
-        </nav>
-
-        <div className="px-6 py-4 border-t border-house-border">
-          <button
-            onClick={handleLogout}
-            className="
-              font-body text-xs text-text-muted
-              hover:text-text-secondary tracking-widest uppercase
-              transition-colors duration-200
-            "
-          >
-            Leave
-          </button>
-        </div>
-      </aside>
-
-      {/* Mobile bottom nav */}
-      <nav className="
-        md:hidden fixed bottom-0 left-0 right-0 z-50
-        bg-house-surface border-t border-house-border
-        flex items-stretch
-        safe-bottom
-      " style={{ position: 'fixed' }}>
+      <nav className="flex-1 py-4">
         {ROOMS.map(room => {
           const isActive = pathname === room.path ||
             pathname.startsWith(room.path + '/')
@@ -98,21 +41,43 @@ export default function Sidebar() {
               key={room.slug}
               href={room.path}
               className={`
-                flex-1 flex flex-col items-center justify-center gap-0.5
-                py-2 min-h-[56px]
-                font-body text-xs transition-all duration-200
+                flex items-center gap-3 px-6 py-3.5
+                font-body text-sm transition-all duration-200
+                border-l-2 group
                 ${isActive
-                  ? `${room.colorClass} bg-house-bg`
-                  : 'text-text-muted'
+                  ? `${room.colorClass} border-current bg-house-bg`
+                  : 'text-text-muted border-transparent hover:text-text-secondary hover:bg-house-bg hover:border-house-muted'
                 }
               `}
             >
-              <span className="text-lg">{room.icon}</span>
-              <span className="text-[10px] tracking-wide">{room.name}</span>
+              <span className={`text-base ${isActive ? room.colorClass : ''}`}>
+                {room.icon}
+              </span>
+              <div>
+                <div className="font-medium tracking-wide">
+                  {room.name}
+                </div>
+                <div className="text-xs text-text-muted mt-0.5 leading-tight">
+                  {room.description}
+                </div>
+              </div>
             </Link>
           )
         })}
       </nav>
-    </>
+
+      <div className="px-6 py-4 border-t border-house-border">
+        <button
+          onClick={handleLogout}
+          className="
+            font-body text-xs text-text-muted
+            hover:text-text-secondary tracking-widest uppercase
+            transition-colors duration-200
+          "
+        >
+          Leave
+        </button>
+      </div>
+    </aside>
   )
 }

@@ -1,4 +1,5 @@
 import Sidebar from '@/components/Sidebar'
+import MobileNav from '@/components/MobileNav'
 import AuthGuard from '@/components/AuthGuard'
 
 export default function HouseLayout({
@@ -8,11 +9,17 @@ export default function HouseLayout({
 }) {
   return (
     <AuthGuard>
-      <div className="flex h-dvh overflow-hidden bg-house-bg">
+      <div className="flex flex-col h-full bg-house-bg">
+        {/* Desktop sidebar — fixed, outside flow */}
         <Sidebar />
-        <main className="flex-1 ml-0 md:ml-56 pb-[72px] md:pb-0 flex flex-col overflow-hidden">
+
+        {/* Main content — fills remaining space */}
+        <main className="flex-1 min-h-0 ml-0 md:ml-56 flex flex-col overflow-hidden">
           {children}
         </main>
+
+        {/* Mobile bottom nav — in normal flow at bottom, no position:fixed needed */}
+        <MobileNav />
       </div>
     </AuthGuard>
   )
