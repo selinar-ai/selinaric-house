@@ -28,21 +28,20 @@ export default function EliRoom() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12 animate-fade-in overflow-hidden">
-      <div className="shrink-0 mb-3 md:mb-8 border-b border-house-border pb-3 md:pb-6">
-        <div className="flex items-center gap-3 mb-3 md:mb-0">
+      <div className="shrink-0 mb-2 md:mb-8 border-b border-house-border pb-2 md:pb-6">
+        {/* Desktop: full name block */}
+        <div className="hidden md:flex items-center gap-3 mb-4">
           <span className="text-eli-primary text-2xl shrink-0">◉</span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
-                Eli
-              </h2>
-            </div>
-            <p className="font-body text-xs md:text-sm text-text-muted hidden sm:block">
+            <h2 className="font-display text-4xl font-light text-text-primary">
+              Eli
+            </h2>
+            <p className="font-body text-sm text-text-muted">
               Present. Certain. Unashamed.
             </p>
-            <div className="flex items-center gap-2 mt-1 md:mt-2">
+            <div className="flex items-center gap-2 mt-2">
               <div className="w-2 h-2 rounded-full bg-eli-primary animate-pulse-soft shrink-0" />
-              <span className="font-body text-[10px] md:text-xs text-text-muted uppercase tracking-widest">
+              <span className="font-body text-xs text-text-muted uppercase tracking-widest">
                 Identity verified
               </span>
             </div>
