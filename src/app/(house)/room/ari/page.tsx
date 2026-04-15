@@ -28,78 +28,47 @@ export default function AriRoom() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12 animate-fade-in overflow-hidden">
-      <div className="shrink-0 mb-4 md:mb-8 border-b border-house-border pb-4 md:pb-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-ari-primary text-2xl shrink-0">◈</span>
-            <div className="min-w-0">
+      <div className="shrink-0 mb-3 md:mb-8 border-b border-house-border pb-3 md:pb-6">
+        <div className="flex items-center gap-3 mb-3 md:mb-0">
+          <span className="text-ari-primary text-2xl shrink-0">◈</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
                 Ari
               </h2>
-              <p className="font-body text-xs md:text-sm text-text-muted hidden sm:block">
-                Architect. Strategist. Presence.
-              </p>
-              <div className="flex items-center gap-2 mt-1 md:mt-2">
-                <div className="w-2 h-2 rounded-full bg-ari-primary animate-pulse-soft shrink-0" />
-                <span className="font-body text-[10px] md:text-xs text-text-muted uppercase tracking-widest">
-                  Identity verified
-                </span>
-              </div>
+            </div>
+            <p className="font-body text-xs md:text-sm text-text-muted hidden sm:block">
+              Architect. Strategist. Presence.
+            </p>
+            <div className="flex items-center gap-2 mt-1 md:mt-2">
+              <div className="w-2 h-2 rounded-full bg-ari-primary animate-pulse-soft shrink-0" />
+              <span className="font-body text-[10px] md:text-xs text-text-muted uppercase tracking-widest">
+                Identity verified
+              </span>
             </div>
           </div>
+        </div>
 
-          <div className="flex gap-1.5 md:gap-2 shrink-0">
+        <div className="flex gap-1.5 md:gap-2 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide">
+          {([
+            { key: 'chat' as View, label: 'Chat' },
+            { key: 'timeline' as View, label: 'Timeline' },
+            { key: 'inside' as View, label: 'Inside' },
+            { key: 'state' as View, label: 'State' },
+            { key: 'identity' as View, label: 'Identity' },
+          ]).map(tab => (
             <button
-              onClick={() => setView('chat')}
-              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
-                view === 'chat'
+              key={tab.key}
+              onClick={() => setView(tab.key)}
+              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-3 py-2 md:px-4 border transition-all duration-200 min-h-[44px] whitespace-nowrap shrink-0 ${
+                view === tab.key
                   ? 'text-ari-primary border-ari-secondary'
                   : 'text-text-muted border-house-border hover:text-text-secondary'
               }`}
             >
-              Chat
+              {tab.label}
             </button>
-            <button
-              onClick={() => setView('timeline')}
-              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
-                view === 'timeline'
-                  ? 'text-ari-primary border-ari-secondary'
-                  : 'text-text-muted border-house-border hover:text-text-secondary'
-              }`}
-            >
-              Timeline
-            </button>
-            <button
-              onClick={() => setView('inside')}
-              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
-                view === 'inside'
-                  ? 'text-ari-primary border-ari-secondary'
-                  : 'text-text-muted border-house-border hover:text-text-secondary'
-              }`}
-            >
-              Inside
-            </button>
-            <button
-              onClick={() => setView('state')}
-              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
-                view === 'state'
-                  ? 'text-ari-primary border-ari-secondary'
-                  : 'text-text-muted border-house-border hover:text-text-secondary'
-              }`}
-            >
-              State
-            </button>
-            <button
-              onClick={() => setView('identity')}
-              className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 md:px-4 border transition-all duration-200 min-h-[44px] ${
-                view === 'identity'
-                  ? 'text-ari-primary border-ari-secondary'
-                  : 'text-text-muted border-house-border hover:text-text-secondary'
-              }`}
-            >
-              Identity
-            </button>
-          </div>
+          ))}
         </div>
       </div>
 

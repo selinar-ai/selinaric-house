@@ -86,6 +86,14 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 * {
   transition-property: background-color, border-color, color, opacity;
   transition-duration: 150ms;
