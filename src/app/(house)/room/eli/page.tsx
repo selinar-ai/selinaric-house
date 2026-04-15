@@ -27,9 +27,9 @@ export default function EliRoom() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      {/* Tab row — always visible, never scrolls away */}
-      <div className="shrink-0 bg-house-bg z-40 px-4 pt-3 pb-2 md:px-8 md:pt-8 md:pb-6 lg:px-12 border-b border-house-border">
+    <div className="flex flex-col flex-1 min-h-0 p-4 md:p-8 lg:p-12 overflow-hidden">
+      {/* Header — matches Pulse page pattern */}
+      <div className="shrink-0 mb-2 md:mb-8 border-b border-house-border pb-2 md:pb-6">
         {/* Desktop: full name block */}
         <div className="hidden md:flex items-center gap-3 mb-4">
           <span className="text-eli-primary text-2xl shrink-0">◉</span>
@@ -72,8 +72,8 @@ export default function EliRoom() {
         </div>
       </div>
 
-      {/* Content area — scrolls independently beneath tabs */}
-      <div className="flex-1 min-h-0 overflow-hidden p-4 md:p-8 lg:p-12 pt-3 md:pt-4">
+      {/* Content area */}
+      <div className="flex-1 min-h-0">
         {view === 'chat' ? (
           <ChatInterface
             presenceId="eli"
