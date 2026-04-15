@@ -68,8 +68,6 @@ html {
 body {
   font-family: var(--font-body);
   background-color: #141019;
-  min-height: 100vh;
-  overflow-x: hidden;
 }
 
 ::-webkit-scrollbar { width: 4px; }
