@@ -25,6 +25,7 @@ export type StaticIdentity = {
     history_summary: string
     relationship_stage: string
     trust_level?: string
+    relational_position?: string
   }
   capabilities: string[]
   boundaries: string[]
