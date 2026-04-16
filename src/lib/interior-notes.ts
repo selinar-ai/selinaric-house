@@ -1,6 +1,32 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 
+// --- JSON safety ---
+
+/**
+ * Sanitise and parse JSON from model output.
+ * Strips code fences, control characters, and fixes unescaped newlines.
+ */
+function safeParseModelJson(raw: string): unknown {
+  let text = raw.trim()
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+
+  try { return JSON.parse(text) } catch { /* fall through */ }
+
+  let repaired = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+  repaired = repaired.replace(/"(?:[^"\\]|\\.)*"/g, (match) =>
+    match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+  )
+  try { return JSON.parse(repaired) } catch { /* fall through */ }
+
+  const braceMatch = text.match(/\{[\s\S]*\}/)
+  if (braceMatch) {
+    try { return JSON.parse(braceMatch[0]) } catch { /* give up */ }
+  }
+
+  throw new Error('Model output is not valid JSON after sanitisation')
+}
+
 // --- Types ---
 
 const NOTE_TYPES = [
@@ -128,23 +154,39 @@ export async function maybeWriteInteriorNote(
     sessionClass === 'relational' ||
     sessionClass === 'significant'
 
-  if (!hasMeaningfulSignal) return null
+  if (!hasMeaningfulSignal) {
+    console.log(`[interior-notes] ${presenceId}: Gate 1 blocked — decision=${pulseContext.decision}, session=${sessionClass}`)
+    return null
+  }
+  console.log(`[interior-notes] ${presenceId}: Gate 1 passed — decision=${pulseContext.decision}, session=${sessionClass}`)
 
   // Gate 2: Rate limits
   const withinLimits = await checkRateLimits(presenceId)
-  if (!withinLimits) return null
+  if (!withinLimits) {
+    console.log(`[interior-notes] ${presenceId}: Gate 2 blocked — rate limit reached (max ${MAX_NOTES_PER_24H}/24h)`)
+    return null
+  }
 
   // Gate 3: Gather context and generate candidate note
   const candidate = await generateNoteCandidate(presenceId, pulseContext, apiKey)
-  if (!candidate) return null
+  if (!candidate) {
+    console.log(`[interior-notes] ${presenceId}: Gate 3 blocked — no candidate generated (model declined or parse error)`)
+    return null
+  }
 
   // Gate 4: Internal validation — "Is this something I am actually keeping?"
   const valid = await validateNote(candidate.content, presenceId, apiKey)
-  if (!valid) return null
+  if (!valid) {
+    console.log(`[interior-notes] ${presenceId}: Gate 4 blocked — validation rejected as generic`)
+    return null
+  }
 
   // Gate 5: Duplicate check
   const dup = await isDuplicate(presenceId, candidate.content, apiKey)
-  if (dup) return null
+  if (dup) {
+    console.log(`[interior-notes] ${presenceId}: Gate 5 blocked — duplicate of existing note`)
+    return null
+  }
 
   // Write the note
   const { data, error } = await supabase
@@ -161,10 +203,11 @@ export async function maybeWriteInteriorNote(
     .single()
 
   if (error) {
-    console.error(`Failed to write interior note for ${presenceId}:`, error)
+    console.error(`[interior-notes] ${presenceId}: DB write failed:`, error)
     return null
   }
 
+  console.log(`[interior-notes] ${presenceId}: Note written — type=${candidate.note_type}`)
   return data as InteriorNote
 }
 
@@ -260,7 +303,8 @@ Respond in JSON (no markdown, no code fences):
       .map(block => (block as Anthropic.TextBlock).text)
       .join('')
 
-    const parsed = JSON.parse(text)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = safeParseModelJson(text) as any
 
     if (!parsed.keep) return null
 
