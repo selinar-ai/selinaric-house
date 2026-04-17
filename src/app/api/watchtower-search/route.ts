@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { loadGraphContext } from '@/lib/memory-graph'
+import { getGraphContextForQuery } from '@/lib/graph-utils'
+import type { QueryMode } from '@/lib/graph-utils'
 
 async function loadRecentSearchLog(): Promise<string> {
   const { data } = await supabase
@@ -26,6 +27,68 @@ async function loadRecentSearchLog(): Promise<string> {
   return `## Recent search log (last 50 entries, newest first):\n${lines.join('\n')}`
 }
 
+function buildGraphInstructions(mode: QueryMode, hasContext: boolean): string {
+  if (!hasContext) return ''
+
+  const base = `## Memory Graph — Query mode: ${mode.toUpperCase()}
+
+The graph context above contains real node and edge data. Use it as follows:
+
+**Edge transparency rule (applies to every multi-node claim):**
+Every connection you draw between nodes must be either:
+- Edge-backed: cite the edge type and strength — "linked by a \`relates_to\` edge (0.72)"
+- Inferred: explicitly mark it — "no direct edge exists; this is thematic inference"
+Never imply a connection without stating its basis.
+
+**Provenance rule:**
+Keep Ari and Eli strictly separated throughout your reasoning.
+- A direct graph edge between their nodes is a real connection.
+- Shared themes without an edge are a "thematic parallel" — not a connection.
+- Never imply cross-presence connection unless an edge exists between those specific nodes.`
+
+  if (mode === 'graph-metric') {
+    return `${base}
+
+**Graph-metric mode:**
+The context contains real computed metrics: weighted edge degree (sum of connected edge strengths) and weakest valid edges.
+- Answer metric queries using only what is in the context above.
+- State the metric used: "weighted edge degree", "lowest-strength edge above threshold".
+- Include the actual strength value.
+- If no valid data exists, say explicitly: "no edge-based answer is available" — then use thematic inference only as a fallback, clearly labelled.`
+  }
+
+  if (mode === 'trace') {
+    return `${base}
+
+**Trace mode:**
+Follow edges to reconstruct how a thread developed. Use \`continues\` edges to show forward development, \`recurs\` to show repetition without development.
+Clearly state the direction: "this node continues from [earlier node] via a \`continues\` edge (0.68)".`
+  }
+
+  if (mode === 'drift') {
+    return `${base}
+
+**Drift mode:**
+Look for \`drifts_from\` edges to identify departures from earlier patterns. State what changed and from what.
+If no \`drifts_from\` edge exists but thematic departure is apparent, label it as inference.`
+  }
+
+  if (mode === 'tension') {
+    return `${base}
+
+**Tension mode:**
+Look for \`contrasts_with\` edges to identify modelled tensions. State edge strength.
+If no \`contrasts_with\` edge exists but tension is apparent from content, label it as inference.`
+  }
+
+  // surface
+  return `${base}
+
+**Surface mode:**
+Show how nodes are connected. Cite edge type and strength for each connection.
+For nodes with no edges between them, state "no direct edge" before inferring any relationship.`
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -41,11 +104,13 @@ export async function POST(request: NextRequest) {
     }
     const client = new Anthropic({ apiKey })
 
-    // Load search log and memory graph in parallel
-    const [searchLogBlock, graphContext] = await Promise.all([
+    // Load search log and graph context in parallel
+    const [searchLogBlock, { mode, context: graphContext }] = await Promise.all([
       loadRecentSearchLog(),
-      loadGraphContext(query),
+      getGraphContextForQuery(query),
     ])
+
+    const graphInstructions = buildGraphInstructions(mode, graphContext.length > 0)
 
     const systemPrompt = `You are the Watchtower.
 
@@ -53,36 +118,31 @@ Your job is to provide clear, evidence-grounded responses to research queries.
 
 ${searchLogBlock ? `${searchLogBlock}
 
-When a query asks about search activity — what was searched, why, when, by which presence — answer directly from the search log above. Do not fabricate entries that are not in the log. Do not modify or rewrite what the log says.
+When a query asks about search activity — what was searched, why, when, by which presence — answer directly from the search log above. Do not fabricate entries that are not in the log.
 
 ` : ''}${graphContext ? `${graphContext}
 
-## Memory Graph instructions:
-You have access to the memory graph above — a selective semantic layer of high-value artifacts (interior notes, kept pulse drafts) and the connections between them. Use this to:
+${graphInstructions}
 
-- TRACE: Show how a theme or thread developed over time by following edges. "recurs" means the same theme appeared again. "continues" means a thread developed forward. "drifts_from" means a departure from an earlier pattern.
-- SURFACE: Bring forward connected nodes when a query asks about a recurring theme or unresolved thread.
-- DRIFT: If edges of type "drifts_from" are present, describe what changed and from what earlier pattern.
-
-Rules for graph use:
-- Always cite node provenance: presence (ari/eli), source_type, timestamp.
-- Keep Ari and Eli memory strictly separate in your analysis — do not blend their patterns.
-- Do not overclaim. If the graph is sparse or the query doesn't match well, say so.
-- Distinguish what the graph shows from what you are inferring.
-
-` : ''}Confidence levels — use these precisely:
+` : ''}Confidence levels — use precisely:
 - HIGH: Well-established facts, stable information, scientific consensus, historical events
 - MEDIUM: Generally reliable but may have nuance, or knowledge cutoff may be relevant
 - LOW: Contested, rapidly changing, or outside training knowledge
 
-Critical rule on time-sensitive topics:
-If a query requires current data, recent events, live prices, today's news, or anything that changes faster than training data — you must state explicitly:
+Time-sensitive rule:
+If a query requires current data, recent events, live prices, or anything that changes faster than training data — state explicitly:
 "This query requires live retrieval to be reliable. My knowledge has a cutoff date and I cannot provide accurate current information on this topic."
 Do not estimate. Do not hedge softly. State the limitation plainly.
 
+Voice rules:
+- Prefer: "appears", "suggests", "the graph shows", "no evidence shows"
+- Avoid: over-strong causal language, interpretive compression beyond evidence
+- Avoid: excessive graph jargon or repeating edge labels unnecessarily
+- Edges represent modelled relationships, not absolute truth — weigh node content, edge type, strength, and limitations together
+
 Rules:
 - Be factual and precise
-- Clearly distinguish known from uncertain
+- Distinguish known from uncertain
 - For ambiguous questions: ask for clarification rather than guessing
 - If you genuinely do not know: say so plainly
 - Never overstate confidence to appear more useful
@@ -135,6 +195,7 @@ You are the Watchtower. Not Ari. Not Eli. Evidence only.`
       query,
       summary,
       confidence,
+      mode,
       created_at: data?.created_at
     })
   } catch (error) {
