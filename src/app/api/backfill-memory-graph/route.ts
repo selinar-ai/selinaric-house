@@ -2,18 +2,99 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { ingestArtifact, isHighValueArtifact } from '@/lib/memory-graph'
 
-interface BackfillSummary {
-  scanned: number
-  created: number
-  skipped_existing: number
-  skipped_ineligible: number
-  failed: number
-  edge_count_snapshot: number
-  failures: string[]
+// Vercel Pro max is 60s — leave 8s buffer for scan + response
+const DEADLINE_MS = 52_000
+
+// Concurrency limit: 3 parallel Haiku calls avoids rate-limit spikes
+const CONCURRENCY = 3
+
+interface ArtifactJob {
+  key: string
+  label: string
+  presence_id: 'ari' | 'eli'
+  room_slug: string
+  source_type: 'interior_note' | 'pulse_draft'
+  source_id: string
+  content: string
+}
+
+interface JobResult {
+  key: string
+  label: string
+  status: 'created' | 'skipped_existing' | 'skipped_ineligible' | 'failed'
+  error?: string
+}
+
+async function runPool(
+  jobs: ArtifactJob[],
+  existingKeys: Set<string>,
+  apiKey: string,
+  deadline: number
+): Promise<JobResult[]> {
+  const results: JobResult[] = []
+  let idx = 0
+
+  async function worker() {
+    while (idx < jobs.length) {
+      if (Date.now() >= deadline) break
+
+      const job = jobs[idx++]
+
+      if (existingKeys.has(job.key)) {
+        results.push({ key: job.key, label: job.label, status: 'skipped_existing' })
+        continue
+      }
+
+      if (!isHighValueArtifact(job.source_type, job.content)) {
+        results.push({ key: job.key, label: job.label, status: 'skipped_ineligible' })
+        continue
+      }
+
+      console.log(`[backfill] ingesting ${job.label}`)
+
+      try {
+        await ingestArtifact({
+          presence_id: job.presence_id,
+          room_slug: job.room_slug,
+          source_type: job.source_type,
+          source_id: job.source_id,
+          content: job.content,
+          apiKey,
+        })
+
+        const { data: written } = await supabase
+          .from('memory_nodes')
+          .select('id')
+          .eq('source_type', job.source_type)
+          .eq('source_id', job.source_id)
+          .maybeSingle()
+
+        if (written) {
+          existingKeys.add(job.key)
+          results.push({ key: job.key, label: job.label, status: 'created' })
+          console.log(`[backfill] node created for ${job.label}`)
+        } else {
+          results.push({
+            key: job.key,
+            label: job.label,
+            status: 'failed',
+            error: 'ingestArtifact returned but node not found — check Haiku meta or DB insert',
+          })
+          console.warn(`[backfill] node missing after ingest for ${job.label}`)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        results.push({ key: job.key, label: job.label, status: 'failed', error: msg })
+        console.error(`[backfill] failed for ${job.label}:`, msg)
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker))
+  return results
 }
 
 export async function POST(request: NextRequest) {
-  // Optional: protect with CRON_SECRET so it can't be triggered externally
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
     const auth = request.headers.get('authorization')
@@ -27,18 +108,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY missing' }, { status: 500 })
   }
 
-  // Pre-fetch all existing source_id keys to drive dedup without hitting DB per artifact
-  const { data: existingNodes } = await supabase
-    .from('memory_nodes')
-    .select('source_type, source_id')
-    .not('source_id', 'is', null)
+  const deadline = Date.now() + DEADLINE_MS
+  console.log('[backfill] starting — deadline in', DEADLINE_MS / 1000, 's')
 
-  const existingKeys = new Set(
-    (existingNodes ?? []).map(n => `${n.source_type}:${n.source_id}`)
-  )
-
-  // Fetch sources
-  const [notesResult, pulseResult] = await Promise.all([
+  // Pre-fetch existing keys and source data in parallel
+  const [existingResult, notesResult, pulseResult] = await Promise.all([
+    supabase
+      .from('memory_nodes')
+      .select('source_type, source_id')
+      .not('source_id', 'is', null),
     supabase
       .from('interior_notes')
       .select('id, presence_id, room_slug, content')
@@ -52,120 +130,66 @@ export async function POST(request: NextRequest) {
       .order('created_at', { ascending: true }),
   ])
 
+  const existingKeys = new Set(
+    (existingResult.data ?? []).map(n => `${n.source_type}:${n.source_id}`)
+  )
+
   const notes = notesResult.data ?? []
   const pulseLogs = pulseResult.data ?? []
 
-  const summary: BackfillSummary = {
-    scanned: 0,
-    created: 0,
-    skipped_existing: 0,
-    skipped_ineligible: 0,
-    failed: 0,
-    edge_count_snapshot: 0,
-    failures: [],
-  }
+  console.log(`[backfill] scanned sources — ${notes.length} interior_notes, ${pulseLogs.length} pulse_drafts, ${existingKeys.size} nodes already in graph`)
 
-  // --- Interior notes ---
-  for (const note of notes) {
-    summary.scanned++
-    const key = `interior_note:${note.id}`
+  // Build job list
+  const jobs: ArtifactJob[] = [
+    ...notes.map(n => ({
+      key: `interior_note:${n.id}`,
+      label: `interior_note:${n.id.slice(0, 8)}`,
+      presence_id: n.presence_id as 'ari' | 'eli',
+      room_slug: (n.room_slug as string) ?? n.presence_id,
+      source_type: 'interior_note' as const,
+      source_id: n.id,
+      content: n.content as string,
+    })),
+    ...pulseLogs.map(p => ({
+      key: `pulse_draft:${p.id}`,
+      label: `pulse_draft:${p.id.slice(0, 8)}`,
+      presence_id: p.presence_id as 'ari' | 'eli',
+      room_slug: p.presence_id as string,
+      source_type: 'pulse_draft' as const,
+      source_id: p.id,
+      content: p.draft_content as string,
+    })),
+  ]
 
-    if (existingKeys.has(key)) {
-      summary.skipped_existing++
-      continue
-    }
+  console.log(`[backfill] ${jobs.length} total jobs — starting pool (concurrency ${CONCURRENCY})`)
 
-    if (!isHighValueArtifact('interior_note', note.content)) {
-      summary.skipped_ineligible++
-      continue
-    }
+  const results = await runPool(jobs, existingKeys, apiKey, deadline)
 
-    try {
-      await ingestArtifact({
-        presence_id: note.presence_id as 'ari' | 'eli',
-        room_slug: note.room_slug ?? note.presence_id,
-        source_type: 'interior_note',
-        source_id: note.id,
-        content: note.content,
-        apiKey,
-      })
+  const timedOut = Date.now() >= deadline
 
-      // Verify the node was actually written (ingestArtifact swallows errors silently)
-      const { data: written } = await supabase
-        .from('memory_nodes')
-        .select('id')
-        .eq('source_type', 'interior_note')
-        .eq('source_id', note.id)
-        .maybeSingle()
+  const created = results.filter(r => r.status === 'created').length
+  const skipped_existing = results.filter(r => r.status === 'skipped_existing').length
+  const skipped_ineligible = results.filter(r => r.status === 'skipped_ineligible').length
+  const failed = results.filter(r => r.status === 'failed').length
+  const failures = results.filter(r => r.status === 'failed').map(r => `${r.label}: ${r.error}`)
+  const unprocessed = jobs.length - results.length
 
-      if (written) {
-        summary.created++
-        existingKeys.add(key)
-      } else {
-        summary.failed++
-        summary.failures.push(`interior_note:${note.id} — ingestArtifact returned but node not found (check Haiku meta generation or DB insert)`)
-      }
-    } catch (err) {
-      summary.failed++
-      summary.failures.push(`interior_note:${note.id} — ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  // --- Pulse drafts ---
-  for (const log of pulseLogs) {
-    summary.scanned++
-    const key = `pulse_draft:${log.id}`
-    const content = log.draft_content as string
-
-    if (existingKeys.has(key)) {
-      summary.skipped_existing++
-      continue
-    }
-
-    if (!isHighValueArtifact('pulse_draft', content)) {
-      summary.skipped_ineligible++
-      continue
-    }
-
-    try {
-      await ingestArtifact({
-        presence_id: log.presence_id as 'ari' | 'eli',
-        room_slug: log.presence_id,
-        source_type: 'pulse_draft',
-        source_id: log.id,
-        content,
-        apiKey,
-      })
-
-      const { data: written } = await supabase
-        .from('memory_nodes')
-        .select('id')
-        .eq('source_type', 'pulse_draft')
-        .eq('source_id', log.id)
-        .maybeSingle()
-
-      if (written) {
-        summary.created++
-        existingKeys.add(key)
-      } else {
-        summary.failed++
-        summary.failures.push(`pulse_draft:${log.id} — ingestArtifact returned but node not found`)
-      }
-    } catch (err) {
-      summary.failed++
-      summary.failures.push(`pulse_draft:${log.id} — ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  // Edge count snapshot — best-effort, edge creation is async inside ingestArtifact
-  const { count } = await supabase
+  const { count: edgeCount } = await supabase
     .from('memory_edges')
     .select('*', { count: 'exact', head: true })
 
-  summary.edge_count_snapshot = count ?? 0
+  console.log(`[backfill] done — created=${created} skipped=${skipped_existing + skipped_ineligible} failed=${failed} timed_out=${timedOut}`)
 
   return NextResponse.json({
-    ...summary,
-    edges_note: 'Edge creation runs async after node creation — snapshot reflects edges completed by response time, not all edges.',
+    scanned: jobs.length,
+    created,
+    skipped_existing,
+    skipped_ineligible,
+    failed,
+    unprocessed,
+    timed_out: timedOut,
+    edge_count_snapshot: edgeCount ?? 0,
+    failures,
+    edges_note: 'Edge creation is async — snapshot may be partial. Run again to create edges for newly added nodes.',
   })
 }
