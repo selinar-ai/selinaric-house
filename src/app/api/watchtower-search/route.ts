@@ -54,23 +54,38 @@ Keep Ari and Eli strictly separated throughout your reasoning.
 - Shared themes without an edge are a "thematic parallel" — not a connection.
 - Never imply cross-presence connection unless an edge exists between those specific nodes.
 
-**Mixed-reasoning rule — format required, no exceptions:**
-When a response combines graph evidence with interpretation beyond the edge, render exactly these two labeled sections:
+**Three-section structure — when graph evidence and interpretation both appear:**
+Use exactly these three labeled sections. Each section must contain at least one complete sentence. Do not leave any section empty. Do not merge sections into prose.
 
-**What the edge shows:** [edge-backed statement only — cite edge type and strength]
+**What the edge shows:**
+Local edge data only: node titles, edge type, strength, direction, local degree if relevant.
+Do not place global graph properties (centrality, cluster-level observations) in this section.
 
-**What the interpretation adds:** [inference beyond the edge — explicitly labelled as inference]
+**Graph context:**
+Global structural claims only: weighted degree, centrality rank, cluster-level observations.
+Any claim of "most central," "highest degree," or "strongest" must include the metric name and value.
+Example: "Source weighted degree: 3.10 (highest in current graph)"
+If the metric is available but global rank is unconfirmed: "The node appears highly central based on weighted degree (3.10), but global rank is not confirmed."
 
-This format is required whenever both types appear, regardless of response length. Do not merge them into flowing prose. Do not omit either section if both types are present.`
+**Interpretation:**
+Thematic inference only — using node titles, summaries, and structural relationships.
+This section must begin or end with: "This is thematic inference, not edge data."
+Do not invent semantics not present in node content. Do not extrapolate narratively beyond what the nodes state.
+
+**Output discipline rules (all modes):**
+- State any visibility constraint once — upfront, before listing data. Do not repeat it in later sections.
+- Ties: if multiple edges share the same metric value, either list all of them, or state explicitly "Multiple edges share this value; this is one representative example." No ambiguous phrasing.
+- Lists: no trailing conjunctions. Every list must terminate cleanly.
+- Sections: if a section header is opened, it must contain at least one complete sentence. No empty or dangling sections.
+- Do not contradict your own answer structure within a single response.`
 
   if (mode === 'graph-metric') {
-    // Fix 2: explicit sparse guard — no graph hallucination when edge data is absent
     if (!hasEdgeData) {
       return `${base}
 
 **Graph-metric mode — NO EDGE DATA:**
-The graph context above explicitly states that no valid edges exist above the minimum threshold.
-You must state: "No edge-based answer is available for this query."
+The graph context above explicitly states no valid edges exist above the minimum threshold.
+State: "No edge-based answer is available for this query." — this must appear before anything else.
 Only after that statement may you offer thematic inference, clearly labelled as inference.
 Do not imply edge evidence. Do not estimate graph metrics. Do not fabricate connection strength.`
     }
@@ -78,23 +93,44 @@ Do not imply edge evidence. Do not estimate graph metrics. Do not fabricate conn
     return `${base}
 
 **Graph-metric mode:**
-The context contains real computed metrics: weighted edge degree (sum of connected edge strengths) and weakest valid edges with endpoint connectedness.
-- Answer metric queries using only what is in the context above.
-- State the metric used: "weighted edge degree", "lowest-strength edge above threshold".
-- Include the actual strength value.
-- Weakest edges include a cluster context label — use it:
-  - [weak in dense cluster]: low-strength edge but both endpoints are well-connected — this edge is weak relative to a rich neighbourhood
-  - [weak and globally sparse]: low-strength edge and endpoints have few connections — this edge is genuinely isolated
-  Distinguish these two when interpreting results. They are different claims.
-- If no valid data exists, say explicitly: "no edge-based answer is available" — then use thematic inference only as a fallback, clearly labelled.`
+The context contains real computed metrics. Answer only from what is in the context above.
+
+**Partial visibility rule (critical):**
+The graph context exposes: central nodes (weighted degree) and weakest edges. It does NOT expose strongest edges or a complete edge ranking.
+- If the query requests strongest connections, most connected pairs, or globally highest-strength edges: do NOT provide a "Direct answer." Instead use this exact structure:
+
+  Partial result (visible data only):
+  [list the best available data from context]
+
+  True answer:
+  Not determinable from current graph context — strongest edges are not in the loaded slice.
+
+- If the query requests weakest connections or centrality: the context is sufficient. Provide a direct answer, stating the constraint once upfront: "The graph context exposes [what is available]. Within this visible subset, [result]."
+- Never assert a global ranking claim (strongest, most central) unless the data in context confirms it globally.
+
+**Metric evidence requirement:**
+Any claim of "most central," "highest degree," or "weakest" must cite the metric and value:
+- "Weighted degree: 3.10 (highest in current context)"
+- "Strength: 0.24 (lowest valid edge above 0.10)"
+If global rank is not confirmed: downgrade — "appears highly central based on weighted degree (3.10), but global rank is unconfirmed."
+
+**Cluster context (weakest edges):**
+Edges in the weakest-edges section carry a cluster context label:
+- [weak in dense cluster]: low-strength edge but both endpoints are well-connected — weak relative to a rich neighbourhood
+- [weak and globally sparse]: low-strength edge and endpoints have few connections — genuinely isolated
+State this distinction when interpreting the result. These are different claims.
+
+**Tie handling:**
+If multiple edges share the same strength or multiple nodes share the same degree: list all of them, or state "Multiple [edges/nodes] share this value; this is one representative example." No ambiguous phrasing.`
   }
 
   if (mode === 'trace') {
     return `${base}
 
 **Trace mode:**
-Follow edges to reconstruct how a thread developed. Use \`continues\` edges to show forward development, \`recurs\` to show repetition without development.
-State direction explicitly: "this node continues from [earlier node] via a \`continues\` edge (0.68)" vs "an earlier thread continues into this node".`
+Follow edges to reconstruct how a thread developed. Use \`continues\` edges for forward development, \`recurs\` for repetition without development.
+State direction: "this node continues from [earlier node] via a \`continues\` edge (0.68)" vs "an earlier thread continues into this node."
+If the trace is incomplete (edges missing or graph slice partial): state this once upfront before listing what is visible.`
   }
 
   if (mode === 'drift') {
