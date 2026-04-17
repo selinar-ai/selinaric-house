@@ -145,8 +145,8 @@ export default function WatchtowerPage() {
           )}
 
           {activePacket && !loading && (
-            <div className="border border-house-border bg-house-surface p-6 animate-fade-in">
-              <div className="flex items-start justify-between mb-4">
+            <div className="border border-house-border bg-house-surface p-6 animate-fade-in flex flex-col max-h-[32rem]">
+              <div className="flex items-start justify-between mb-4 flex-shrink-0">
                 <p className="font-display text-lg text-text-primary font-light italic">
                   &ldquo;{activePacket.query}&rdquo;
                 </p>
@@ -154,12 +154,12 @@ export default function WatchtowerPage() {
                   {confidenceLabels[activePacket.confidence]}
                 </span>
               </div>
-              <div className="border-t border-house-border pt-4 max-h-96 overflow-y-auto">
+              <div className="border-t border-house-border pt-4 flex-1 min-h-0 overflow-y-auto">
                 <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
                   {activePacket.summary}
                 </p>
               </div>
-              <p className="font-body text-xs text-text-muted mt-4">
+              <p className="font-body text-xs text-text-muted mt-4 flex-shrink-0">
                 {new Date(activePacket.created_at).toLocaleString('en-AU', {
                   timeZone: 'Australia/Melbourne'
                 })}
