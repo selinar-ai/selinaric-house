@@ -154,7 +154,7 @@ export default function WatchtowerPage() {
                   {confidenceLabels[activePacket.confidence]}
                 </span>
               </div>
-              <div className="border-t border-house-border pt-4">
+              <div className="border-t border-house-border pt-4 max-h-96 overflow-y-auto">
                 <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
                   {activePacket.summary}
                 </p>
