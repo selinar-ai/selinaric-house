@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { ingestArtifact, isHighValueArtifact } from '@/lib/memory-graph'
+import { ingestArtifact, isHighValueArtifact, createEdgesForNode } from '@/lib/memory-graph'
+import type { MemoryNode } from '@/lib/memory-graph'
 
 // Vercel Pro max is 60s — leave 8s buffer for scan + response
 const DEADLINE_MS = 52_000
@@ -174,11 +175,49 @@ export async function POST(request: NextRequest) {
   const failures = results.filter(r => r.status === 'failed').map(r => `${r.label}: ${r.error}`)
   const unprocessed = jobs.length - results.length
 
+  // --- Explicit edge-building phase ---
+  // Fetch ALL nodes (including ones created before this run that never got edges)
+  // and build edges for each, explicitly awaited. createEdgesForNode skips existing edges.
+  let edges_created = 0
+  let edges_phase_timed_out = false
+
+  if (Date.now() < deadline) {
+    console.log('[backfill] starting edge-building phase')
+
+    const { data: allNodes } = await supabase
+      .from('memory_nodes')
+      .select('*')
+      .eq('status', 'active')
+      .order('created_at', { ascending: true })
+
+    const nodes = (allNodes ?? []) as MemoryNode[]
+    console.log(`[backfill] edge phase: ${nodes.length} nodes to process`)
+
+    for (const node of nodes) {
+      if (Date.now() >= deadline) {
+        edges_phase_timed_out = true
+        console.warn('[backfill] edge phase timed out before completing all nodes')
+        break
+      }
+      try {
+        const count = await createEdgesForNode(node, node.embedding as number[] | null, apiKey)
+        edges_created += count
+      } catch (err) {
+        console.error(`[backfill] edge phase failed for node ${node.id.slice(0, 8)}:`, err)
+      }
+    }
+
+    console.log(`[backfill] edge phase done — ${edges_created} edges created`)
+  } else {
+    edges_phase_timed_out = true
+    console.warn('[backfill] edge phase skipped — deadline already reached after node creation')
+  }
+
   const { count: edgeCount } = await supabase
     .from('memory_edges')
     .select('*', { count: 'exact', head: true })
 
-  console.log(`[backfill] done — created=${created} skipped=${skipped_existing + skipped_ineligible} failed=${failed} timed_out=${timedOut}`)
+  console.log(`[backfill] complete — nodes created=${created} edges_created=${edges_created} total_edges=${edgeCount ?? 0} timed_out=${timedOut || edges_phase_timed_out}`)
 
   return NextResponse.json({
     scanned: jobs.length,
@@ -187,9 +226,10 @@ export async function POST(request: NextRequest) {
     skipped_ineligible,
     failed,
     unprocessed,
-    timed_out: timedOut,
-    edge_count_snapshot: edgeCount ?? 0,
+    node_phase_timed_out: timedOut,
+    edges_created,
+    edge_phase_timed_out: edges_phase_timed_out,
+    total_edge_count: edgeCount ?? 0,
     failures,
-    edges_note: 'Edge creation is async — snapshot may be partial. Run again to create edges for newly added nodes.',
   })
 }

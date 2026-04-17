@@ -167,7 +167,10 @@ async function findSimilarNodes(
       match_count: limit,
     })
 
-    if (!error && data) return data as SimilarNode[]
+    if (!error && data) {
+      console.log(`[memory-graph] findSimilarNodes: vector search returned ${(data as SimilarNode[]).length} candidates for ${presenceId}`)
+      return data as SimilarNode[]
+    }
   }
 
   // Fallback: recent active nodes for this presence (text comparison done via Haiku)
@@ -179,7 +182,9 @@ async function findSimilarNodes(
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  return (data ?? []) as SimilarNode[]
+  const nodes = (data ?? []) as SimilarNode[]
+  console.log(`[memory-graph] findSimilarNodes: fallback returned ${nodes.length} candidates for ${presenceId}`)
+  return nodes
 }
 
 // --- Edge type determination ---
@@ -230,32 +235,55 @@ Use strength 0.0 and edge_type "none" if unrelated.`
     const parsed = JSON.parse(clean) as { edge_type: string; strength: number }
 
     // Explicit "none" means no meaningful connection
-    if (parsed.edge_type === 'none') return null
+    if (parsed.edge_type === 'none') {
+      console.log(`[memory-graph] determineEdge: Haiku returned "none" for "${newNode.title}" → "${existingNode.title}"`)
+      return null
+    }
 
     const validTypes: EdgeType[] = ['recurs', 'continues', 'relates_to', 'contrasts_with', 'drifts_from']
-    if (!validTypes.includes(parsed.edge_type as EdgeType)) return null
+    if (!validTypes.includes(parsed.edge_type as EdgeType)) {
+      console.warn(`[memory-graph] determineEdge: invalid edge_type "${parsed.edge_type}" — skipping`)
+      return null
+    }
 
+    console.log(`[memory-graph] determineEdge: "${newNode.title}" --[${parsed.edge_type}]--> "${existingNode.title}" (strength ${parsed.strength.toFixed(2)})`)
     return {
       edge_type: parsed.edge_type as EdgeType,
       strength: Math.max(0, Math.min(1, parsed.strength)),
     }
-  } catch {
-    // In fallback mode (no similarity score), do not create speculative edges on Haiku errors
+  } catch (err) {
+    console.error('[memory-graph] determineEdge: Haiku call failed:', err)
     return null
   }
 }
 
-// --- Edge creation for new node ---
+// --- Edge creation for a node ---
 
-async function createEdgesForNode(
+export async function createEdgesForNode(
   node: MemoryNode,
   embedding: number[] | null,
   apiKey: string
-): Promise<void> {
+): Promise<number> {
   const candidates = await findSimilarNodes(node.presence_id, embedding, 0.70, 5)
   const relevant = candidates.filter(c => c.id !== node.id)
 
+  console.log(`[memory-graph] createEdgesForNode: ${relevant.length} candidates for node "${node.title}" (${node.id.slice(0, 8)})`)
+
+  let created = 0
+
   for (const candidate of relevant) {
+    // Dedup: skip if an edge already exists in either direction between these two nodes
+    const { data: existing } = await supabase
+      .from('memory_edges')
+      .select('id')
+      .or(`and(from_node_id.eq.${node.id},to_node_id.eq.${candidate.id}),and(from_node_id.eq.${candidate.id},to_node_id.eq.${node.id})`)
+      .maybeSingle()
+
+    if (existing) {
+      console.log(`[memory-graph] createEdgesForNode: edge already exists between ${node.id.slice(0, 8)} and ${candidate.id.slice(0, 8)} — skipping`)
+      continue
+    }
+
     const edgeInfo = await determineEdge(node, candidate, apiKey)
     if (!edgeInfo) continue
 
@@ -268,8 +296,13 @@ async function createEdgesForNode(
 
     if (error) {
       console.error('[memory-graph] Edge insert failed:', error)
+    } else {
+      created++
     }
   }
+
+  console.log(`[memory-graph] createEdgesForNode: ${created} edges created for "${node.title}"`)
+  return created
 }
 
 // --- Public: main ingestion ---
@@ -306,11 +339,13 @@ export async function ingestArtifact(params: {
 
   console.log(`[memory-graph] Node created: ${node.id} — "${node.title}" (${params.presence_id})`)
 
-  // Edge creation is non-critical — fire and forget
+  // Edge creation is non-critical but must be awaited — fire-and-forget is unreliable in serverless
   const embedding = node.embedding as number[] | null
-  createEdgesForNode(node, embedding, params.apiKey).catch(err =>
+  try {
+    await createEdgesForNode(node, embedding, params.apiKey)
+  } catch (err) {
     console.error('[memory-graph] Edge creation failed:', err)
-  )
+  }
 }
 
 // --- Public: Watchtower graph context loader ---
