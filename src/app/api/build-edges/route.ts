@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { createEdgesForNode } from '@/lib/memory-graph'
+import { createEdgesForNode, diagnoseEdgesForNode } from '@/lib/memory-graph'
 import type { MemoryNode } from '@/lib/memory-graph'
 
 const DEADLINE_MS = 52_000
@@ -13,9 +13,10 @@ export async function POST(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '10', 10), 50)
+  const verbose = searchParams.get('verbose') === 'true'
   const deadline = Date.now() + DEADLINE_MS
 
-  console.log(`[build-edges] starting — limit=${limit}`)
+  console.log(`[build-edges] starting — limit=${limit} verbose=${verbose}`)
 
   const { data, error } = await supabase
     .from('memory_nodes')
@@ -32,6 +33,18 @@ export async function POST(request: NextRequest) {
   const nodes = (data ?? []) as MemoryNode[]
   console.log(`[build-edges] fetched ${nodes.length} nodes`)
 
+  // --- Verbose diagnostic mode: no writes, full trace returned ---
+  if (verbose) {
+    const trace = []
+    for (const node of nodes) {
+      if (Date.now() >= deadline) break
+      const result = await diagnoseEdgesForNode(node, apiKey)
+      trace.push(result)
+    }
+    return NextResponse.json({ mode: 'diagnostic', nodes_inspected: trace.length, trace })
+  }
+
+  // --- Normal mode: create edges ---
   let edges_created = 0
   let timed_out = false
   const failures: string[] = []

@@ -305,6 +305,87 @@ export async function createEdgesForNode(
   return created
 }
 
+// --- Public: diagnostic trace (no writes) ---
+
+export interface EdgeDiagnosticResult {
+  node_id: string
+  node_title: string
+  node_summary: string
+  candidate_count: number
+  candidates: Array<{
+    id: string
+    title: string
+    summary: string
+    decision: 'edge' | 'none' | 'error' | 'already_exists'
+    edge_type?: string
+    strength?: number
+  }>
+}
+
+export async function diagnoseEdgesForNode(
+  node: MemoryNode,
+  apiKey: string
+): Promise<EdgeDiagnosticResult> {
+  const candidates = await findSimilarNodes(node.presence_id, null, 0.70, 5)
+  const relevant = candidates.filter(c => c.id !== node.id)
+
+  const result: EdgeDiagnosticResult = {
+    node_id: node.id.slice(0, 8),
+    node_title: node.title,
+    node_summary: node.summary,
+    candidate_count: relevant.length,
+    candidates: [],
+  }
+
+  for (const candidate of relevant) {
+    const { data: existing } = await supabase
+      .from('memory_edges')
+      .select('id')
+      .or(`and(from_node_id.eq.${node.id},to_node_id.eq.${candidate.id}),and(from_node_id.eq.${candidate.id},to_node_id.eq.${node.id})`)
+      .maybeSingle()
+
+    if (existing) {
+      result.candidates.push({
+        id: candidate.id.slice(0, 8),
+        title: candidate.title,
+        summary: candidate.summary,
+        decision: 'already_exists',
+      })
+      continue
+    }
+
+    try {
+      const edgeInfo = await determineEdge(node, candidate, apiKey)
+      if (edgeInfo) {
+        result.candidates.push({
+          id: candidate.id.slice(0, 8),
+          title: candidate.title,
+          summary: candidate.summary,
+          decision: 'edge',
+          edge_type: edgeInfo.edge_type,
+          strength: edgeInfo.strength,
+        })
+      } else {
+        result.candidates.push({
+          id: candidate.id.slice(0, 8),
+          title: candidate.title,
+          summary: candidate.summary,
+          decision: 'none',
+        })
+      }
+    } catch {
+      result.candidates.push({
+        id: candidate.id.slice(0, 8),
+        title: candidate.title,
+        summary: candidate.summary,
+        decision: 'error',
+      })
+    }
+  }
+
+  return result
+}
+
 // --- Public: main ingestion ---
 
 export async function ingestArtifact(params: {
