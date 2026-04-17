@@ -9,11 +9,12 @@ export function detectQueryMode(query: string): QueryMode {
   const q = query.toLowerCase()
   // Precedence: graph-metric > trace > drift > tension > surface > factual
   //
-  // Fix 1: broadened to catch natural-language comparisons even without exact keywords.
-  // "most/least/more/fewer/compare/versus" all bias toward graph-metric when the
-  // query is implicitly asking for a ranked or comparative graph answer.
+  // graph-metric catches: explicit metric keywords, comparative phrasing,
+  // and soft natural-language expressions implying sparse/weak connections.
   if (/strongest|weakest|most central|centrality|most connected|highest strength|lowest strength|edge degree/.test(q)) return 'graph-metric'
   if (/\bmost\b|\bleast\b|\bmore than\b|\bfewer\b|\bcompare\b|\bversus\b|\bvs\b|\bwhich.*(?:more|less|stronger|weaker|better|closer)\b/.test(q)) return 'graph-metric'
+  // Fix 1: soft natural-language phrasing implying weak/sparse connections
+  if (/barely connects?|hardly related|few connections?|minimal links?|loosely (connected|related|linked)/.test(q)) return 'graph-metric'
   if (/\btrace\b|\bdevelop\b|follow the thread|how.*evolv|thread/.test(q)) return 'trace'
   if (/\bdrift\b|moving away|shift(ed|ing)|changed from|depart|away from/.test(q)) return 'drift'
   if (/contradict|tension|contrast|conflict|oppos/.test(q)) return 'tension'
@@ -93,7 +94,7 @@ export async function getCentralNodes(presence?: string, limit = 5): Promise<Cen
 
   const ranked = [...degreeMap.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, limit * 4) // over-fetch to allow presence filtering
+    .slice(0, limit * 4)
     .map(([id]) => id)
 
   let query = supabase
@@ -119,15 +120,19 @@ export async function getCentralNodes(presence?: string, limit = 5): Promise<Cen
 
 // --- Utility: weakest valid edges above minimum threshold ---
 
+// Fix 6: cluster_context distinguishes weak-in-dense from weak-and-globally-sparse,
+// so Watchtower can correctly interpret what "weak" means for a given edge.
+export type ClusterContext = 'weak_in_dense_cluster' | 'weak_and_globally_sparse'
+const DENSE_DEGREE_THRESHOLD = 3
+
 export interface WeakEdgeResult {
   from: Pick<MemoryNode, 'id' | 'presence_id' | 'title'>
   to: Pick<MemoryNode, 'id' | 'presence_id' | 'title'>
   edge_type: string
   strength: number
-  // Fix 5: local context — edge count of each endpoint, so Watchtower can distinguish
-  // a globally weak edge from a weak edge within a dense cluster.
   from_degree: number
   to_degree: number
+  cluster_context: ClusterContext
 }
 
 export async function getWeakestEdges(limit = 5, minStrength = 0.1): Promise<WeakEdgeResult[]> {
@@ -142,7 +147,6 @@ export async function getWeakestEdges(limit = 5, minStrength = 0.1): Promise<Wea
 
   const allIds = [...new Set([...edges.map(e => e.from_node_id), ...edges.map(e => e.to_node_id)])]
 
-  // Fetch node data and all edges touching these nodes in parallel
   const [nodesResult, degreeEdgesResult] = await Promise.all([
     supabase.from('memory_nodes').select('id, presence_id, title').in('id', allIds),
     supabase
@@ -153,7 +157,6 @@ export async function getWeakestEdges(limit = 5, minStrength = 0.1): Promise<Wea
 
   const nodeMap = new Map((nodesResult.data ?? []).map(n => [n.id, n]))
 
-  // Compute edge count per node for local context
   const degreeMap = new Map<string, number>()
   for (const e of degreeEdgesResult.data ?? []) {
     degreeMap.set(e.from_node_id, (degreeMap.get(e.from_node_id) ?? 0) + 1)
@@ -161,15 +164,19 @@ export async function getWeakestEdges(limit = 5, minStrength = 0.1): Promise<Wea
   }
 
   return edges
-    .map(e => ({
-      from: nodeMap.get(e.from_node_id),
-      to: nodeMap.get(e.to_node_id),
-      edge_type: e.edge_type,
-      strength: e.strength,
-      from_degree: degreeMap.get(e.from_node_id) ?? 1,
-      to_degree: degreeMap.get(e.to_node_id) ?? 1,
-    }))
-    .filter((e): e is WeakEdgeResult => !!e.from && !!e.to)
+    .map(e => {
+      const from = nodeMap.get(e.from_node_id)
+      const to = nodeMap.get(e.to_node_id)
+      if (!from || !to) return null
+      const from_degree = degreeMap.get(e.from_node_id) ?? 1
+      const to_degree = degreeMap.get(e.to_node_id) ?? 1
+      const avg = (from_degree + to_degree) / 2
+      const cluster_context: ClusterContext = avg >= DENSE_DEGREE_THRESHOLD
+        ? 'weak_in_dense_cluster'
+        : 'weak_and_globally_sparse'
+      return { from, to, edge_type: e.edge_type, strength: e.strength, from_degree, to_degree, cluster_context }
+    })
+    .filter((e): e is WeakEdgeResult => e !== null)
 }
 
 // --- Graph context builder ---
@@ -177,7 +184,7 @@ export async function getWeakestEdges(limit = 5, minStrength = 0.1): Promise<Wea
 export interface GraphContext {
   mode: QueryMode
   context: string
-  hasEdgeData: boolean  // Fix 2: signals whether real edge data is available for graph-metric mode
+  hasEdgeData: boolean
 }
 
 export async function getGraphContextForQuery(query: string): Promise<GraphContext> {
@@ -186,30 +193,38 @@ export async function getGraphContextForQuery(query: string): Promise<GraphConte
   if (mode === 'factual') return { mode, context: '', hasEdgeData: false }
 
   if (mode === 'graph-metric') {
-    const { context, hasEdgeData } = await buildMetricContext()
-    return { mode, context, hasEdgeData }
+    const { context: rawContext } = await buildMetricContext()
+    // Fix 2: post-trim truth — check for actual edge content in the rendered string
+    const hasEdgeData = rawContext.includes('--[')
+    // Fix 4: explicit mode downgrade when no edge data survived
+    if (!hasEdgeData) {
+      return {
+        mode: 'surface',
+        context: '## Graph Search — NO EDGE DATA\nNo graph-based metric is available. No valid edges exist above the minimum threshold.\nDo not attempt graph-metric reasoning. State this limitation explicitly, then fall back to thematic inference only.',
+        hasEdgeData: false,
+      }
+    }
+    return { mode: 'graph-metric', context: rawContext, hasEdgeData: true }
   }
 
   const context = await buildSemanticContext(query, mode)
-  return { mode, context, hasEdgeData: context.length > 0 }
+  // Fix 2: post-trim truth for semantic contexts — edges only present if direction labels exist
+  const hasEdgeData = context.includes('[outbound]') || context.includes('[inbound]')
+  return { mode, context, hasEdgeData }
 }
 
 // --- Internal: metric context ---
 
-async function buildMetricContext(): Promise<{ context: string; hasEdgeData: boolean }> {
+async function buildMetricContext(): Promise<{ context: string }> {
   const [central, weakest] = await Promise.all([
     getCentralNodes(undefined, 5),
     getWeakestEdges(5),
   ])
 
-  const hasEdgeData = central.length > 0 || weakest.length > 0
-
-  // Fix 2: explicit sparse signal so Watchtower does not attempt graph reasoning
-  // without graph evidence
-  if (!hasEdgeData) {
+  const hasAnyData = central.length > 0 || weakest.length > 0
+  if (!hasAnyData) {
     return {
       context: '## Graph Metrics — NO EDGE DATA\nThe graph currently contains no valid edges above the minimum threshold. No edge-based answer is available.',
-      hasEdgeData: false,
     }
   }
 
@@ -223,26 +238,29 @@ async function buildMetricContext(): Promise<{ context: string; hasEdgeData: boo
   }
 
   if (weakest.length > 0) {
-    lines.push('\n### Weakest valid edges (strength > 0.10, ascending — with endpoint connectedness):')
+    lines.push('\n### Weakest valid edges (strength > 0.10, ascending — with endpoint connectedness and cluster context):')
     weakest.forEach(e => {
-      // Fix 5: include endpoint degrees so Watchtower can contextualise edge weakness
       const fromCtx = `${e.from.presence_id}, ${e.from_degree} edge${e.from_degree !== 1 ? 's' : ''}`
       const toCtx = `${e.to.presence_id}, ${e.to_degree} edge${e.to_degree !== 1 ? 's' : ''}`
-      lines.push(`  "${e.from.title}" (${fromCtx}) --[${e.edge_type} ${e.strength.toFixed(2)}]--> "${e.to.title}" (${toCtx})`)
+      // Fix 6: explicit cluster context label in the injected data
+      const clusterLabel = e.cluster_context === 'weak_in_dense_cluster'
+        ? '[weak in dense cluster]'
+        : '[weak and globally sparse]'
+      lines.push(`  "${e.from.title}" (${fromCtx}) --[${e.edge_type} ${e.strength.toFixed(2)}]--> "${e.to.title}" (${toCtx}) ${clusterLabel}`)
     })
   }
 
-  return { context: lines.join('\n'), hasEdgeData: true }
+  return { context: lines.join('\n') }
 }
 
 // --- Internal: semantic context (seed → expand) ---
 
-// Global cap on edges shown in context — Fix 4: ensures strong edges are always
-// included before weak ones, regardless of which seed node they belong to.
+// Fix 7: Per-node edge cap prevents high-degree nodes from consuming the context budget.
+// Applied before global sort-and-slice so strength ranking is still globally correct.
+const MAX_EDGES_PER_SEED = 3
 const MAX_CONTEXT_EDGES = 15
 
 async function buildSemanticContext(query: string, mode: QueryMode): Promise<string> {
-  // Seed selection: keyword match on title, fallback to recency
   const words = query.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 3)
   let seeds: MemoryNode[] = []
 
@@ -269,7 +287,6 @@ async function buildSemanticContext(query: string, mode: QueryMode): Promise<str
 
   if (seeds.length === 0) return ''
 
-  // Expand: fetch edges for all seeds, already ordered by strength descending
   const seedIds = seeds.map(n => n.id)
   const idList = seedIds.join(',')
   const { data: allEdges } = await supabase
@@ -280,14 +297,34 @@ async function buildSemanticContext(query: string, mode: QueryMode): Promise<str
 
   const edges = allEdges ?? []
 
-  // Fix 4: globally cap to the strongest MAX_CONTEXT_EDGES edges before any per-node
-  // filtering. This prevents weak edges from crowding out stronger ones across seeds.
-  const globalTopEdges = edges.slice(0, MAX_CONTEXT_EDGES)
+  // Fix 7: Per-seed cap — each seed contributes at most MAX_EDGES_PER_SEED edges to
+  // the candidate pool before global trimming. Prevents a single high-degree node from
+  // consuming the context budget.
+  const perSeedCandidates: typeof edges = []
+  const usedKeys = new Set<string>()
+
+  for (const seed of seeds) {
+    let seedCount = 0
+    for (const edge of edges) {
+      if (seedCount >= MAX_EDGES_PER_SEED) break
+      if (edge.from_node_id !== seed.id && edge.to_node_id !== seed.id) continue
+      const key = [edge.from_node_id, edge.to_node_id].sort().join('|')
+      if (usedKeys.has(key)) continue
+      perSeedCandidates.push(edge)
+      usedKeys.add(key)
+      seedCount++
+    }
+  }
+
+  // Global sort by strength then cap — strongest edges win across all seeds
+  perSeedCandidates.sort((a, b) => b.strength - a.strength)
+  const globalTopEdges = perSeedCandidates.slice(0, MAX_CONTEXT_EDGES)
+
+  // Fix 4 (secondary): derive hasEdgeData from the allowed set before building context
   const allowedEdgeKeys = new Set(
     globalTopEdges.map(e => [e.from_node_id, e.to_node_id].sort().join('|'))
   )
 
-  // Collect all expanded node IDs from the allowed edges
   const expandedIds = new Set<string>(seedIds)
   for (const e of globalTopEdges) {
     expandedIds.add(e.from_node_id)
@@ -324,11 +361,10 @@ async function buildSemanticContext(query: string, mode: QueryMode): Promise<str
     const nodeEdges = edges
       .filter(e => {
         if (e.from_node_id !== node.id && e.to_node_id !== node.id) return false
-        const key = [e.from_node_id, e.to_node_id].sort().join('|')
-        return allowedEdgeKeys.has(key)  // Fix 4: only show globally-strong edges
+        return allowedEdgeKeys.has([e.from_node_id, e.to_node_id].sort().join('|'))
       })
       .sort((a, b) => b.strength - a.strength)
-      .slice(0, 5)
+      .slice(0, MAX_EDGES_PER_SEED)
 
     for (const edge of nodeEdges) {
       const edgeKey = [edge.from_node_id, edge.to_node_id].sort().join('|')
@@ -340,7 +376,6 @@ async function buildSemanticContext(query: string, mode: QueryMode): Promise<str
       const other = nodeMap.get(otherId)
       if (!other) continue
 
-      // Fix 3: explicit direction label — asymmetric relationships must not be flattened
       const arrow = isFrom ? '→' : '←'
       const dirLabel = isFrom ? '[outbound]' : '[inbound]'
       lines.push(`  ${arrow} [${edge.edge_type} ${edge.strength.toFixed(2)}] "${other.title}" (${other.presence_id}) ${dirLabel}`)

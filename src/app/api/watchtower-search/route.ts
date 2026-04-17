@@ -40,12 +40,13 @@ Every connection you draw between nodes must be either:
 - Inferred: explicitly mark it — "no direct edge exists; this is thematic inference"
 Never imply a connection without stating its basis.
 
-**Edge direction rule:**
+**Edge direction rule — strictly enforced:**
 Edges in the context are labelled [outbound] or [inbound] relative to the node they are listed under.
-An outbound edge (A → B) is not equivalent to an inbound edge (B → A). Direction is meaningful:
-- \`continues\` outbound: this node extends an earlier thread
-- \`continues\` inbound: an earlier thread extended into this node
-Do not flatten direction. State it when it matters.
+Treating an inbound edge as outbound (or vice versa) is an error. They are not equivalent.
+- [outbound] A → B means A is the source: "A extends/relates to/drifts from B"
+- [inbound] B ← A means A acts on B: "B receives/is extended by/is related to by A"
+For \`continues\`: outbound means this node extends an earlier thread; inbound means an earlier thread extended into this node — opposite relationships.
+State direction explicitly. Never collapse or assume symmetry.
 
 **Provenance rule:**
 Keep Ari and Eli strictly separated throughout your reasoning.
@@ -53,11 +54,14 @@ Keep Ari and Eli strictly separated throughout your reasoning.
 - Shared themes without an edge are a "thematic parallel" — not a connection.
 - Never imply cross-presence connection unless an edge exists between those specific nodes.
 
-**Mixed-reasoning rule:**
-When a response combines graph evidence with interpretation beyond the edge, separate them explicitly:
-- **What the edge shows:** [edge-backed statement]
-- **What the interpretation adds:** [inference beyond the edge]
-This separation is required whenever both types of reasoning appear in the same response.`
+**Mixed-reasoning rule — format required, no exceptions:**
+When a response combines graph evidence with interpretation beyond the edge, render exactly these two labeled sections:
+
+**What the edge shows:** [edge-backed statement only — cite edge type and strength]
+
+**What the interpretation adds:** [inference beyond the edge — explicitly labelled as inference]
+
+This format is required whenever both types appear, regardless of response length. Do not merge them into flowing prose. Do not omit either section if both types are present.`
 
   if (mode === 'graph-metric') {
     // Fix 2: explicit sparse guard — no graph hallucination when edge data is absent
@@ -78,7 +82,10 @@ The context contains real computed metrics: weighted edge degree (sum of connect
 - Answer metric queries using only what is in the context above.
 - State the metric used: "weighted edge degree", "lowest-strength edge above threshold".
 - Include the actual strength value.
-- For weakest edges, use endpoint degree to interpret context: a weak edge between highly-connected nodes is different from a weak edge in a sparse area.
+- Weakest edges include a cluster context label — use it:
+  - [weak in dense cluster]: low-strength edge but both endpoints are well-connected — this edge is weak relative to a rich neighbourhood
+  - [weak and globally sparse]: low-strength edge and endpoints have few connections — this edge is genuinely isolated
+  Distinguish these two when interpreting results. They are different claims.
 - If no valid data exists, say explicitly: "no edge-based answer is available" — then use thematic inference only as a fallback, clearly labelled.`
   }
 
