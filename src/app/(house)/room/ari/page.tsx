@@ -7,8 +7,9 @@ import ChatInterface from '@/components/ChatInterface'
 import Timeline from '@/components/Timeline'
 import InsideView from '@/components/InsideView'
 import StateView from '@/components/StateView'
+import SearchLogView from '@/components/SearchLogView'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state'
+type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
@@ -56,6 +57,7 @@ export default function AriRoom() {
             { key: 'inside' as View, label: 'Inside' },
             { key: 'state' as View, label: 'State' },
             { key: 'identity' as View, label: 'Identity' },
+            { key: 'searches' as View, label: 'Searches' },
           ]).map(tab => (
             <button
               key={tab.key}
@@ -93,6 +95,11 @@ export default function AriRoom() {
           />
         ) : view === 'state' ? (
           <StateView
+            presenceId="ari"
+            accentClass="text-ari-primary"
+          />
+        ) : view === 'searches' ? (
+          <SearchLogView
             presenceId="ari"
             accentClass="text-ari-primary"
           />

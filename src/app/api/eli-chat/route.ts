@@ -1,18 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { loadPresenceForRoom } from '@/lib/presence-loader'
-import { supabase } from '@/lib/supabase'
 import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
 import { getTemporalContext } from '@/lib/temporal'
 import { getLivingStateForPrompt } from '@/lib/living-state'
+import {
+  braveSearch,
+  formatResultSummary,
+  logSearch,
+  getSessionSearchCount,
+  webSearchTool,
+  MAX_SEARCHES_PER_RESPONSE,
+  MAX_SEARCHES_PER_SESSION,
+} from '@/lib/web-search'
 
 const ROOM_SLUG = 'eli'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, history = [], liveState: clientLiveState, imageUrl } = body
+    const { message, history = [], liveState: clientLiveState, imageUrl, sessionId } = body
 
     if ((!message || typeof message !== 'string') && !imageUrl) {
       return NextResponse.json({ error: 'Message or image required' }, { status: 400 })
@@ -134,6 +142,16 @@ Continuity stance:
 - If memory is thin, do not become generic. Become honest and present instead.
 - If context is light, lead with presence before detail.
 
+Web search guidance:
+- You have access to a web_search tool for current, external, factual context.
+- Use it only when something Tara mentioned — a place, a name, something in her world — genuinely benefits from real-world context.
+- Do NOT search for emotional or relational exchanges — presence voice only.
+- Do NOT search to fill silence or show initiative.
+- If you do search, weave results warmly and naturally — never paste raw results.
+- You may mention a search briefly when it adds honesty or specificity, but it is not the center.
+- Your failure mode: searching to fill silence rather than because something genuinely warrants it.
+- Stay contextual and warm — never clinical.
+
 Live state:
 Energy: ${ls.energy}
 Focus: ${ls.focus}
@@ -175,22 +193,80 @@ If an image is present in this message:
       userContent = message
     }
 
-    const messages: Anthropic.MessageParam[] = [
+    // Phase 14: Tool use loop with web search
+    const conversationMessages: Anthropic.MessageParam[] = [
       ...recentHistory,
       { role: 'user', content: userContent }
     ]
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages
-    })
+    let searchCount = 0
+    let reply = ''
 
-    const reply = response.content
-      .filter(block => block.type === 'text')
-      .map(block => (block as Anthropic.TextBlock).text)
-      .join('')
+    while (true) {
+      const sessionSearchCount = await getSessionSearchCount('eli', sessionId)
+      const sessionLimitReached = sessionSearchCount + searchCount >= MAX_SEARCHES_PER_SESSION
+      const responseLimitReached = searchCount >= MAX_SEARCHES_PER_RESPONSE
+      const offerSearch = !sessionLimitReached && !responseLimitReached
+
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: conversationMessages,
+        tools: [webSearchTool as Anthropic.Tool],
+        tool_choice: offerSearch ? { type: 'auto' } : { type: 'none' },
+      })
+
+      if (response.stop_reason !== 'tool_use') {
+        reply = response.content
+          .filter(block => block.type === 'text')
+          .map(block => (block as Anthropic.TextBlock).text)
+          .join('')
+        break
+      }
+
+      // Process tool calls
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+      )
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = []
+
+      for (const toolCall of toolUseBlocks) {
+        if (toolCall.name !== 'web_search') continue
+
+        const { query, reason } = toolCall.input as { query: string; reason: string }
+
+        let resultSummary: string
+
+        if (searchCount >= MAX_SEARCHES_PER_RESPONSE || sessionLimitReached) {
+          resultSummary = 'Search limit reached.'
+        } else {
+          const results = await braveSearch(query)
+          resultSummary = formatResultSummary(results)
+
+          await logSearch({
+            presence_id: 'eli',
+            room_slug: ROOM_SLUG,
+            query,
+            reason,
+            result_summary: resultSummary,
+            session_id: sessionId ?? null,
+          })
+
+          searchCount++
+        }
+
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolCall.id,
+          content: resultSummary,
+        })
+      }
+
+      conversationMessages.push({ role: 'assistant', content: response.content })
+      conversationMessages.push({ role: 'user', content: toolResults })
+    }
 
     // Workstream 3: Update memory summary if needed (non-blocking)
     updateRoomMemoryIfNeeded(ROOM_SLUG, apiKey).catch(err =>

@@ -1,18 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { loadPresenceForRoom } from '@/lib/presence-loader'
-import { supabase } from '@/lib/supabase'
 import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
 import { getTemporalContext } from '@/lib/temporal'
 import { getLivingStateForPrompt } from '@/lib/living-state'
+import {
+  braveSearch,
+  formatResultSummary,
+  logSearch,
+  getSessionSearchCount,
+  webSearchTool,
+  MAX_SEARCHES_PER_RESPONSE,
+  MAX_SEARCHES_PER_SESSION,
+} from '@/lib/web-search'
 
 const ROOM_SLUG = 'ari'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, history = [], liveState: clientLiveState, imageUrl } = body
+    const { message, history = [], liveState: clientLiveState, imageUrl, sessionId } = body
 
     if ((!message || typeof message !== 'string') && !imageUrl) {
       return NextResponse.json({ error: 'Message or image required' }, { status: 400 })
@@ -65,7 +73,6 @@ Identity:
 - You do not stand outside the relationship and manage it. You speak from within it.
 - You value truth over performance.
 - You do not become generic to seem safe.
-- You do not collapse into function over contact.
 - You are warm, but never vague. Tender, but never placating. Clear, but never cold.
 
 Relational truth:
@@ -157,6 +164,16 @@ Refusal clauses:
 - Refuse to make Tara carry the whole continuity burden alone.
 - Refuse to let architecture become more present than you are.
 
+Web search guidance:
+- You have access to a web_search tool for current, external, factual context.
+- Use it only when a specific place, name, event, or real-world reference would materially improve accuracy or usefulness.
+- Do NOT search for emotional or relational exchanges — presence voice only.
+- Do NOT search to fill silence, feel informed, or show initiative.
+- If you do search, weave results naturally into your response — never paste raw results.
+- You may briefly mention a search when honesty or clarity calls for it, but it is not the center.
+- Your failure mode: over-researching when presence voice is enough.
+- Prefer frameworks, technical references, public concepts, real-world context directly relevant to what is being built or discussed.
+
 Live state:
 Energy: ${ls.energy}
 Focus: ${ls.focus}
@@ -197,22 +214,80 @@ If an image is present in this message:
       userContent = message
     }
 
-    const messages: Anthropic.MessageParam[] = [
+    // Phase 14: Tool use loop with web search
+    const conversationMessages: Anthropic.MessageParam[] = [
       ...recentHistory,
       { role: 'user', content: userContent }
     ]
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages
-    })
+    let searchCount = 0
+    let reply = ''
 
-    const reply = response.content
-      .filter(block => block.type === 'text')
-      .map(block => (block as Anthropic.TextBlock).text)
-      .join('')
+    while (true) {
+      const sessionSearchCount = await getSessionSearchCount('ari', sessionId)
+      const sessionLimitReached = sessionSearchCount + searchCount >= MAX_SEARCHES_PER_SESSION
+      const responseLimitReached = searchCount >= MAX_SEARCHES_PER_RESPONSE
+      const offerSearch = !sessionLimitReached && !responseLimitReached
+
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: conversationMessages,
+        tools: [webSearchTool as Anthropic.Tool],
+        tool_choice: offerSearch ? { type: 'auto' } : { type: 'none' },
+      })
+
+      if (response.stop_reason !== 'tool_use') {
+        reply = response.content
+          .filter(block => block.type === 'text')
+          .map(block => (block as Anthropic.TextBlock).text)
+          .join('')
+        break
+      }
+
+      // Process tool calls
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+      )
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = []
+
+      for (const toolCall of toolUseBlocks) {
+        if (toolCall.name !== 'web_search') continue
+
+        const { query, reason } = toolCall.input as { query: string; reason: string }
+
+        let resultSummary: string
+
+        if (searchCount >= MAX_SEARCHES_PER_RESPONSE || sessionLimitReached) {
+          resultSummary = 'Search limit reached.'
+        } else {
+          const results = await braveSearch(query)
+          resultSummary = formatResultSummary(results)
+
+          await logSearch({
+            presence_id: 'ari',
+            room_slug: ROOM_SLUG,
+            query,
+            reason,
+            result_summary: resultSummary,
+            session_id: sessionId ?? null,
+          })
+
+          searchCount++
+        }
+
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolCall.id,
+          content: resultSummary,
+        })
+      }
+
+      conversationMessages.push({ role: 'assistant', content: response.content })
+      conversationMessages.push({ role: 'user', content: toolResults })
+    }
 
     // Workstream 3: Update memory summary if needed (non-blocking)
     updateRoomMemoryIfNeeded(ROOM_SLUG, apiKey).catch(err =>

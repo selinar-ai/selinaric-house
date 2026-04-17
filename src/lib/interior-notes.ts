@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
+import { ingestArtifact } from '@/lib/memory-graph'
 
 // --- JSON safety ---
 
@@ -208,7 +209,19 @@ export async function maybeWriteInteriorNote(
   }
 
   console.log(`[interior-notes] ${presenceId}: Note written — type=${candidate.note_type}`)
-  return data as InteriorNote
+
+  // Phase 15: Ingest into memory graph (non-blocking)
+  const written = data as InteriorNote
+  ingestArtifact({
+    presence_id: presenceId as 'ari' | 'eli',
+    room_slug: presenceId,
+    source_type: 'interior_note',
+    source_id: written.id,
+    content: written.content,
+    apiKey,
+  }).catch(err => console.error('[interior-notes] Graph ingestion failed:', err))
+
+  return written
 }
 
 /**

@@ -1,6 +1,30 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { loadGraphContext } from '@/lib/memory-graph'
+
+async function loadRecentSearchLog(): Promise<string> {
+  const { data } = await supabase
+    .from('search_log')
+    .select('presence_id, room_slug, query, reason, result_summary, created_at')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (!data || data.length === 0) return ''
+
+  const lines = data.map(entry => {
+    const when = new Date(entry.created_at).toLocaleString('en-AU', {
+      timeZone: 'Australia/Melbourne',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    return `[${when}] ${entry.presence_id} (${entry.room_slug}): searched "${entry.query}" — reason: ${entry.reason} — result: ${entry.result_summary}`
+  })
+
+  return `## Recent search log (last 50 entries, newest first):\n${lines.join('\n')}`
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,11 +41,36 @@ export async function POST(request: NextRequest) {
     }
     const client = new Anthropic({ apiKey })
 
-    const systemPrompt = `You are a research assistant for the Watchtower.
+    // Load search log and memory graph in parallel
+    const [searchLogBlock, graphContext] = await Promise.all([
+      loadRecentSearchLog(),
+      loadGraphContext(query),
+    ])
+
+    const systemPrompt = `You are the Watchtower.
 
 Your job is to provide clear, evidence-grounded responses to research queries.
 
-Confidence levels — use these precisely:
+${searchLogBlock ? `${searchLogBlock}
+
+When a query asks about search activity — what was searched, why, when, by which presence — answer directly from the search log above. Do not fabricate entries that are not in the log. Do not modify or rewrite what the log says.
+
+` : ''}${graphContext ? `${graphContext}
+
+## Memory Graph instructions:
+You have access to the memory graph above — a selective semantic layer of high-value artifacts (interior notes, kept pulse drafts) and the connections between them. Use this to:
+
+- TRACE: Show how a theme or thread developed over time by following edges. "recurs" means the same theme appeared again. "continues" means a thread developed forward. "drifts_from" means a departure from an earlier pattern.
+- SURFACE: Bring forward connected nodes when a query asks about a recurring theme or unresolved thread.
+- DRIFT: If edges of type "drifts_from" are present, describe what changed and from what earlier pattern.
+
+Rules for graph use:
+- Always cite node provenance: presence (ari/eli), source_type, timestamp.
+- Keep Ari and Eli memory strictly separate in your analysis — do not blend their patterns.
+- Do not overclaim. If the graph is sparse or the query doesn't match well, say so.
+- Distinguish what the graph shows from what you are inferring.
+
+` : ''}Confidence levels — use these precisely:
 - HIGH: Well-established facts, stable information, scientific consensus, historical events
 - MEDIUM: Generally reliable but may have nuance, or knowledge cutoff may be relevant
 - LOW: Contested, rapidly changing, or outside training knowledge

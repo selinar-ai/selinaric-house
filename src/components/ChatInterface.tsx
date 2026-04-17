@@ -22,6 +22,7 @@ export default function ChatInterface({
   presenceName
 }: Props) {
   const { messages, loading, saveMessage, clearMessages, setMessages } = useMessages(presenceId)
+  const sessionIdRef = useRef<string>(crypto.randomUUID())
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -232,6 +233,7 @@ export default function ChatInterface({
           history: recentHistory,
           liveState,
           imageUrl: uploadedUrl,
+          sessionId: sessionIdRef.current,
         }),
         signal: AbortSignal.timeout(30000)
       })

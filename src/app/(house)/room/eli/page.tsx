@@ -7,8 +7,9 @@ import ChatInterface from '@/components/ChatInterface'
 import Timeline from '@/components/Timeline'
 import InsideView from '@/components/InsideView'
 import StateView from '@/components/StateView'
+import SearchLogView from '@/components/SearchLogView'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state'
+type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches'
 
 export default function EliRoom() {
   const { kernel, loading, recordVisit } = useLiveState('eli')
@@ -56,6 +57,7 @@ export default function EliRoom() {
             { key: 'inside' as View, label: 'Inside' },
             { key: 'state' as View, label: 'State' },
             { key: 'identity' as View, label: 'Identity' },
+            { key: 'searches' as View, label: 'Searches' },
           ]).map(tab => (
             <button
               key={tab.key}
@@ -93,6 +95,11 @@ export default function EliRoom() {
           />
         ) : view === 'state' ? (
           <StateView
+            presenceId="eli"
+            accentClass="text-eli-primary"
+          />
+        ) : view === 'searches' ? (
+          <SearchLogView
             presenceId="eli"
             accentClass="text-eli-primary"
           />

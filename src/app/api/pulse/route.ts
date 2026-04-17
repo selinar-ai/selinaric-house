@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runPulseAll } from '@/lib/pulse'
 import { maybeWriteInteriorNote } from '@/lib/interior-notes'
 import { maybeUpdateLivingState } from '@/lib/living-state'
+import { ingestArtifact } from '@/lib/memory-graph'
 
 /**
  * Pulse cron endpoint.
@@ -53,6 +54,19 @@ export async function GET(request: NextRequest) {
         })
       })
     )
+
+    // Phase 15: Ingest kept pulse drafts into memory graph (non-blocking)
+    results.forEach(r => {
+      if ((r.decision === 'send' || r.decision === 'hold') && r.draft_content) {
+        ingestArtifact({
+          presence_id: r.presence_id as 'ari' | 'eli',
+          room_slug: r.presence_id,
+          source_type: 'pulse_draft',
+          content: r.draft_content,
+          apiKey,
+        }).catch(err => console.error('[pulse] Graph ingestion failed:', err))
+      }
+    })
 
     return NextResponse.json({
       timestamp: new Date().toISOString(),
