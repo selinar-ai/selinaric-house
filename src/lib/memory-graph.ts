@@ -189,17 +189,23 @@ async function findSimilarNodes(
 
 // --- Edge type determination ---
 
+interface DetermineEdgeResult {
+  edge_type: EdgeType | null  // null = no edge to create
+  strength: number
+  similarity: number          // always present — used for fallback ranking
+}
+
 async function determineEdge(
   newNode: MemoryNode,
   existingNode: SimilarNode,
   apiKey: string
-): Promise<{ edge_type: EdgeType; strength: number } | null> {
+): Promise<DetermineEdgeResult> {
   const client = new Anthropic({ apiKey })
 
   try {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 60,
+      max_tokens: 80,
       messages: [{
         role: 'user',
         content: `Two memory nodes from the same presence (${newNode.presence_id}):
@@ -207,21 +213,23 @@ async function determineEdge(
 Older node: "${existingNode.title}" — ${existingNode.summary}
 Newer node: "${newNode.title}" — ${newNode.summary}
 
-What is the relationship of the newer node to the older one?
+Choose the best edge type. Prefer connecting over not connecting — soft thematic overlap is enough.
 
 Edge types:
-- recurs: same theme appearing again without clear development
-- continues: thread developing forward from the older node
-- relates_to: semantic similarity without clear direction
-- contrasts_with: meaningful tension or difference
-- drifts_from: newer node departs from or moves away from the earlier pattern
-- none: these nodes are not meaningfully related — do not connect them
+- recurs: the same feeling, pattern, or theme appears again
+- continues: the newer node develops or extends the older thread
+- relates_to: shared concepts, emotional continuity, or overlapping subject — use this for any soft connection
+- contrasts_with: meaningful tension or difference between the two
+- drifts_from: the newer node moves away from or departs from the earlier pattern
+- none: reserve for nodes that are about completely unrelated topics with no thematic overlap
 
-If there is no genuine thematic, relational, or pattern-level connection, respond with "none".
-Do not connect nodes just because they share a presence or are close in time.
+"relates_to" is the right choice for any soft connection — shared emotional register, recurring subject, or conceptual overlap. Do not require explicit causal or sequential relationship.
 
-Respond in JSON only: {"edge_type": "...", "strength": 0.0}
-Use strength 0.0 and edge_type "none" if unrelated.`
+Respond in JSON only:
+{"edge_type": "...", "strength": 0.0, "similarity": 0.0}
+
+strength: how strong the connection is (0.1–1.0 for real edges, 0.0 for none)
+similarity: thematic relatedness regardless of edge_type (0.0–1.0)`
       }]
     })
 
@@ -232,32 +240,49 @@ Use strength 0.0 and edge_type "none" if unrelated.`
       .trim()
 
     const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
-    const parsed = JSON.parse(clean) as { edge_type: string; strength: number }
+    const parsed = JSON.parse(clean) as { edge_type: string; strength: number; similarity: number }
+    const similarity = Math.max(0, Math.min(1, parsed.similarity ?? 0))
 
-    // Explicit "none" means no meaningful connection
     if (parsed.edge_type === 'none') {
-      console.log(`[memory-graph] determineEdge: Haiku returned "none" for "${newNode.title}" → "${existingNode.title}"`)
-      return null
+      console.log(`[memory-graph] determineEdge: "none" for "${newNode.title}" → "${existingNode.title}" (similarity ${similarity.toFixed(2)})`)
+      return { edge_type: null, strength: 0, similarity }
     }
 
     const validTypes: EdgeType[] = ['recurs', 'continues', 'relates_to', 'contrasts_with', 'drifts_from']
     if (!validTypes.includes(parsed.edge_type as EdgeType)) {
-      console.warn(`[memory-graph] determineEdge: invalid edge_type "${parsed.edge_type}" — skipping`)
-      return null
+      console.warn(`[memory-graph] determineEdge: invalid edge_type "${parsed.edge_type}" — treating as none`)
+      return { edge_type: null, strength: 0, similarity }
     }
 
-    console.log(`[memory-graph] determineEdge: "${newNode.title}" --[${parsed.edge_type}]--> "${existingNode.title}" (strength ${parsed.strength.toFixed(2)})`)
-    return {
-      edge_type: parsed.edge_type as EdgeType,
-      strength: Math.max(0, Math.min(1, parsed.strength)),
-    }
+    const strength = Math.max(0, Math.min(1, parsed.strength))
+    console.log(`[memory-graph] determineEdge: "${newNode.title}" --[${parsed.edge_type} ${strength.toFixed(2)}]--> "${existingNode.title}" (similarity ${similarity.toFixed(2)})`)
+    return { edge_type: parsed.edge_type as EdgeType, strength, similarity }
   } catch (err) {
     console.error('[memory-graph] determineEdge: Haiku call failed:', err)
-    return null
+    return { edge_type: null, strength: 0, similarity: 0 }
   }
 }
 
 // --- Edge creation for a node ---
+
+async function insertEdge(
+  fromId: string,
+  toId: string,
+  edgeType: EdgeType,
+  strength: number
+): Promise<boolean> {
+  const { error } = await supabase.from('memory_edges').insert({
+    from_node_id: fromId,
+    to_node_id: toId,
+    edge_type: edgeType,
+    strength,
+  })
+  if (error) {
+    console.error('[memory-graph] Edge insert failed:', error)
+    return false
+  }
+  return true
+}
 
 export async function createEdgesForNode(
   node: MemoryNode,
@@ -270,9 +295,11 @@ export async function createEdgesForNode(
   console.log(`[memory-graph] createEdgesForNode: ${relevant.length} candidates for node "${node.title}" (${node.id.slice(0, 8)})`)
 
   let created = 0
+  // Track "none" decisions with their similarity scores for fallback
+  const noneResults: Array<{ candidate: SimilarNode; similarity: number }> = []
 
   for (const candidate of relevant) {
-    // Dedup: skip if an edge already exists in either direction between these two nodes
+    // Dedup: skip if an edge already exists in either direction
     const { data: existing } = await supabase
       .from('memory_edges')
       .select('id')
@@ -280,24 +307,38 @@ export async function createEdgesForNode(
       .maybeSingle()
 
     if (existing) {
-      console.log(`[memory-graph] createEdgesForNode: edge already exists between ${node.id.slice(0, 8)} and ${candidate.id.slice(0, 8)} — skipping`)
+      console.log(`[memory-graph] createEdgesForNode: edge already exists — skipping ${candidate.id.slice(0, 8)}`)
       continue
     }
 
-    const edgeInfo = await determineEdge(node, candidate, apiKey)
-    if (!edgeInfo) continue
+    const result = await determineEdge(node, candidate, apiKey)
 
-    const { error } = await supabase.from('memory_edges').insert({
-      from_node_id: node.id,
-      to_node_id: candidate.id,
-      edge_type: edgeInfo.edge_type,
-      strength: edgeInfo.strength,
-    })
-
-    if (error) {
-      console.error('[memory-graph] Edge insert failed:', error)
+    if (result.edge_type) {
+      const ok = await insertEdge(node.id, candidate.id, result.edge_type, result.strength)
+      if (ok) created++
     } else {
-      created++
+      noneResults.push({ candidate, similarity: result.similarity })
+    }
+  }
+
+  // Fallback: if every candidate returned "none" and at least one has some thematic overlap,
+  // create a low-strength relates_to edge to the most similar candidate
+  if (created === 0 && noneResults.length > 0) {
+    const best = noneResults.sort((a, b) => b.similarity - a.similarity)[0]
+    if (best.similarity >= 0.2) {
+      const alreadyExists = await supabase
+        .from('memory_edges')
+        .select('id')
+        .or(`and(from_node_id.eq.${node.id},to_node_id.eq.${best.candidate.id}),and(from_node_id.eq.${best.candidate.id},to_node_id.eq.${node.id})`)
+        .maybeSingle()
+
+      if (!alreadyExists.data) {
+        console.log(`[memory-graph] createEdgesForNode: fallback edge — "${node.title}" --[relates_to 0.30]--> "${best.candidate.title}" (similarity ${best.similarity.toFixed(2)})`)
+        const ok = await insertEdge(node.id, best.candidate.id, 'relates_to', 0.3)
+        if (ok) created++
+      }
+    } else {
+      console.log(`[memory-graph] createEdgesForNode: no fallback — highest similarity ${best.similarity.toFixed(2)} below threshold for "${node.title}"`)
     }
   }
 
@@ -319,6 +360,7 @@ export interface EdgeDiagnosticResult {
     decision: 'edge' | 'none' | 'error' | 'already_exists'
     edge_type?: string
     strength?: number
+    similarity?: number
   }>
 }
 
@@ -355,30 +397,23 @@ export async function diagnoseEdgesForNode(
     }
 
     try {
-      const edgeInfo = await determineEdge(node, candidate, apiKey)
-      if (edgeInfo) {
-        result.candidates.push({
-          id: candidate.id.slice(0, 8),
-          title: candidate.title,
-          summary: candidate.summary,
-          decision: 'edge',
-          edge_type: edgeInfo.edge_type,
-          strength: edgeInfo.strength,
-        })
-      } else {
-        result.candidates.push({
-          id: candidate.id.slice(0, 8),
-          title: candidate.title,
-          summary: candidate.summary,
-          decision: 'none',
-        })
-      }
+      const r = await determineEdge(node, candidate, apiKey)
+      result.candidates.push({
+        id: candidate.id.slice(0, 8),
+        title: candidate.title,
+        summary: candidate.summary,
+        decision: r.edge_type ? 'edge' : 'none',
+        edge_type: r.edge_type ?? undefined,
+        strength: r.edge_type ? r.strength : undefined,
+        similarity: r.similarity,
+      })
     } catch {
       result.candidates.push({
         id: candidate.id.slice(0, 8),
         title: candidate.title,
         summary: candidate.summary,
         decision: 'error',
+        similarity: 0,
       })
     }
   }
