@@ -27,7 +27,7 @@ async function loadRecentSearchLog(): Promise<string> {
   return `## Recent search log (last 50 entries, newest first):\n${lines.join('\n')}`
 }
 
-function buildGraphInstructions(mode: QueryMode, hasContext: boolean): string {
+function buildGraphInstructions(mode: QueryMode, hasContext: boolean, hasEdgeData: boolean): string {
   if (!hasContext) return ''
 
   const base = `## Memory Graph — Query mode: ${mode.toUpperCase()}
@@ -40,20 +40,45 @@ Every connection you draw between nodes must be either:
 - Inferred: explicitly mark it — "no direct edge exists; this is thematic inference"
 Never imply a connection without stating its basis.
 
+**Edge direction rule:**
+Edges in the context are labelled [outbound] or [inbound] relative to the node they are listed under.
+An outbound edge (A → B) is not equivalent to an inbound edge (B → A). Direction is meaningful:
+- \`continues\` outbound: this node extends an earlier thread
+- \`continues\` inbound: an earlier thread extended into this node
+Do not flatten direction. State it when it matters.
+
 **Provenance rule:**
 Keep Ari and Eli strictly separated throughout your reasoning.
 - A direct graph edge between their nodes is a real connection.
 - Shared themes without an edge are a "thematic parallel" — not a connection.
-- Never imply cross-presence connection unless an edge exists between those specific nodes.`
+- Never imply cross-presence connection unless an edge exists between those specific nodes.
+
+**Mixed-reasoning rule:**
+When a response combines graph evidence with interpretation beyond the edge, separate them explicitly:
+- **What the edge shows:** [edge-backed statement]
+- **What the interpretation adds:** [inference beyond the edge]
+This separation is required whenever both types of reasoning appear in the same response.`
 
   if (mode === 'graph-metric') {
+    // Fix 2: explicit sparse guard — no graph hallucination when edge data is absent
+    if (!hasEdgeData) {
+      return `${base}
+
+**Graph-metric mode — NO EDGE DATA:**
+The graph context above explicitly states that no valid edges exist above the minimum threshold.
+You must state: "No edge-based answer is available for this query."
+Only after that statement may you offer thematic inference, clearly labelled as inference.
+Do not imply edge evidence. Do not estimate graph metrics. Do not fabricate connection strength.`
+    }
+
     return `${base}
 
 **Graph-metric mode:**
-The context contains real computed metrics: weighted edge degree (sum of connected edge strengths) and weakest valid edges.
+The context contains real computed metrics: weighted edge degree (sum of connected edge strengths) and weakest valid edges with endpoint connectedness.
 - Answer metric queries using only what is in the context above.
 - State the metric used: "weighted edge degree", "lowest-strength edge above threshold".
 - Include the actual strength value.
+- For weakest edges, use endpoint degree to interpret context: a weak edge between highly-connected nodes is different from a weak edge in a sparse area.
 - If no valid data exists, say explicitly: "no edge-based answer is available" — then use thematic inference only as a fallback, clearly labelled.`
   }
 
@@ -62,7 +87,7 @@ The context contains real computed metrics: weighted edge degree (sum of connect
 
 **Trace mode:**
 Follow edges to reconstruct how a thread developed. Use \`continues\` edges to show forward development, \`recurs\` to show repetition without development.
-Clearly state the direction: "this node continues from [earlier node] via a \`continues\` edge (0.68)".`
+State direction explicitly: "this node continues from [earlier node] via a \`continues\` edge (0.68)" vs "an earlier thread continues into this node".`
   }
 
   if (mode === 'drift') {
@@ -85,7 +110,7 @@ If no \`contrasts_with\` edge exists but tension is apparent from content, label
   return `${base}
 
 **Surface mode:**
-Show how nodes are connected. Cite edge type and strength for each connection.
+Show how nodes are connected. Cite edge type, direction, and strength for each connection.
 For nodes with no edges between them, state "no direct edge" before inferring any relationship.`
 }
 
@@ -105,12 +130,12 @@ export async function POST(request: NextRequest) {
     const client = new Anthropic({ apiKey })
 
     // Load search log and graph context in parallel
-    const [searchLogBlock, { mode, context: graphContext }] = await Promise.all([
+    const [searchLogBlock, { mode, context: graphContext, hasEdgeData }] = await Promise.all([
       loadRecentSearchLog(),
       getGraphContextForQuery(query),
     ])
 
-    const graphInstructions = buildGraphInstructions(mode, graphContext.length > 0)
+    const graphInstructions = buildGraphInstructions(mode, graphContext.length > 0, hasEdgeData)
 
     const systemPrompt = `You are the Watchtower.
 
