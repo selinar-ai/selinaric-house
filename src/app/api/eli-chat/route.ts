@@ -14,6 +14,7 @@ import {
   MAX_SEARCHES_PER_RESPONSE,
   MAX_SEARCHES_PER_SESSION,
 } from '@/lib/web-search'
+import { getContinuity, updateContinuity, hasPriorReference } from '@/lib/continuity-store'
 
 const ROOM_SLUG = 'eli'
 
@@ -52,6 +53,14 @@ export async function POST(request: NextRequest) {
 
     const memoryBlock = memorySummary
       ? `\n## What you remember from earlier in this conversation:\n${memorySummary}\n`
+      : ''
+
+    // Phase 17: Continuity — read prior turn and detect reference
+    const continuityState = getContinuity('eli')
+    const continuityUsed = !!(continuityState && hasPriorReference(message ?? ''))
+
+    const continuityBlock = continuityUsed && continuityState
+      ? `\n## Recent Conversation\n\nUser:\n"${continuityState.lastQuery}"\n\nYou:\n"${continuityState.lastAnswer}"\n\nRespond naturally as a continuation if relevant.\n`
       : ''
 
     // Phase 13: Load living state for prompt injection
@@ -161,7 +170,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${livingStateBlock}${memoryBlock}
+${livingStateBlock}${memoryBlock}${continuityBlock}
 Style:
 ${si.communication_style.tone}
 Phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
@@ -268,12 +277,17 @@ If an image is present in this message:
       conversationMessages.push({ role: 'user', content: toolResults })
     }
 
+    // Phase 17: Write continuity for next turn
+    if (message) {
+      updateContinuity('eli', { lastQuery: message, lastAnswer: reply })
+    }
+
     // Workstream 3: Update memory summary if needed (non-blocking)
     updateRoomMemoryIfNeeded(ROOM_SLUG, apiKey).catch(err =>
       console.error('Memory update error:', err)
     )
 
-    return NextResponse.json({ reply })
+    return NextResponse.json({ reply, continuityUsed })
   } catch (error: unknown) {
     console.error('Eli chat error:', error)
 

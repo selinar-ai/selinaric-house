@@ -29,6 +29,10 @@ export default function ChatInterface({
   const bottomRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
 
+  // Phase 17: Continuity state
+  const [continuityActive, setContinuityActive] = useState(false)
+  const [continuityMessageIds, setContinuityMessageIds] = useState<Set<string>>(new Set())
+
   // Image upload state
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
@@ -260,6 +264,12 @@ export default function ChatInterface({
         setMessages(prev => [...prev, fallback])
         setError('Response received but could not be saved. It will be lost on refresh.')
       }
+
+      // Phase 17: Update continuity state
+      setContinuityActive(true)
+      if (data.continuityUsed && savedReply?.id) {
+        setContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
+      }
     } catch (err) {
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         setError('Response timed out. Try again.')
@@ -286,6 +296,14 @@ export default function ChatInterface({
     if (!confirmed) return
     await clearMessages()
     setError(null)
+    setContinuityActive(false)
+    setContinuityMessageIds(new Set())
+  }
+
+  async function handleFreshThread() {
+    await fetch(`/api/clear-continuity?room=${presenceId}`, { method: 'POST' })
+    setContinuityActive(false)
+    setContinuityMessageIds(new Set())
   }
 
   if (loading) {
@@ -307,6 +325,21 @@ export default function ChatInterface({
 
   return (
     <div className="max-w-2xl w-full flex flex-col h-full">
+      {/* Phase 17: Continuity status bar */}
+      <div className="flex items-center justify-between border border-b-0 border-house-border bg-house-bg px-3 py-1.5 md:px-4">
+        <span className="font-body text-xs text-text-muted">
+          {continuityActive ? 'Continuity active' : 'Fresh thread'}
+        </span>
+        {continuityActive && (
+          <button
+            onClick={handleFreshThread}
+            className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors duration-200"
+          >
+            Fresh thread
+          </button>
+        )}
+      </div>
+
       <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center">
@@ -367,6 +400,13 @@ export default function ChatInterface({
                   (empty)
                 </p>
               ) : null}
+
+              {/* Phase 17: Continuity cue — shown only when prior context was used */}
+              {message.role === 'assistant' && message.id && continuityMessageIds.has(message.id) && (
+                <p className="font-body text-xs text-text-muted mt-2 italic">
+                  continued from prior turn
+                </p>
+              )}
 
               <div className="flex items-center gap-2 mt-2">
                 {message.created_at && (

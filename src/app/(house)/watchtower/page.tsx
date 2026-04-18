@@ -30,6 +30,10 @@ export default function WatchtowerPage() {
   const [activePacket, setActivePacket] = useState<EvidencePacket | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Phase 17: Continuity state
+  const [contextActive, setContextActive] = useState(false)
+  const [continuityPacketIds, setContinuityPacketIds] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     loadHistory()
   }, [])
@@ -63,6 +67,12 @@ export default function WatchtowerPage() {
       const packet = await response.json()
       setPackets(prev => [packet, ...prev])
       setActivePacket(packet)
+
+      // Phase 17: Update context state
+      setContextActive(true)
+      if (packet.continuityUsed && packet.id) {
+        setContinuityPacketIds(prev => new Set([...prev, packet.id]))
+      }
     } catch (err) {
       console.error('Search failed:', err)
       setError('Search failed. Try again.')
@@ -78,14 +88,37 @@ export default function WatchtowerPage() {
     }
   }
 
+  async function handleResetThread() {
+    await fetch('/api/clear-continuity?room=watchtower', { method: 'POST' })
+    setContextActive(false)
+    setContinuityPacketIds(new Set())
+  }
+
   return (
     <div className="min-h-screen p-4 md:p-8 lg:p-12 animate-fade-in">
       <div className="mb-6 md:mb-8 border-b border-house-border pb-4 md:pb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-text-secondary text-2xl">◎</span>
-          <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
-            Watchtower
-          </h2>
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex items-center gap-3">
+            <span className="text-text-secondary text-2xl">◎</span>
+            <div>
+              <h2 className="font-display text-2xl md:text-4xl font-light text-text-primary">
+                Watchtower
+              </h2>
+              {/* Phase 17: Context status */}
+              <p className="font-body text-xs text-text-muted mt-0.5">
+                {contextActive ? 'Context active' : 'Fresh thread'}
+              </p>
+            </div>
+          </div>
+          {/* Phase 17: Reset thread control */}
+          {contextActive && (
+            <button
+              onClick={handleResetThread}
+              className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors duration-200 mt-1 shrink-0"
+            >
+              Reset thread
+            </button>
+          )}
         </div>
         <p className="font-body text-sm text-text-muted ml-9">
           Evidence. Sources. Ground truth.
@@ -159,11 +192,19 @@ export default function WatchtowerPage() {
                   {activePacket.summary}
                 </p>
               </div>
-              <p className="font-body text-xs text-text-muted mt-4 flex-shrink-0">
-                {new Date(activePacket.created_at).toLocaleString('en-AU', {
-                  timeZone: 'Australia/Melbourne'
-                })}
-              </p>
+              <div className="flex items-center justify-between mt-4 flex-shrink-0">
+                <p className="font-body text-xs text-text-muted">
+                  {new Date(activePacket.created_at).toLocaleString('en-AU', {
+                    timeZone: 'Australia/Melbourne'
+                  })}
+                </p>
+                {/* Phase 17: Per-packet context cue */}
+                {continuityPacketIds.has(activePacket.id) && (
+                  <p className="font-body text-xs text-text-muted italic">
+                    resolved using prior query
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

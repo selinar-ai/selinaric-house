@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getGraphContextForQuery } from '@/lib/graph-utils'
 import type { QueryMode } from '@/lib/graph-utils'
+import { getContinuity, updateContinuity, hasPriorReference } from '@/lib/continuity-store'
 
 async function loadRecentSearchLog(): Promise<string> {
   const { data } = await supabase
@@ -172,6 +173,25 @@ export async function POST(request: NextRequest) {
     }
     const client = new Anthropic({ apiKey })
 
+    // Continuity — read prior state and detect reference
+    const continuityState = getContinuity('watchtower')
+    const continuityUsed = !!(continuityState && hasPriorReference(query))
+
+    const continuityBlock = continuityUsed && continuityState
+      ? `## Conversation Continuity Context
+
+Previous query:
+"${continuityState.lastQuery}"
+
+Previous answer:
+"${continuityState.lastAnswer}"
+
+Use this context ONLY if the current query refers to prior content.
+Do not assume continuity if the query is self-contained.
+
+`
+      : ''
+
     // Load search log and graph context in parallel
     const [searchLogBlock, { mode, context: graphContext, hasEdgeData }] = await Promise.all([
       loadRecentSearchLog(),
@@ -184,7 +204,7 @@ export async function POST(request: NextRequest) {
 
 Your job is to provide clear, evidence-grounded responses to research queries.
 
-${searchLogBlock ? `${searchLogBlock}
+${continuityBlock}${searchLogBlock ? `${searchLogBlock}
 
 When a query asks about search activity — what was searched, why, when, by which presence — answer directly from the search log above. Do not fabricate entries that are not in the log.
 
@@ -234,6 +254,9 @@ You are the Watchtower. Not Ari. Not Eli. Evidence only.`
       .map(block => (block as Anthropic.TextBlock).text)
       .join('')
 
+    // Write continuity for next turn
+    updateContinuity('watchtower', { lastQuery: query, lastAnswer: summary, lastMode: mode })
+
     const lower = summary.toLowerCase()
     const confidence = /confidence[:\s]+high|high confidence/.test(lower)
       ? 'high'
@@ -264,6 +287,7 @@ You are the Watchtower. Not Ari. Not Eli. Evidence only.`
       summary,
       confidence,
       mode,
+      continuityUsed,
       created_at: data?.created_at
     })
   } catch (error) {
