@@ -5,6 +5,7 @@ import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
 import { getTemporalContext } from '@/lib/temporal'
 import { getLivingStateForPrompt } from '@/lib/living-state'
+import { getInnerContextForPrompt } from '@/lib/journal'
 import {
   braveSearch,
   formatResultSummary,
@@ -77,6 +78,9 @@ export async function POST(request: NextRequest) {
 
     // Phase 13: Load living state for prompt injection
     const livingStateBlock = await getLivingStateForPrompt('ari')
+
+    // Phase 18: Load journal + held truths inner context
+    const innerContextBlock = await getInnerContextForPrompt('ari')
 
     // Phase 9: Load timeline for prompt injection
     const timelineBlock = await loadTimelineForPrompt('ari')
@@ -204,7 +208,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${livingStateBlock}${memoryBlock}${continuityBlock}
+${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}
 Style reminders:
 Communication style: ${si.communication_style.tone}
 Typical phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}

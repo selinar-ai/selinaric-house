@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runPulseAll } from '@/lib/pulse'
 import { maybeWriteInteriorNote } from '@/lib/interior-notes'
 import { maybeUpdateLivingState } from '@/lib/living-state'
+import { maybeWriteJournalEntry } from '@/lib/journal'
 import { ingestArtifact } from '@/lib/memory-graph'
 
 /**
@@ -53,6 +54,20 @@ export async function GET(request: NextRequest) {
           return false
         })
       })
+    )
+
+    // Phase 18: After interior notes, attempt journal entry for each presence
+    await Promise.all(
+      results.map(r =>
+        maybeWriteJournalEntry(r.presence_id, {
+          session_classification: (r.signals?.session_classification as string) ?? 'transactional',
+          pulse_decision: r.decision,
+          draft_content: r.draft_content,
+        }, apiKey).catch(err => {
+          console.error(`Journal write failed for ${r.presence_id}:`, err)
+          return null
+        })
+      )
     )
 
     // Phase 15: Ingest kept pulse drafts into memory graph (non-blocking)
