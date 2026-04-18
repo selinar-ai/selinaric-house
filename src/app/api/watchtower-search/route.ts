@@ -3,7 +3,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getGraphContextForQuery } from '@/lib/graph-utils'
 import type { QueryMode } from '@/lib/graph-utils'
-import { getContinuity, updateContinuity, hasPriorReference } from '@/lib/continuity-store'
+import {
+  getContinuity,
+  updateContinuity,
+  hasPriorReference,
+  isTopicShift,
+  estimateContinuityConfidence,
+  buildContinuityBlock,
+  buildContinuityFallbackNote,
+} from '@/lib/continuity-store'
 
 async function loadRecentSearchLog(): Promise<string> {
   const { data } = await supabase
@@ -173,24 +181,21 @@ export async function POST(request: NextRequest) {
     }
     const client = new Anthropic({ apiKey })
 
-    // Continuity — read prior state and detect reference
+    // Continuity — read prior state, detect reference, check topic shift
     const continuityState = getContinuity('watchtower')
-    const continuityUsed = !!(continuityState && hasPriorReference(query))
+    const referenceDetected = hasPriorReference(query)
+    const topicShifted = !!(continuityState && isTopicShift(query, continuityState.lastQuery))
+    const shouldInject = !!(continuityState && referenceDetected && !topicShifted)
+    const continuityUsed = shouldInject
 
-    const continuityBlock = continuityUsed && continuityState
-      ? `## Conversation Continuity Context
-
-Previous query:
-"${continuityState.lastQuery}"
-
-Previous answer:
-"${continuityState.lastAnswer}"
-
-Use this context ONLY if the current query refers to prior content.
-Do not assume continuity if the query is self-contained.
-
-`
-      : ''
+    let continuityBlock = ''
+    if (shouldInject && continuityState) {
+      const confidence = estimateContinuityConfidence(query, continuityState.lastAnswer)
+      continuityBlock = buildContinuityBlock('watchtower', continuityState, confidence)
+    } else if (referenceDetected && !continuityState) {
+      // Fix 5: fallback note — reference word used but no prior context exists
+      continuityBlock = buildContinuityFallbackNote()
+    }
 
     // Load search log and graph context in parallel
     const [searchLogBlock, { mode, context: graphContext, hasEdgeData }] = await Promise.all([

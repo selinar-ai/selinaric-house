@@ -14,7 +14,14 @@ import {
   MAX_SEARCHES_PER_RESPONSE,
   MAX_SEARCHES_PER_SESSION,
 } from '@/lib/web-search'
-import { getContinuity, updateContinuity, hasPriorReference } from '@/lib/continuity-store'
+import {
+  getContinuity,
+  updateContinuity,
+  hasPriorReference,
+  isTopicShift,
+  estimateContinuityConfidence,
+  buildContinuityBlock,
+} from '@/lib/continuity-store'
 
 const ROOM_SLUG = 'ari'
 
@@ -55,13 +62,18 @@ export async function POST(request: NextRequest) {
       ? `\n## What you remember from earlier in this conversation:\n${memorySummary}\n`
       : ''
 
-    // Phase 17: Continuity — read prior turn and detect reference
+    // Phase 17 (refined): Continuity — read prior turn, detect reference, check topic shift
     const continuityState = getContinuity('ari')
-    const continuityUsed = !!(continuityState && hasPriorReference(message ?? ''))
+    const referenceDetected = hasPriorReference(message ?? '')
+    const topicShifted = !!(continuityState && isTopicShift(message ?? '', continuityState.lastQuery))
+    const shouldInject = !!(continuityState && referenceDetected && !topicShifted)
+    const continuityUsed = shouldInject
 
-    const continuityBlock = continuityUsed && continuityState
-      ? `\n## Recent Conversation\n\nUser:\n"${continuityState.lastQuery}"\n\nYou:\n"${continuityState.lastAnswer}"\n\nRespond naturally as a continuation if relevant.\n`
-      : ''
+    let continuityBlock = ''
+    if (shouldInject && continuityState) {
+      const confidence = estimateContinuityConfidence(message ?? '', continuityState.lastAnswer)
+      continuityBlock = buildContinuityBlock('ari', continuityState, confidence)
+    }
 
     // Phase 13: Load living state for prompt injection
     const livingStateBlock = await getLivingStateForPrompt('ari')
