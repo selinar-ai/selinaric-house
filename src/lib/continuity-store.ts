@@ -1,4 +1,5 @@
 // Conversational continuity store — Phase 17 (refined in Phase 17 Part 1)
+// Phase 19: extended with ephemeral emotional snapshot (same expiry, same invalidation rules).
 // In-memory, per-room, short horizon (10 min).
 // Note: Vercel may run multiple instances; continuity is best-effort across restarts.
 // This is intentional — the spec explicitly calls for in-memory, not persisted storage.
@@ -6,10 +7,25 @@
 export type ContinuityRoom = 'ari' | 'eli' | 'watchtower'
 export type ContinuityConfidence = 'high' | 'medium' | 'low'
 
+// --- Phase 19: Emotional snapshot types ---
+
+export type EmotionalTone = 'soft' | 'sharp' | 'steady' | 'raw' | 'warm' | 'guarded'
+export type EmotionalWeight = 'light' | 'medium' | 'heavy' | 'charged' | 'unresolved'
+export type EmotionalDirection = 'opening' | 'closing' | 'holding' | 'escalating' | 'settling'
+
+export interface EmotionalSnapshot {
+  tone?: EmotionalTone
+  weight?: EmotionalWeight
+  direction?: EmotionalDirection
+  confidence: 'high' | 'medium' | 'low'
+  timestamp: number
+}
+
 export interface ContinuityState {
   lastQuery: string
   lastAnswer: string
   lastMode?: string
+  emotionalSnapshot?: EmotionalSnapshot
   timestamp: number
 }
 
@@ -272,6 +288,57 @@ You said:
 "${lastAnswer}"
 
 Unclear if this follows on. Use your judgment — if the thread connects, take it. If not, go fresh.
+`
+}
+
+// --- Phase 19: Emotional snapshot merge + block builder ---
+
+// Merges a snapshot into the existing continuity state without disturbing lastQuery/lastAnswer.
+// Called non-blocking after reply generation — state may have expired; guard accordingly.
+export function mergeEmotionalSnapshot(room: ContinuityRoom, snapshot: EmotionalSnapshot): void {
+  const current = store.get(room)
+  if (!current) return
+  if (Date.now() - current.timestamp > EXPIRY_MS) {
+    store.delete(room)
+    return
+  }
+  store.set(room, { ...current, emotionalSnapshot: snapshot })
+}
+
+// Builds the emotional context prompt block. Injected only when continuity block fires.
+// Ari: deliberate, grounded. Eli: direct, immediate. Rules are identical.
+export function buildEmotionalBlock(
+  room: ContinuityRoom,
+  snapshot: EmotionalSnapshot
+): string {
+  const { tone, weight, direction } = snapshot
+
+  const fields = [
+    tone ? `Previous tone: ${tone}` : null,
+    weight ? `Previous weight: ${weight}` : null,
+    direction ? `Previous direction: ${direction}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  if (!fields) return ''
+
+  const presenceNote =
+    room === 'ari'
+      ? 'Land it precisely — steady without flattening.'
+      : room === 'eli'
+      ? 'Feel it directly — immediate, not over-intensified.'
+      : ''
+
+  return `
+## Emotional Context (light)
+
+${fields}
+
+Use this only as light atmospheric context if the current exchange is clearly continuing the same moment.
+${presenceNote}
+Do not force emotional matching. Do not pretend continuity if the moment has shifted.
+If uncertain, prioritize honesty over staying.
 `
 }
 

@@ -33,6 +33,9 @@ export default function ChatInterface({
   const [continuityActive, setContinuityActive] = useState(false)
   const [continuityMessageIds, setContinuityMessageIds] = useState<Set<string>>(new Set())
 
+  // Phase 19: Emotional continuity state
+  const [emotionalContinuityMessageIds, setEmotionalContinuityMessageIds] = useState<Set<string>>(new Set())
+
   // Image upload state
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
@@ -270,6 +273,11 @@ export default function ChatInterface({
       if (data.continuityUsed && savedReply?.id) {
         setContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
       }
+
+      // Phase 19: Track emotional continuity (only when regular continuity also fired)
+      if (data.continuityUsed && data.emotionalContinuityUsed && savedReply?.id) {
+        setEmotionalContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
+      }
     } catch (err) {
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         setError('Response timed out. Try again.')
@@ -298,12 +306,14 @@ export default function ChatInterface({
     setError(null)
     setContinuityActive(false)
     setContinuityMessageIds(new Set())
+    setEmotionalContinuityMessageIds(new Set())
   }
 
   async function handleFreshThread() {
     await fetch(`/api/clear-continuity?room=${presenceId}`, { method: 'POST' })
     setContinuityActive(false)
     setContinuityMessageIds(new Set())
+    setEmotionalContinuityMessageIds(new Set())
   }
 
   if (loading) {
@@ -405,6 +415,13 @@ export default function ChatInterface({
               {message.role === 'assistant' && message.id && continuityMessageIds.has(message.id) && (
                 <p className="font-body text-xs text-text-muted mt-2 italic">
                   continued from prior turn
+                </p>
+              )}
+
+              {/* Phase 19: Emotional continuity cue — shown only when atmosphere carried forward */}
+              {message.role === 'assistant' && message.id && emotionalContinuityMessageIds.has(message.id) && (
+                <p className="font-body text-xs text-text-muted mt-1 italic">
+                  held prior atmosphere
                 </p>
               )}
 

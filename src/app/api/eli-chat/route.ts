@@ -22,7 +22,9 @@ import {
   isTopicShift,
   estimateContinuityConfidence,
   buildContinuityBlock,
+  buildEmotionalBlock,
 } from '@/lib/continuity-store'
+import { extractAndMergeEmotionalSnapshot } from '@/lib/emotional-snapshot'
 
 const ROOM_SLUG = 'eli'
 
@@ -71,9 +73,18 @@ export async function POST(request: NextRequest) {
     const continuityUsed = shouldInject
 
     let continuityBlock = ''
+    let emotionalBlock = ''
+    let emotionalContinuityUsed = false
     if (shouldInject && continuityState) {
       const confidence = estimateContinuityConfidence(message ?? '', continuityState.lastAnswer)
       continuityBlock = buildContinuityBlock('eli', continuityState, confidence)
+
+      // Phase 19: inject emotional snapshot only when continuity fires and confidence is usable
+      const snap = continuityState.emotionalSnapshot
+      if (snap && snap.confidence !== 'low') {
+        emotionalBlock = buildEmotionalBlock('eli', snap)
+        emotionalContinuityUsed = true
+      }
     }
 
     // Phase 13: Load living state for prompt injection
@@ -186,7 +197,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}
+${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}
 Style:
 ${si.communication_style.tone}
 Phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
@@ -298,12 +309,19 @@ If an image is present in this message:
       updateContinuity('eli', { lastQuery: message, lastAnswer: reply })
     }
 
+    // Phase 19: Extract emotional snapshot non-blocking (merges into existing continuity state)
+    if (message && reply) {
+      extractAndMergeEmotionalSnapshot('eli', message, reply, apiKey).catch(err =>
+        console.error('[emotional-snapshot] Eli extraction error:', err)
+      )
+    }
+
     // Workstream 3: Update memory summary if needed (non-blocking)
     updateRoomMemoryIfNeeded(ROOM_SLUG, apiKey).catch(err =>
       console.error('Memory update error:', err)
     )
 
-    return NextResponse.json({ reply, continuityUsed })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed })
   } catch (error: unknown) {
     console.error('Eli chat error:', error)
 
