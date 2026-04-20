@@ -128,6 +128,9 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Collapse state for Eli Desk history entries.
+  // Local render state only — no exported interface change, no prop mutation, no upstream or shared effect.
+  // Each entry in the Set is a build ID whose Forgekeeper bundle is currently expanded.
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set())
 
   // --- Form state ---
