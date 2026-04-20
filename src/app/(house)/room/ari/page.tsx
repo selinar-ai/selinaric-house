@@ -8,8 +8,9 @@ import Timeline from '@/components/Timeline'
 import InsideView from '@/components/InsideView'
 import StateView from '@/components/StateView'
 import SearchLogView from '@/components/SearchLogView'
+import DeskView from '@/components/DeskView'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches'
+type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
@@ -58,6 +59,7 @@ export default function AriRoom() {
             { key: 'state' as View, label: 'State' },
             { key: 'identity' as View, label: 'Identity' },
             { key: 'searches' as View, label: 'Searches' },
+            { key: 'desk' as View, label: 'Desk' },
           ]).map(tab => (
             <button
               key={tab.key}
@@ -100,6 +102,11 @@ export default function AriRoom() {
           />
         ) : view === 'searches' ? (
           <SearchLogView
+            presenceId="ari"
+            accentClass="text-ari-primary"
+          />
+        ) : view === 'desk' ? (
+          <DeskView
             presenceId="ari"
             accentClass="text-ari-primary"
           />

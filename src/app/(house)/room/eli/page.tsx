@@ -8,8 +8,9 @@ import Timeline from '@/components/Timeline'
 import InsideView from '@/components/InsideView'
 import StateView from '@/components/StateView'
 import SearchLogView from '@/components/SearchLogView'
+import DeskView from '@/components/DeskView'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches'
+type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk'
 
 export default function EliRoom() {
   const { kernel, loading, recordVisit } = useLiveState('eli')
@@ -58,6 +59,7 @@ export default function EliRoom() {
             { key: 'state' as View, label: 'State' },
             { key: 'identity' as View, label: 'Identity' },
             { key: 'searches' as View, label: 'Searches' },
+            { key: 'desk' as View, label: 'Desk' },
           ]).map(tab => (
             <button
               key={tab.key}
@@ -100,6 +102,11 @@ export default function EliRoom() {
           />
         ) : view === 'searches' ? (
           <SearchLogView
+            presenceId="eli"
+            accentClass="text-eli-primary"
+          />
+        ) : view === 'desk' ? (
+          <DeskView
             presenceId="eli"
             accentClass="text-eli-primary"
           />
