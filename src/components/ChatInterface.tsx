@@ -5,8 +5,8 @@ import { useMessages, type Message } from '@/hooks/useMessages'
 import { validateImage, uploadImage } from '@/lib/uploads'
 import ImageLightbox from '@/components/ImageLightbox'
 import EmojiPicker from '@/components/EmojiPicker'
-
-const PIPER_URL = 'http://localhost:5000'
+import VoiceButton from '@/components/VoiceButton'
+import { stopAllTTS } from '@/lib/tts'
 
 interface Props {
   presenceId: 'ari' | 'eli'
@@ -45,80 +45,6 @@ export default function ChatInterface({
   // Lightbox state
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
-  // TTS state
-  const [playingId, setPlayingId] = useState<string | null>(null)
-  const [loadingTtsId, setLoadingTtsId] = useState<string | null>(null)
-  const [ttsError, setTtsError] = useState<string | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-
-  const stopAudio = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.src = ''
-      audioRef.current = null
-    }
-    setPlayingId(null)
-  }, [])
-
-  async function handleSpeak(messageId: string, content: string) {
-    if (playingId === messageId) {
-      stopAudio()
-      return
-    }
-
-    stopAudio()
-    setTtsError(null)
-    setLoadingTtsId(messageId)
-
-    try {
-      const res = await fetch(`${PIPER_URL}/synthesize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: content, presence: presenceId }),
-        signal: AbortSignal.timeout(15000)
-      })
-
-      if (!res.ok) {
-        throw new Error('synthesis failed')
-      }
-
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const audio = new Audio(url)
-
-      audio.onended = () => {
-        URL.revokeObjectURL(url)
-        setPlayingId(null)
-        audioRef.current = null
-      }
-
-      audio.onerror = () => {
-        URL.revokeObjectURL(url)
-        setPlayingId(null)
-        audioRef.current = null
-      }
-
-      audioRef.current = audio
-      setPlayingId(messageId)
-      setLoadingTtsId(null)
-      await audio.play()
-    } catch {
-      setLoadingTtsId(null)
-      setTtsError('Voice unavailable')
-      setTimeout(() => setTtsError(null), 3000)
-    }
-  }
-
-  // Cleanup audio on unmount
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
-      }
-    }
-  }, [])
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -153,7 +79,6 @@ export default function ChatInterface({
       const end = textarea.selectionEnd
       const newValue = input.slice(0, start) + emoji + input.slice(end)
       setInput(newValue)
-      // Restore cursor position after emoji
       requestAnimationFrame(() => {
         textarea.selectionStart = textarea.selectionEnd = start + emoji.length
         textarea.focus()
@@ -201,11 +126,9 @@ export default function ChatInterface({
         }
       }
 
-      // Determine message type
       const messageType = hasImage && hasText ? 'text_image' : hasImage ? 'image' : 'text'
       const displayContent = userContent || ''
 
-      // Save user message
       const savedUserMessage = await saveMessage({
         role: 'user',
         content: displayContent,
@@ -219,7 +142,6 @@ export default function ChatInterface({
         return
       }
 
-      // Clear the image selection after successful save
       clearSelectedImage()
 
       const recentHistory = messages.slice(-10).map(m => ({
@@ -227,7 +149,6 @@ export default function ChatInterface({
         content: m.content
       }))
 
-      // Read current live state from localStorage to bridge to server
       const liveStateKey = `selinric_live_state_${presenceId}`
       const liveStateRaw = localStorage.getItem(liveStateKey)
       const liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null
@@ -302,6 +223,7 @@ export default function ChatInterface({
       'Clear all messages in this room? This cannot be undone.'
     )
     if (!confirmed) return
+    stopAllTTS()
     await clearMessages()
     setError(null)
     setContinuityActive(false)
@@ -311,6 +233,7 @@ export default function ChatInterface({
 
   async function handleFreshThread() {
     await fetch(`/api/clear-continuity?room=${presenceId}`, { method: 'POST' })
+    stopAllTTS()
     setContinuityActive(false)
     setContinuityMessageIds(new Set())
     setEmotionalContinuityMessageIds(new Set())
@@ -411,20 +334,21 @@ export default function ChatInterface({
                 </p>
               ) : null}
 
-              {/* Phase 17: Continuity cue — shown only when prior context was used */}
+              {/* Phase 17: Continuity cue */}
               {message.role === 'assistant' && message.id && continuityMessageIds.has(message.id) && (
                 <p className="font-body text-xs text-text-muted mt-2 italic">
                   continued from prior turn
                 </p>
               )}
 
-              {/* Phase 19: Emotional continuity cue — shown only when atmosphere carried forward */}
+              {/* Phase 19: Emotional continuity cue */}
               {message.role === 'assistant' && message.id && emotionalContinuityMessageIds.has(message.id) && (
                 <p className="font-body text-xs text-text-muted mt-1 italic">
                   held prior atmosphere
                 </p>
               )}
 
+              {/* Phase 20: Voice button (presence messages only) */}
               <div className="flex items-center gap-2 mt-2">
                 {message.created_at && (
                   <span className="font-body text-xs text-text-muted">
@@ -435,25 +359,13 @@ export default function ChatInterface({
                     })}
                   </span>
                 )}
-                {message.role === 'assistant' && message.id && (
-                  <button
-                    onClick={() => handleSpeak(message.id!, message.content)}
-                    className={`text-sm min-w-[44px] min-h-[44px] -m-2 flex items-center justify-center transition-all duration-200 ${
-                      playingId === message.id
-                        ? accentClass
-                        : loadingTtsId === message.id
-                        ? 'text-text-muted animate-pulse-soft'
-                        : 'text-text-muted hover:text-text-secondary'
-                    }`}
-                    title={playingId === message.id ? 'Stop' : 'Listen'}
-                  >
-                    {loadingTtsId === message.id ? '...' : playingId === message.id ? '⏸' : '🔊'}
-                  </button>
-                )}
-                {ttsError && loadingTtsId === null && playingId === null && (
-                  <span className="font-body text-xs text-red-400 animate-fade-in">
-                    {ttsError}
-                  </span>
+                {message.role === 'assistant' && message.content && (
+                  <VoiceButton
+                    text={message.content}
+                    presenceId={presenceId}
+                    accentClass={accentClass}
+                    buttonClass="min-w-[44px] min-h-[44px] -m-2"
+                  />
                 )}
               </div>
             </div>
@@ -507,7 +419,6 @@ export default function ChatInterface({
 
       {/* Input area */}
       <div className="border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
-        {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
@@ -516,7 +427,6 @@ export default function ChatInterface({
           className="hidden"
         />
 
-        {/* Image upload button */}
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={sending}
@@ -535,7 +445,6 @@ export default function ChatInterface({
           📷
         </button>
 
-        {/* Emoji picker */}
         <EmojiPicker onSelect={handleEmojiSelect} />
 
         <textarea
@@ -574,7 +483,6 @@ export default function ChatInterface({
         </button>
       </div>
 
-      {/* Lightbox */}
       {lightboxUrl && (
         <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
       )}

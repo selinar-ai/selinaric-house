@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import VoiceButton from '@/components/VoiceButton'
 
 // --- Types ---
 
@@ -121,13 +122,21 @@ export default function StateView({ presenceId, accentClass }: Props) {
               className={`border border-house-border border-l-2 ${borderAccent} bg-house-surface`}
             >
               <div className="px-3 py-2.5 md:px-4 md:py-3">
-                <div className="flex items-baseline gap-2 mb-1.5">
-                  <span className={`font-body text-xs font-medium ${accentClass} uppercase tracking-widest`}>
-                    {label}
-                  </span>
-                  <span className="font-body text-[10px] text-text-muted hidden sm:inline">
-                    {sublabel}
-                  </span>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-baseline gap-2">
+                    <span className={`font-body text-xs font-medium ${accentClass} uppercase tracking-widest`}>
+                      {label}
+                    </span>
+                    <span className="font-body text-[10px] text-text-muted hidden sm:inline">
+                      {sublabel}
+                    </span>
+                  </div>
+                  <VoiceButton
+                    text={value}
+                    presenceId={presenceId}
+                    accentClass={accentClass}
+                    buttonClass="min-w-[32px] min-h-[32px] -mr-1"
+                  />
                 </div>
                 <p className="font-body text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
                   {value}

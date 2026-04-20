@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import VoiceButton from '@/components/VoiceButton'
 
 interface SearchEntry {
   id: string
@@ -127,9 +128,19 @@ export default function SearchLogView({ presenceId, accentClass }: Props) {
               <span className={`font-mono text-xs ${accentClass}`}>
                 {presenceId === 'eli' ? '◉' : '◈'} {entry.room_slug}
               </span>
-              <span className="font-mono text-xs text-text-muted">
-                {formatDate(entry.created_at)}
-              </span>
+              <div className="flex items-center gap-1">
+                {entry.result_summary && entry.result_summary !== 'no useful results' && (
+                  <VoiceButton
+                    text={`${entry.query}. ${entry.result_summary}`}
+                    presenceId={presenceId}
+                    accentClass={accentClass}
+                    buttonClass="min-w-[32px] min-h-[32px]"
+                  />
+                )}
+                <span className="font-mono text-xs text-text-muted">
+                  {formatDate(entry.created_at)}
+                </span>
+              </div>
             </div>
 
             {/* Query */}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import VoiceButton from '@/components/VoiceButton'
 
 interface TimelineEntry {
   id: string
@@ -292,12 +293,20 @@ export default function Timeline({ presenceId, accentClass }: Props) {
                   {TYPE_LABELS[entry.entry_type] ?? entry.entry_type}
                 </span>
               </div>
-              <button
-                onClick={() => startEdit(entry)}
-                className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center -m-2 shrink-0"
-              >
-                Edit
-              </button>
+              <div className="flex items-center gap-1 shrink-0 -m-2">
+                <VoiceButton
+                  text={[entry.title, entry.content].filter(Boolean).join('. ')}
+                  presenceId={presenceId}
+                  accentClass={accentClass}
+                  buttonClass="min-w-[44px] min-h-[44px]"
+                />
+                <button
+                  onClick={() => startEdit(entry)}
+                  className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                >
+                  Edit
+                </button>
+              </div>
             </div>
             <h4 className="font-display text-lg text-text-primary mb-1">{entry.title}</h4>
             <p className="font-body text-sm text-text-secondary leading-relaxed">{entry.content}</p>

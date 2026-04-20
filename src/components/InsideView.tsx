@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import VoiceButton from '@/components/VoiceButton'
 
 // --- Types ---
 
@@ -303,9 +304,17 @@ export default function InsideView({ presenceId, accentClass }: Props) {
             {truth.truth}
           </p>
           <div className="flex items-center justify-between mt-2 gap-2">
-            <span className="font-mono text-[10px] text-text-muted" title={formatDate(truth.created_at)}>
-              {timeAgo(truth.created_at)}
-            </span>
+            <div className="flex items-center gap-1">
+              <VoiceButton
+                text={truth.truth}
+                presenceId={presenceId}
+                accentClass={accentClass}
+                buttonClass="min-w-[30px] min-h-[30px]"
+              />
+              <span className="font-mono text-[10px] text-text-muted" title={formatDate(truth.created_at)}>
+                {timeAgo(truth.created_at)}
+              </span>
+            </div>
             {truth.status === 'active' && !isPending && (
               <div className="flex gap-1.5">
                 <button
@@ -426,7 +435,13 @@ export default function InsideView({ presenceId, accentClass }: Props) {
                       </p>
                     </div>
                     {/* Actions */}
-                    <div className="px-3 pb-2.5 md:px-4 md:pb-3 border-t border-house-border pt-2">
+                    <div className="px-3 pb-2.5 md:px-4 md:pb-3 border-t border-house-border pt-2 flex items-center gap-1">
+                      <VoiceButton
+                        text={[entry.title, entry.content].filter(Boolean).join('. ')}
+                        presenceId={presenceId}
+                        accentClass={accentClass}
+                        buttonClass="min-w-[36px] min-h-[36px]"
+                      />
                       <button
                         onClick={() => openPromoteModal(entry)}
                         className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors min-h-[36px] px-2"
@@ -590,8 +605,14 @@ export default function InsideView({ presenceId, accentClass }: Props) {
                         {note.content}
                       </p>
                     </div>
-                    {note.is_active && (
-                      <div className="px-3 pb-2.5 md:px-4 md:pb-3 border-t border-house-border pt-2">
+                    <div className="px-3 pb-2.5 md:px-4 md:pb-3 border-t border-house-border pt-2 flex items-center gap-1">
+                      <VoiceButton
+                        text={note.content}
+                        presenceId={presenceId}
+                        accentClass={accentClass}
+                        buttonClass="min-w-[36px] min-h-[36px]"
+                      />
+                      {note.is_active && (
                         <button
                           onClick={() => handleDeactivate(note.id)}
                           disabled={deactivating === note.id}
@@ -601,8 +622,8 @@ export default function InsideView({ presenceId, accentClass }: Props) {
                         >
                           {deactivating === note.id ? 'Resolving…' : 'Mark resolved'}
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )
               })
