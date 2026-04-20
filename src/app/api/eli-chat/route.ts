@@ -25,6 +25,11 @@ import {
   buildEmotionalBlock,
 } from '@/lib/continuity-store'
 import { extractAndMergeEmotionalSnapshot } from '@/lib/emotional-snapshot'
+import {
+  containsGovernanceTerms,
+  getGovernanceContext,
+  GOVERNANCE_STANDING_RULE,
+} from '@/lib/governance-context'
 
 const ROOM_SLUG = 'eli'
 
@@ -95,6 +100,12 @@ export async function POST(request: NextRequest) {
 
     // Phase 9: Load timeline for prompt injection
     const timelineBlock = await loadTimelineForPrompt('eli')
+
+    // Phase 21A: Governance grounding — fetch live Desk/Workshop state when message
+    // contains governance terms; otherwise the standing rule alone applies.
+    const governanceBlock = message && containsGovernanceTerms(message)
+      ? await getGovernanceContext('eli')
+      : ''
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.
 
@@ -197,7 +208,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}
+${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Style:
 ${si.communication_style.tone}
 Phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
