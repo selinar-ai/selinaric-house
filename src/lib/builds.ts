@@ -254,7 +254,9 @@ export function canSubmit(status: DeskStatus): boolean {
 }
 
 export function canRequestConsultation(status: DeskStatus): boolean {
-  return ['Draft', 'Consultation Complete'].includes(status)
+  // 'Returned for Edits' included so Forgekeeper-mandated consultation can be
+  // initiated from a returned build before resubmission.
+  return ['Draft', 'Consultation Complete', 'Returned for Edits'].includes(status)
 }
 
 export function canMarkReady(status: DeskStatus): boolean {
