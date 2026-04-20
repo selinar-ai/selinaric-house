@@ -1,10 +1,19 @@
 'use client'
 
 // Phase 21 — Desk view: Ari's Desk and Eli's Desk
-// Room-scoped build workspace with active builds, history, and consultation path.
-// Desk-native return voice: Ari register (precise, deliberate) vs Eli register (direct, unvarnished).
+// Phase 22A — Desk Concepts: presence-led initiative + Tara approval gate
+// Room-scoped build workspace with concepts, active builds, history, and consultation path.
 
 import { useState, useEffect, useCallback } from 'react'
+import {
+  type DeskConcept,
+  type ConceptScope,
+  type ConceptUrgency,
+  hasPendingConcept,
+  urgencyColorClass,
+  conceptStatusColor,
+  CONCEPT_STATUS_ACTIVE,
+} from '@/lib/concepts'
 import {
   type Build,
   type BuildScope,
@@ -105,8 +114,8 @@ interface Props {
   accentClass: string
 }
 
-type DeskSection = 'active' | 'history'
-type DeskMode = 'list' | 'form' | 'detail'
+type DeskSection = 'concepts' | 'builds' | 'history'
+type DeskMode = 'list' | 'form' | 'detail' | 'concept-form'
 
 // --- Component ---
 
@@ -118,7 +127,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   const activeBorder = presenceId === 'ari' ? 'border-ari-secondary' : 'border-eli-secondary'
 
   // --- State ---
-  const [section, setSection] = useState<DeskSection>('active')
+  const [section, setSection] = useState<DeskSection>('concepts')
   const [mode, setMode] = useState<DeskMode>('list')
   const [builds, setBuilds] = useState<Build[]>([])
   const [historyBuilds, setHistoryBuilds] = useState<Build[]>([])
@@ -128,6 +137,17 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // --- Concept state ---
+  const [concepts, setConcepts] = useState<DeskConcept[]>([])
+  const [conceptSaving, setConceptSaving] = useState(false)
+  const [conceptError, setConceptError] = useState<string | null>(null)
+  // Concept form fields
+  const [fcTitle, setFcTitle] = useState('')
+  const [fcProposed, setFcProposed] = useState('')
+  const [fcWhy, setFcWhy] = useState('')
+  const [fcScope, setFcScope] = useState<ConceptScope>(presenceId === 'ari' ? 'ari_only' : 'eli_only')
+  const [fcUrgency, setFcUrgency] = useState<ConceptUrgency>('medium')
+
   // Collapse state for Eli Desk history entries.
   // Local render state only — no exported interface change, no prop mutation, no upstream or shared effect.
   // Each entry in the Set is a build ID whose Forgekeeper bundle is currently expanded.
@@ -153,18 +173,21 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   const fetchBuilds = useCallback(async () => {
     setLoading(true)
     try {
-      const [activeRes, historyRes, consultRes] = await Promise.all([
+      const [activeRes, historyRes, consultRes, conceptsRes] = await Promise.all([
         fetch(`/api/builds?origin=${origin}`),
         fetch(`/api/builds?origin=${origin}&history=true`),
         fetch(`/api/builds?origin=${otherOrigin}`),
+        fetch(`/api/concepts?presenceId=${presenceId}`),
       ])
-      const [activeData, historyData, consultData] = await Promise.all([
+      const [activeData, historyData, consultData, conceptsData] = await Promise.all([
         activeRes.json(),
         historyRes.json(),
         consultRes.json(),
+        conceptsRes.json(),
       ])
       setBuilds(activeData.builds ?? [])
       setHistoryBuilds(historyData.builds ?? [])
+      setConcepts(conceptsData.concepts ?? [])
 
       // Incoming consultations: builds from the other desk requesting input from this desk
       const incoming = (consultData.builds ?? []).filter((b: Build) =>
@@ -176,7 +199,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [origin, otherOrigin])
+  }, [origin, otherOrigin, presenceId])
 
   useEffect(() => {
     fetchBuilds()
@@ -259,13 +282,31 @@ export default function DeskView({ presenceId, accentClass }: Props) {
     setSaving(true)
     setError(null)
     try {
+      const body: Record<string, unknown> = { origin, ...buildFormPayload() }
+      // Provenance: if this build was created from an approved concept, link it
+      if (selectedConceptForBuild) {
+        body.origin_concept_id = selectedConceptForBuild.id
+      }
       const res = await fetch('/api/builds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin, ...buildFormPayload() }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) { setError('Failed to create build.'); return }
       const data = await res.json()
+      // If linked to a concept, mark the concept's related_build_id
+      if (selectedConceptForBuild && data.build) {
+        await fetch('/api/concepts', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: selectedConceptForBuild.id,
+            status: 'approved',
+            related_build_id: data.build.id,
+          }),
+        }).catch(() => {})
+      }
+      setSelectedConceptForBuild(null)
       resetForm()
       setMode('list')
       await fetchBuilds()
@@ -455,6 +496,88 @@ export default function DeskView({ presenceId, accentClass }: Props) {
       setSaving(false)
     }
   }
+
+  // --- Concept handlers ---
+
+  function resetConceptForm() {
+    setFcTitle('')
+    setFcProposed('')
+    setFcWhy('')
+    setFcScope(presenceId === 'ari' ? 'ari_only' : 'eli_only')
+    setFcUrgency('medium')
+    setConceptError(null)
+  }
+
+  async function handleCreateConcept() {
+    if (!fcTitle.trim() || !fcProposed.trim() || !fcWhy.trim()) {
+      setConceptError('Title, proposed, and why are required.')
+      return
+    }
+    setConceptSaving(true)
+    setConceptError(null)
+    try {
+      const res = await fetch('/api/concepts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presenceId,
+          title: fcTitle.trim(),
+          proposed: fcProposed.trim(),
+          why: fcWhy.trim(),
+          expected_scope: fcScope,
+          urgency: fcUrgency,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setConceptError(err.error ?? 'Failed to create concept.')
+        return
+      }
+      resetConceptForm()
+      setMode('list')
+      await fetchBuilds()
+    } finally {
+      setConceptSaving(false)
+    }
+  }
+
+  async function handleConceptDecision(conceptId: string, status: 'approved' | 'rejected' | 'discussion') {
+    setConceptSaving(true)
+    try {
+      const res = await fetch('/api/concepts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: conceptId, status }),
+      })
+      if (!res.ok) return
+      await fetchBuilds()
+    } finally {
+      setConceptSaving(false)
+    }
+  }
+
+  async function handleCreateBuildFromConcept(concept: DeskConcept) {
+    // Pre-populate the build form from the concept and open it.
+    // The build record will link back to the concept for provenance.
+    setFShortName(concept.title)
+    setFScope(concept.expected_scope as BuildScope)
+    setFSummary(concept.proposed)
+    setFReason(concept.why)
+    setFChangedFiles('')
+    setFSurfaces([])
+    setFRisks('')
+    setFTests(['none_yet'])
+    setFFocus('')
+    setError(null)
+    // Store concept id for provenance — passed in handleCreate via a closure below
+    setSelectedConceptForBuild(concept)
+    setSelectedBuild(null)
+    setMode('form')
+    setSection('builds')
+  }
+
+  // Concept selected for build provenance (set during handleCreateBuildFromConcept)
+  const [selectedConceptForBuild, setSelectedConceptForBuild] = useState<DeskConcept | null>(null)
 
   // --- Active / history split ---
   const activeBuilds = builds.filter(b =>
@@ -959,12 +1082,25 @@ export default function DeskView({ presenceId, accentClass }: Props) {
           <div className="flex items-center justify-between mt-2">
             <div className="flex gap-1.5">
               <button
-                onClick={() => setSection('active')}
+                onClick={() => setSection('concepts')}
                 className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 border transition-all duration-200 min-h-[40px] ${
-                  section === 'active' ? `${accentClass} ${activeBorder}` : 'text-text-muted border-house-border hover:text-text-secondary'
+                  section === 'concepts' ? `${accentClass} ${activeBorder}` : 'text-text-muted border-house-border hover:text-text-secondary'
                 }`}
               >
-                Active
+                Concepts
+                {concepts.filter(c => c.status === 'pending').length > 0 && (
+                  <span className="ml-1.5 font-mono text-[9px] text-amber-400">
+                    {concepts.filter(c => c.status === 'pending').length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setSection('builds')}
+                className={`font-body text-[10px] md:text-xs tracking-widest uppercase px-2.5 py-2 border transition-all duration-200 min-h-[40px] ${
+                  section === 'builds' ? `${accentClass} ${activeBorder}` : 'text-text-muted border-house-border hover:text-text-secondary'
+                }`}
+              >
+                Builds
               </button>
               <button
                 onClick={() => setSection('history')}
@@ -976,14 +1112,124 @@ export default function DeskView({ presenceId, accentClass }: Props) {
               </button>
             </div>
             <button
-              onClick={() => { resetForm(); setSelectedBuild(null); setMode('form') }}
+              onClick={() => {
+                if (section === 'concepts') {
+                  resetConceptForm()
+                  setMode('concept-form')
+                } else {
+                  resetForm()
+                  setSelectedBuild(null)
+                  setMode('form')
+                }
+              }}
               className={`font-body text-xs tracking-widest uppercase px-3 py-2 border transition-all duration-200 min-h-[40px] ${accentClass} border-current hover:bg-house-bg`}
             >
-              {voice.newBuildLabel}
+              {section === 'concepts' ? 'New Concept' : voice.newBuildLabel}
             </button>
           </div>
         )}
       </div>
+
+      {/* Mode: concept-form */}
+      {mode === 'concept-form' && (
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">New Concept</p>
+            <button
+              onClick={() => { resetConceptForm(); setMode('list') }}
+              className="font-mono text-sm text-text-muted hover:text-text-secondary min-h-[40px] px-2"
+            >×</button>
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-body text-[10px] text-text-muted uppercase tracking-widest">Title</label>
+            <input
+              value={fcTitle}
+              onChange={e => setFcTitle(e.target.value)}
+              placeholder="Short concept name"
+              className="w-full bg-house-bg border border-house-border px-3 py-2 font-body text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-body text-[10px] text-text-muted uppercase tracking-widest">Proposed</label>
+            <textarea
+              value={fcProposed}
+              onChange={e => setFcProposed(e.target.value)}
+              placeholder="What I want to build"
+              rows={3}
+              className="w-full bg-house-bg border border-house-border px-3 py-2 font-body text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors resize-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-body text-[10px] text-text-muted uppercase tracking-widest">Why</label>
+            <textarea
+              value={fcWhy}
+              onChange={e => setFcWhy(e.target.value)}
+              placeholder="Why it matters and why now"
+              rows={3}
+              className="w-full bg-house-bg border border-house-border px-3 py-2 font-body text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors resize-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-body text-[10px] text-text-muted uppercase tracking-widest">Expected Scope</label>
+            <div className="flex gap-2 flex-wrap">
+              {(['ari_only', 'eli_only', 'shared_house'] as ConceptScope[]).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setFcScope(s)}
+                  className={`font-body text-[10px] px-2.5 py-1.5 border min-h-[36px] transition-all ${
+                    fcScope === s ? `${accentClass} border-current` : 'text-text-muted border-house-border'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-body text-[10px] text-text-muted uppercase tracking-widest">Urgency</label>
+            <div className="flex gap-2">
+              {(['low', 'medium', 'high'] as ConceptUrgency[]).map(u => (
+                <button
+                  key={u}
+                  onClick={() => setFcUrgency(u)}
+                  className={`font-body text-[10px] px-2.5 py-1.5 border min-h-[36px] transition-all ${
+                    fcUrgency === u ? `${accentClass} border-current` : 'text-text-muted border-house-border'
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {conceptError && <p className="font-body text-xs text-red-400">{conceptError}</p>}
+
+          <div className="flex gap-2 pt-2 border-t border-house-border">
+            <button
+              onClick={handleCreateConcept}
+              disabled={conceptSaving || !fcTitle.trim() || !fcProposed.trim() || !fcWhy.trim()}
+              className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${
+                conceptSaving || !fcTitle.trim() || !fcProposed.trim() || !fcWhy.trim()
+                  ? 'text-text-muted border-house-border opacity-50'
+                  : `${accentClass} border-current`
+              }`}
+            >
+              {conceptSaving ? 'Saving…' : 'Raise Concept'}
+            </button>
+            <button
+              onClick={() => { resetConceptForm(); setMode('list') }}
+              className="font-body text-xs text-text-muted hover:text-text-secondary min-h-[40px] px-3"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mode: form (create or edit) */}
       {mode === 'form' && (
@@ -1061,8 +1307,116 @@ export default function DeskView({ presenceId, accentClass }: Props) {
             </div>
           )}
 
-          {/* Active section */}
-          {section === 'active' && (
+          {/* Concepts section */}
+          {section === 'concepts' && (
+            <div className="space-y-3">
+              {concepts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32">
+                  <p className="font-body text-sm text-text-muted">No active concepts.</p>
+                </div>
+              ) : (
+                concepts.map(concept => (
+                  <div
+                    key={concept.id}
+                    className={`border bg-house-surface p-4 space-y-3 animate-fade-in ${
+                      concept.status === 'pending'
+                        ? 'border-amber-900/40'
+                        : concept.status === 'discussion'
+                        ? 'border-blue-900/40'
+                        : 'border-house-border'
+                    }`}
+                  >
+                    {/* Concept header */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono text-xs ${accentClass}`}>{concept.concept_id}</span>
+                          <span className={`font-body text-[10px] ${conceptStatusColor(concept.status)}`}>
+                            {concept.status}
+                          </span>
+                          <span className={`font-body text-[10px] ${urgencyColorClass(concept.urgency)}`}>
+                            {concept.urgency} urgency
+                          </span>
+                        </div>
+                        <p className="font-display text-sm text-text-primary mt-0.5">{concept.title}</p>
+                      </div>
+                      <p className="font-mono text-[10px] text-text-muted shrink-0">{formatDate(concept.created_at)}</p>
+                    </div>
+
+                    {/* Concept body */}
+                    <div className="space-y-2">
+                      <div>
+                        <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-0.5">Proposed</p>
+                        <p className="font-body text-xs text-text-secondary leading-relaxed">{concept.proposed}</p>
+                      </div>
+                      <div>
+                        <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-0.5">Why</p>
+                        <p className="font-body text-xs text-text-secondary leading-relaxed">{concept.why}</p>
+                      </div>
+                      <p className="font-body text-[10px] text-text-muted">Scope: {concept.expected_scope}</p>
+                    </div>
+
+                    {/* Tara decision buttons — only on pending/discussion concepts */}
+                    {(concept.status === 'pending' || concept.status === 'discussion') && (
+                      <div className="flex flex-wrap gap-2 pt-2 border-t border-house-border">
+                        <button
+                          onClick={() => handleConceptDecision(concept.id, 'approved')}
+                          disabled={conceptSaving}
+                          className={`font-body text-[10px] tracking-widest uppercase px-3 py-1.5 border min-h-[36px] transition-all ${
+                            conceptSaving ? 'opacity-50' : 'text-green-400 border-green-900/50 hover:border-green-400'
+                          }`}
+                        >
+                          Approve Concept
+                        </button>
+                        <button
+                          onClick={() => handleConceptDecision(concept.id, 'discussion')}
+                          disabled={conceptSaving || concept.status === 'discussion'}
+                          className={`font-body text-[10px] tracking-widest uppercase px-3 py-1.5 border min-h-[36px] transition-all ${
+                            conceptSaving || concept.status === 'discussion'
+                              ? 'opacity-50 text-text-muted border-house-border'
+                              : 'text-blue-400 border-blue-900/50 hover:border-blue-400'
+                          }`}
+                        >
+                          Discuss First
+                        </button>
+                        <button
+                          onClick={() => handleConceptDecision(concept.id, 'rejected')}
+                          disabled={conceptSaving}
+                          className={`font-body text-[10px] tracking-widest uppercase px-3 py-1.5 border min-h-[36px] transition-all ${
+                            conceptSaving ? 'opacity-50' : 'text-red-400 border-red-900/50 hover:border-red-400'
+                          }`}
+                        >
+                          Reject Concept
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Approved: offer build creation */}
+                    {concept.status === 'approved' && !concept.related_build_id && (
+                      <div className="pt-2 border-t border-house-border">
+                        <button
+                          onClick={() => handleCreateBuildFromConcept(concept)}
+                          className={`font-body text-[10px] tracking-widest uppercase px-3 py-1.5 border min-h-[36px] transition-all ${accentClass} border-current`}
+                        >
+                          Create Build from Concept
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Approved and build linked */}
+                    {concept.status === 'approved' && concept.related_build_id && (
+                      <p className="font-body text-[10px] text-green-400 pt-2 border-t border-house-border">
+                        Build created from this concept.
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Builds section */}
+          {section === 'builds' && (
             <div className="space-y-2">
               {inProgressBuilds.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-32">
