@@ -1,13 +1,17 @@
 'use client'
 
 // Phase 20 — Reusable voice button for all House surfaces.
-// Self-contained: manages its own audio state, registers with the global stop
-// mechanism so only one button plays at a time across the entire page.
+// Dual-path TTS:
+//   Piper (local WSL2 via /api/tts proxy) — used when Piper is reachable
+//   Web Speech API                         — fallback on Vercel / Piper down
+// Availability is checked once per page load and cached.
 
 import { useState, useRef, useEffect } from 'react'
 import {
   chunkTextForTTS,
   synthesizeChunk,
+  checkPiperAvailable,
+  speakWithBrowser,
   stopAllTTS,
   registerTTSStop,
   clearTTSStop,
@@ -34,23 +38,31 @@ export default function VoiceButton({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const stoppedRef = useRef(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Holds the cancel function for the browser TTS utterance, if active
+  const browserStopRef = useRef<(() => void) | null>(null)
 
   const activeAccent =
     accentClass ?? (presenceId === 'eli' ? 'text-eli-primary' : 'text-ari-primary')
 
-  // Stop self: interrupt current playback, reset state, deregister global stop
+  // Stop self: interrupt whichever path is active, reset state
   function stopSelf() {
     stoppedRef.current = true
+    // Stop Piper audio if playing
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current.src = ''
       audioRef.current = null
     }
+    // Stop browser speech if playing
+    if (browserStopRef.current) {
+      browserStopRef.current()
+      browserStopRef.current = null
+    }
     setPlayState('idle')
     clearTTSStop()
   }
 
-  // Cleanup on unmount (e.g. tab switch)
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stoppedRef.current = true
@@ -59,9 +71,25 @@ export default function VoiceButton({
         audioRef.current.src = ''
         audioRef.current = null
       }
+      if (browserStopRef.current) {
+        browserStopRef.current()
+        browserStopRef.current = null
+      }
       clearTTSStop()
     }
   }, [])
+
+  function showError(msg: string) {
+    setErrorMsg(msg)
+    setPlayState('error')
+    setTimeout(() => {
+      if (!stoppedRef.current) {
+        setPlayState('idle')
+        setErrorMsg(null)
+      }
+    }, 4000)
+    clearTTSStop()
+  }
 
   async function handleClick() {
     // Already active — stop
@@ -73,57 +101,61 @@ export default function VoiceButton({
     if (!text.trim()) return
 
     stoppedRef.current = false
-    stopAllTTS()           // Stop whatever else is playing
-    registerTTSStop(stopSelf) // Register self as the global active player
-
-    const chunks = chunkTextForTTS(text)
-    if (chunks.length === 0) {
-      clearTTSStop()
-      return
-    }
-
+    stopAllTTS()
+    registerTTSStop(stopSelf)
     setPlayState('loading')
 
-    for (const chunk of chunks) {
-      if (stoppedRef.current) return
+    // --- Check Piper availability (cached after first call) ---
+    const piperUp = await checkPiperAvailable()
+    if (stoppedRef.current) return
 
-      try {
-        const blob = await synthesizeChunk(chunk, presenceId)
+    if (piperUp) {
+      // ── Piper path: chunk → synthesize → Blob → Audio ──────────────────
+      const chunks = chunkTextForTTS(text)
+      if (chunks.length === 0) { clearTTSStop(); setPlayState('idle'); return }
+
+      for (const chunk of chunks) {
         if (stoppedRef.current) return
 
-        setPlayState('playing')
+        try {
+          const blob = await synthesizeChunk(chunk, presenceId)
+          if (stoppedRef.current) return
 
-        // Play this chunk and wait for it to finish
+          setPlayState('playing')
+
+          await new Promise<void>((resolve, reject) => {
+            const url = URL.createObjectURL(blob)
+            const audio = new Audio(url)
+            audioRef.current = audio
+            audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; resolve() }
+            audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; reject(new Error('Playback failed')) }
+            audio.play().catch(reject)
+          })
+        } catch (err) {
+          if (stoppedRef.current) return
+          showError(err instanceof Error ? err.message : 'Piper error')
+          return
+        }
+      }
+    } else {
+      // ── Browser TTS path: Web Speech API ───────────────────────────────
+      try {
         await new Promise<void>((resolve, reject) => {
-          const url = URL.createObjectURL(blob)
-          const audio = new Audio(url)
-          audioRef.current = audio
-
-          audio.onended = () => {
-            URL.revokeObjectURL(url)
-            audioRef.current = null
-            resolve()
-          }
-          audio.onerror = () => {
-            URL.revokeObjectURL(url)
-            audioRef.current = null
-            reject(new Error('Audio playback failed'))
-          }
-          audio.play().catch(reject)
+          const stop = speakWithBrowser(
+            text,
+            presenceId,
+            resolve,
+            (msg) => reject(new Error(msg))
+          )
+          browserStopRef.current = stop
+          if (!stoppedRef.current) setPlayState('playing')
         })
       } catch (err) {
         if (stoppedRef.current) return
-        const msg = err instanceof Error ? err.message : 'Voice unavailable'
-        setErrorMsg(msg)
-        setPlayState('error')
-        setTimeout(() => {
-          if (!stoppedRef.current) {
-            setPlayState('idle')
-            setErrorMsg(null)
-          }
-        }, 4000)
-        clearTTSStop()
+        showError(err instanceof Error ? err.message : 'Browser TTS failed')
         return
+      } finally {
+        browserStopRef.current = null
       }
     }
 
@@ -149,7 +181,7 @@ export default function VoiceButton({
   const sizeClass = buttonClass ?? 'min-w-[36px] min-h-[36px]'
 
   const title =
-    playState === 'error' ? (errorMsg ?? 'Voice error — is Piper running?') :
+    playState === 'error' ? (errorMsg ?? 'Voice error') :
     isActive ? 'Stop' :
     'Listen'
 

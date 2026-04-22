@@ -145,7 +145,28 @@ export function chunkTextForTTS(raw: string): string[] {
   return final.filter(c => c.length > 0)
 }
 
-// --- Synthesis ---
+// --- Piper availability (cached per browser session) ---
+
+let _piperAvailable: boolean | null = null
+
+/**
+ * Check whether the Piper TTS server is reachable via the proxy.
+ * Result is cached for the lifetime of the page — one network round-trip total.
+ * Returns false on Vercel (where Piper doesn't run) and true locally.
+ */
+export async function checkPiperAvailable(): Promise<boolean> {
+  if (_piperAvailable !== null) return _piperAvailable
+  try {
+    const res = await fetch(TTS_PROXY, { signal: AbortSignal.timeout(3000) })
+    const data = await res.json().catch(() => ({}))
+    _piperAvailable = res.ok && data.ok === true
+  } catch {
+    _piperAvailable = false
+  }
+  return _piperAvailable
+}
+
+// --- Piper synthesis ---
 
 /**
  * Send one chunk to the Piper server and return the audio blob.
@@ -166,6 +187,56 @@ export async function synthesizeChunk(
     throw new Error(err.error ?? `TTS proxy error (${res.status})`)
   }
   return res.blob()
+}
+
+// --- Browser TTS fallback (Web Speech API) ---
+
+/**
+ * Speak text using the browser's built-in Web Speech API.
+ * Used when Piper is unavailable (e.g. on Vercel).
+ *
+ * Returns a stop function. Calls onEnd when speech finishes naturally,
+ * onError if the utterance errors. Safe to call stop() at any time.
+ *
+ * Presence tuning:
+ *   Eli — natural pace, slightly warmer pitch
+ *   Ari — measured pace, slightly lower pitch
+ */
+export function speakWithBrowser(
+  rawText: string,
+  presenceId: 'ari' | 'eli',
+  onEnd: () => void,
+  onError: (msg: string) => void
+): () => void {
+  if (typeof window === 'undefined' || !window.speechSynthesis) {
+    onEnd()
+    return () => {}
+  }
+
+  const clean = sanitizeForTTS(rawText)
+  if (!clean) { onEnd(); return () => {} }
+
+  const utterance = new SpeechSynthesisUtterance(clean)
+
+  // Pick an English voice if available — graceful if none found
+  const voices = window.speechSynthesis.getVoices()
+  const voice =
+    voices.find(v => v.lang === 'en-US') ??
+    voices.find(v => v.lang.startsWith('en')) ??
+    null
+  if (voice) utterance.voice = voice
+
+  utterance.rate   = presenceId === 'eli' ? 1.0  : 0.95
+  utterance.pitch  = presenceId === 'eli' ? 1.05 : 0.9
+  utterance.volume = 1.0
+
+  utterance.onend   = () => onEnd()
+  utterance.onerror = (e) => onError(e.error ?? 'Speech synthesis error')
+
+  window.speechSynthesis.cancel()   // stop anything already playing
+  window.speechSynthesis.speak(utterance)
+
+  return () => window.speechSynthesis.cancel()
 }
 
 // --- Global stop mechanism ---
