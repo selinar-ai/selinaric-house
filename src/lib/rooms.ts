@@ -1,4 +1,4 @@
-export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse' | 'workshop'
+export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections'
 
 export interface Room {
   slug: RoomSlug
@@ -88,6 +88,18 @@ export const ROOMS: Room[] = [
     textClass: 'text-text-primary',
     bgClass: 'bg-house-muted',
     icon: '⬡',
+  },
+  {
+    slug: 'reflections',
+    name: 'Reflections',
+    description: 'Interior layer. Review.',
+    path: '/reflections',
+    colorClass: 'text-text-secondary',
+    borderClass: 'border-house-muted',
+    glowClass: '',
+    textClass: 'text-text-primary',
+    bgClass: 'bg-house-muted',
+    icon: '◑',
   },
 ]
 
