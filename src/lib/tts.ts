@@ -2,9 +2,12 @@
 // Used by VoiceButton and any surface that needs voice output.
 // Piper server runs locally in WSL2. Eli = Ryan voice, Ari = Kusal voice.
 
-// TTS requests go through the Next.js proxy route (/api/tts) so the browser
-// never needs direct access to the Piper WSL2 server (avoids CORS and host
-// resolution issues). PIPER_URL is used server-side only in the proxy route.
+// TTS path constants.
+// BROWSER_LOCAL_PIPER_URL: browser fetches Piper directly (works on Vercel too,
+//   because the check+request come from the user's browser, not Vercel's servers).
+// TTS_PROXY: the Next.js server-side proxy — only useful if the app is running
+//   locally and the browser can't reach Piper directly for some reason.
+export const BROWSER_LOCAL_PIPER_URL = 'http://localhost:5000'
 const TTS_PROXY = '/api/tts'
 
 // --- Text preparation ---
@@ -145,32 +148,66 @@ export function chunkTextForTTS(raw: string): string[] {
   return final.filter(c => c.length > 0)
 }
 
-// --- Piper availability (cached per browser session) ---
+// --- Piper availability (browser-direct check, cached per page session) ---
+//
+// IMPORTANT: the check must come from the browser, not from the Next.js API
+// route. Vercel's servers cannot reach Tara's local Piper, but her browser can.
+// A browser fetch to http://localhost:5000 works regardless of where the app
+// is hosted.
 
-let _piperAvailable: boolean | null = null
+let _browserLocalPiperAvailable: boolean | null = null
 
 /**
- * Check whether the Piper TTS server is reachable via the proxy.
- * Result is cached for the lifetime of the page — one network round-trip total.
- * Returns false on Vercel (where Piper doesn't run) and true locally.
+ * Check whether local Piper is reachable directly from the browser.
+ * Uses a short timeout so the first click isn't noticeably delayed.
+ * Cached for the lifetime of the page — one round-trip total.
+ *
+ * Returns true  → use Piper directly (desktop with Piper running)
+ * Returns false → use Web Speech API (mobile, Piper off, etc.)
  */
-export async function checkPiperAvailable(): Promise<boolean> {
-  if (_piperAvailable !== null) return _piperAvailable
+export async function checkBrowserLocalPiperAvailable(): Promise<boolean> {
+  if (_browserLocalPiperAvailable !== null) return _browserLocalPiperAvailable
   try {
-    const res = await fetch(TTS_PROXY, { signal: AbortSignal.timeout(3000) })
+    const res = await fetch(`${BROWSER_LOCAL_PIPER_URL}/health`, {
+      signal: AbortSignal.timeout(2000),
+    })
     const data = await res.json().catch(() => ({}))
-    _piperAvailable = res.ok && data.ok === true
+    _browserLocalPiperAvailable = res.ok && data.status === 'ok'
   } catch {
-    _piperAvailable = false
+    _browserLocalPiperAvailable = false
   }
-  return _piperAvailable
+  return _browserLocalPiperAvailable
 }
 
-// --- Piper synthesis ---
+// --- Piper synthesis (browser-direct) ---
 
 /**
- * Send one chunk to the Piper server and return the audio blob.
- * Throws on network or server error.
+ * Send one chunk directly from the browser to the local Piper server.
+ * Bypasses the Next.js proxy — works on Vercel as long as Piper is running
+ * on the user's machine. Piper's server.js has CORS open (app.use(cors())).
+ */
+export async function synthesizeChunkDirect(
+  text: string,
+  presenceId: 'ari' | 'eli'
+): Promise<Blob> {
+  const res = await fetch(`${BROWSER_LOCAL_PIPER_URL}/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, presence: presenceId }),
+    signal: AbortSignal.timeout(20000),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error ?? `Piper error (${res.status})`)
+  }
+  return res.blob()
+}
+
+// --- Piper synthesis (proxy, kept for compatibility) ---
+
+/**
+ * Send one chunk to Piper via the Next.js /api/tts proxy.
+ * Only useful when the app runs on localhost — on Vercel this will 503.
  */
 export async function synthesizeChunk(
   text: string,
@@ -218,9 +255,11 @@ export function speakWithBrowser(
 
   const utterance = new SpeechSynthesisUtterance(clean)
 
-  // Pick an English voice if available — graceful if none found
+  // Prefer a male English voice — cascade through known signals
   const voices = window.speechSynthesis.getVoices()
   const voice =
+    voices.find(v => v.lang.startsWith('en') && /male/i.test(v.name)) ??
+    voices.find(v => /David|James|Mark|Daniel|Aaron|Google UK English Male/i.test(v.name)) ??
     voices.find(v => v.lang === 'en-US') ??
     voices.find(v => v.lang.startsWith('en')) ??
     null

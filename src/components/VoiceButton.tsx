@@ -1,16 +1,22 @@
 'use client'
 
-// Phase 20 — Reusable voice button for all House surfaces.
-// Dual-path TTS:
-//   Piper (local WSL2 via /api/tts proxy) — used when Piper is reachable
-//   Web Speech API                         — fallback on Vercel / Piper down
+// Phase 20 — Reusable voice button. Dual-path TTS:
+//
+//   1. Browser-direct Piper (http://localhost:5000)
+//      Works even when the app is on Vercel — the check/request come from the
+//      user's browser, not from Vercel's servers. Requires Piper running locally.
+//
+//   2. Web Speech API fallback
+//      Used when local Piper is unreachable (mobile, Piper off, etc.).
+//      Prefers a male English voice; Eli/Ari are slightly differentiated.
+//
 // Availability is checked once per page load and cached.
 
 import { useState, useRef, useEffect } from 'react'
 import {
   chunkTextForTTS,
-  synthesizeChunk,
-  checkPiperAvailable,
+  synthesizeChunkDirect,
+  checkBrowserLocalPiperAvailable,
   speakWithBrowser,
   stopAllTTS,
   registerTTSStop,
@@ -18,13 +24,12 @@ import {
 } from '@/lib/tts'
 
 type PlayState = 'idle' | 'loading' | 'playing' | 'error'
+type VoicePath = 'piper' | 'browser' | null  // null = not yet determined
 
 export interface VoiceButtonProps {
   text: string
   presenceId: 'ari' | 'eli'
-  /** Accent color class for the playing state (e.g. 'text-eli-primary'). Derived from presenceId if omitted. */
   accentClass?: string
-  /** Extra classes applied to the button for layout/sizing. Defaults to compact house style. */
   buttonClass?: string
 }
 
@@ -34,26 +39,23 @@ export default function VoiceButton({
   accentClass,
   buttonClass,
 }: VoiceButtonProps) {
-  const [playState, setPlayState] = useState<PlayState>('idle')
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const stoppedRef = useRef(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  // Holds the cancel function for the browser TTS utterance, if active
-  const browserStopRef = useRef<(() => void) | null>(null)
+  const [playState, setPlayState]   = useState<PlayState>('idle')
+  const [voicePath, setVoicePath]   = useState<VoicePath>(null)
+  const [errorMsg, setErrorMsg]     = useState<string | null>(null)
+  const stoppedRef                  = useRef(false)
+  const audioRef                    = useRef<HTMLAudioElement | null>(null)
+  const browserStopRef              = useRef<(() => void) | null>(null)
 
   const activeAccent =
     accentClass ?? (presenceId === 'eli' ? 'text-eli-primary' : 'text-ari-primary')
 
-  // Stop self: interrupt whichever path is active, reset state
   function stopSelf() {
     stoppedRef.current = true
-    // Stop Piper audio if playing
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current.src = ''
       audioRef.current = null
     }
-    // Stop browser speech if playing
     if (browserStopRef.current) {
       browserStopRef.current()
       browserStopRef.current = null
@@ -62,19 +64,11 @@ export default function VoiceButton({
     clearTTSStop()
   }
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stoppedRef.current = true
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
-        audioRef.current = null
-      }
-      if (browserStopRef.current) {
-        browserStopRef.current()
-        browserStopRef.current = null
-      }
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null }
+      if (browserStopRef.current) { browserStopRef.current(); browserStopRef.current = null }
       clearTTSStop()
     }
   }, [])
@@ -83,21 +77,13 @@ export default function VoiceButton({
     setErrorMsg(msg)
     setPlayState('error')
     setTimeout(() => {
-      if (!stoppedRef.current) {
-        setPlayState('idle')
-        setErrorMsg(null)
-      }
+      if (!stoppedRef.current) { setPlayState('idle'); setErrorMsg(null) }
     }, 4000)
     clearTTSStop()
   }
 
   async function handleClick() {
-    // Already active — stop
-    if (playState === 'loading' || playState === 'playing') {
-      stopSelf()
-      return
-    }
-
+    if (playState === 'loading' || playState === 'playing') { stopSelf(); return }
     if (!text.trim()) return
 
     stoppedRef.current = false
@@ -105,24 +91,25 @@ export default function VoiceButton({
     registerTTSStop(stopSelf)
     setPlayState('loading')
 
-    // --- Check Piper availability (cached after first call) ---
-    const piperUp = await checkPiperAvailable()
+    // Check from the browser — not from the API route.
+    // This correctly detects local Piper even when the app is on Vercel.
+    const piperUp = await checkBrowserLocalPiperAvailable()
     if (stoppedRef.current) return
 
+    setVoicePath(piperUp ? 'piper' : 'browser')
+
     if (piperUp) {
-      // ── Piper path: chunk → synthesize → Blob → Audio ──────────────────
+      // ── Path 1: Browser → localhost:5000 (Piper) ──────────────────────
       const chunks = chunkTextForTTS(text)
       if (chunks.length === 0) { clearTTSStop(); setPlayState('idle'); return }
 
       for (const chunk of chunks) {
         if (stoppedRef.current) return
-
         try {
-          const blob = await synthesizeChunk(chunk, presenceId)
+          const blob = await synthesizeChunkDirect(chunk, presenceId)
           if (stoppedRef.current) return
 
           setPlayState('playing')
-
           await new Promise<void>((resolve, reject) => {
             const url = URL.createObjectURL(blob)
             const audio = new Audio(url)
@@ -138,15 +125,10 @@ export default function VoiceButton({
         }
       }
     } else {
-      // ── Browser TTS path: Web Speech API ───────────────────────────────
+      // ── Path 2: Web Speech API ─────────────────────────────────────────
       try {
         await new Promise<void>((resolve, reject) => {
-          const stop = speakWithBrowser(
-            text,
-            presenceId,
-            resolve,
-            (msg) => reject(new Error(msg))
-          )
+          const stop = speakWithBrowser(text, presenceId, resolve, (msg) => reject(new Error(msg)))
           browserStopRef.current = stop
           if (!stoppedRef.current) setPlayState('playing')
         })
@@ -159,13 +141,11 @@ export default function VoiceButton({
       }
     }
 
-    if (!stoppedRef.current) {
-      setPlayState('idle')
-      clearTTSStop()
-    }
+    if (!stoppedRef.current) { setPlayState('idle'); clearTTSStop() }
   }
 
   const isActive = playState === 'loading' || playState === 'playing'
+
   const icon =
     playState === 'loading' ? '…' :
     playState === 'playing' ? '⏸' :
@@ -180,10 +160,12 @@ export default function VoiceButton({
 
   const sizeClass = buttonClass ?? 'min-w-[36px] min-h-[36px]'
 
+  // Tooltip: show voice path when known
+  const pathLabel = voicePath === 'piper' ? ' · Piper' : voicePath === 'browser' ? ' · Browser' : ''
   const title =
-    playState === 'error' ? (errorMsg ?? 'Voice error') :
-    isActive ? 'Stop' :
-    'Listen'
+    playState === 'error'   ? (errorMsg ?? 'Voice error') :
+    isActive                ? `Stop${pathLabel}` :
+    `Listen${pathLabel}`
 
   return (
     <button
