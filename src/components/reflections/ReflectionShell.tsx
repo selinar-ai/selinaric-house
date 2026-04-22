@@ -9,6 +9,7 @@ import { useReflections } from '@/hooks/useReflections'
 import type { FeedbackLabel, ReflectionWithFeedback } from '@/lib/reflections/review-types'
 import ReflectionList from './ReflectionList'
 import ReflectionDetail from './ReflectionDetail'
+import ReflectionTestPanel from './ReflectionTestPanel'
 
 type PresenceTab = 'ari' | 'eli'
 type MobileView = 'list' | 'detail'
@@ -18,7 +19,7 @@ export default function ReflectionShell() {
   const [selected, setSelected] = useState<ReflectionWithFeedback | null>(null)
   const [mobileView, setMobileView] = useState<MobileView>('list')
 
-  const { reflections, loading, error, markReviewed } = useReflections(presence)
+  const { reflections, loading, error, refresh, markReviewed } = useReflections(presence)
 
   function handleSelect(r: ReflectionWithFeedback) {
     setSelected(r)
@@ -116,6 +117,9 @@ export default function ReflectionShell() {
           <p className="font-body text-sm text-red-400">{error}</p>
         </div>
       )}
+
+      {/* Phase 24B: test panel — dev only, self-hiding in production */}
+      <ReflectionTestPanel presence={presence} onJobProcessed={refresh} />
 
       {!loading && !error && (
         <>
