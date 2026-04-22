@@ -31,6 +31,7 @@ export default function VoiceButton({
   buttonClass,
 }: VoiceButtonProps) {
   const [playState, setPlayState] = useState<PlayState>('idle')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const stoppedRef = useRef(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
@@ -110,12 +111,17 @@ export default function VoiceButton({
           }
           audio.play().catch(reject)
         })
-      } catch {
+      } catch (err) {
         if (stoppedRef.current) return
+        const msg = err instanceof Error ? err.message : 'Voice unavailable'
+        setErrorMsg(msg)
         setPlayState('error')
         setTimeout(() => {
-          if (!stoppedRef.current) setPlayState('idle')
-        }, 3000)
+          if (!stoppedRef.current) {
+            setPlayState('idle')
+            setErrorMsg(null)
+          }
+        }, 4000)
         clearTTSStop()
         return
       }
@@ -142,10 +148,15 @@ export default function VoiceButton({
 
   const sizeClass = buttonClass ?? 'min-w-[36px] min-h-[36px]'
 
+  const title =
+    playState === 'error' ? (errorMsg ?? 'Voice error — is Piper running?') :
+    isActive ? 'Stop' :
+    'Listen'
+
   return (
     <button
       onClick={handleClick}
-      title={isActive ? 'Stop' : 'Listen'}
+      title={title}
       className={`flex items-center justify-center text-sm transition-all duration-200 ${sizeClass} ${stateClass}`}
     >
       {icon}

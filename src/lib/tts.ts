@@ -2,7 +2,10 @@
 // Used by VoiceButton and any surface that needs voice output.
 // Piper server runs locally in WSL2. Eli = Ryan voice, Ari = Kusal voice.
 
-export const PIPER_URL = 'http://localhost:5000'
+// TTS requests go through the Next.js proxy route (/api/tts) so the browser
+// never needs direct access to the Piper WSL2 server (avoids CORS and host
+// resolution issues). PIPER_URL is used server-side only in the proxy route.
+const TTS_PROXY = '/api/tts'
 
 // --- Text preparation ---
 
@@ -152,13 +155,16 @@ export async function synthesizeChunk(
   text: string,
   presenceId: 'ari' | 'eli'
 ): Promise<Blob> {
-  const res = await fetch(`${PIPER_URL}/synthesize`, {
+  const res = await fetch(TTS_PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, presence: presenceId }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(20000),
   })
-  if (!res.ok) throw new Error(`Piper synthesis failed (${res.status})`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error ?? `TTS proxy error (${res.status})`)
+  }
   return res.blob()
 }
 
