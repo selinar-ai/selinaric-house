@@ -10,6 +10,7 @@ import type { FeedbackLabel, ReflectionWithFeedback } from '@/lib/reflections/re
 import ReflectionList from './ReflectionList'
 import ReflectionDetail from './ReflectionDetail'
 import ReflectionTestPanel from './ReflectionTestPanel'
+import ReflectionCalibrationSummary from './ReflectionCalibrationSummary'
 
 type PresenceTab = 'ari' | 'eli'
 type MobileView = 'list' | 'detail'
@@ -117,6 +118,9 @@ export default function ReflectionShell() {
           <p className="font-body text-sm text-red-400">{error}</p>
         </div>
       )}
+
+      {/* Phase 24C: calibration summary — always visible */}
+      <ReflectionCalibrationSummary presenceId={presence} />
 
       {/* Phase 24B: test panel — dev only, self-hiding in production */}
       <ReflectionTestPanel presence={presence} onJobProcessed={refresh} />
