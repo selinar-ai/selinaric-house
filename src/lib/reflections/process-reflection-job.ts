@@ -87,13 +87,13 @@ export async function processReflectionJob(job: ReflectionJob): Promise<ProcessR
       const clean = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
       parsed = JSON.parse(clean)
     } catch {
-      throw new Error(`Model returned non-JSON output: ${rawText.slice(0, 300)}`)
+      throw new Error(`[parse] Model returned non-JSON: ${rawText.slice(0, 300)}`)
     }
 
     // --- Validate ---
     if (!isValidReflectionOutput(parsed)) {
       throw new Error(
-        `Reflection output failed validation: ${JSON.stringify(parsed).slice(0, 400)}`
+        `[validation] Output failed schema check: ${JSON.stringify(parsed).slice(0, 400)}`
       )
     }
 
@@ -103,21 +103,31 @@ export async function processReflectionJob(job: ReflectionJob): Promise<ProcessR
     const routing = classifyReflectionRoute(output)
 
     // --- Store reflection ---
+    // Note: routing_rationale is intentionally omitted — it is not in the base
+    // schema from the Phase 24 migration spec. suggested_target carries the
+    // routed destination; the rationale is available in-process only.
+    const insertPayload = {
+      presence_id:     job.presence_id,
+      reflection_type: output.reflection_type,
+      content:         output.content,
+      confidence:      output.confidence,
+      source_refs:     job.source_refs,
+      suggested_target: routing.suggested_target,
+    }
+
     const { data: reflection, error: insertError } = await supabase
       .from('reflections')
-      .insert({
-        presence_id: job.presence_id,
-        reflection_type: output.reflection_type,
-        content: output.content,
-        confidence: output.confidence,
-        source_refs: job.source_refs,
-        suggested_target: routing.suggested_target,
-        routing_rationale: routing.rationale,
-      })
+      .insert(insertPayload)
       .select()
       .single()
 
-    if (insertError) throw new Error(`Failed to store reflection: ${insertError.message}`)
+    if (insertError) {
+      throw new Error(
+        `[db:insert] reflections — code: ${insertError.code ?? 'none'}, ` +
+        `message: ${insertError.message}, ` +
+        `details: ${insertError.details ?? 'none'}`
+      )
+    }
 
     // --- Mark job completed ---
     await supabase
