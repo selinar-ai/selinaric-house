@@ -15,14 +15,17 @@ import {
 } from '@/lib/reflections/reflection-format'
 import { latestFeedback, type FeedbackLabel, type ReflectionWithFeedback } from '@/lib/reflections/review-types'
 import ReflectionFeedbackBar from './ReflectionFeedbackBar'
+import CreateLivingStateSuggestionButton from './CreateLivingStateSuggestionButton'
+import type { LivingStateSuggestion } from '@/lib/reflections/living-state-suggestion-types'
 
 interface Props {
   reflection: ReflectionWithFeedback
   onBack?: () => void  // mobile back button
   onFeedbackSubmitted: (reflectionId: string, label: FeedbackLabel) => void
+  onSuggestionCreated?: (suggestion: LivingStateSuggestion) => void
 }
 
-export default function ReflectionDetail({ reflection, onBack, onFeedbackSubmitted }: Props) {
+export default function ReflectionDetail({ reflection, onBack, onFeedbackSubmitted, onSuggestionCreated }: Props) {
   const feedback = latestFeedback(reflection)
   const typeColor = reflectionTypeColorClass(reflection.reflection_type)
   const confColor = confidenceColorClass(reflection.confidence)
@@ -122,6 +125,12 @@ export default function ReflectionDetail({ reflection, onBack, onFeedbackSubmitt
           reviewed={reflection.review_status === 'reviewed'}
           existingLabel={feedback?.feedback_label ?? null}
           onSubmitted={(label) => onFeedbackSubmitted(reflection.id, label)}
+        />
+
+        {/* Phase 25: Living State suggestion — only shown when eligible */}
+        <CreateLivingStateSuggestionButton
+          reflection={reflection}
+          onCreated={(suggestion) => onSuggestionCreated?.(suggestion)}
         />
       </div>
     </div>

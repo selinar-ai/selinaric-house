@@ -7,10 +7,12 @@
 import { useState } from 'react'
 import { useReflections } from '@/hooks/useReflections'
 import type { FeedbackLabel, ReflectionWithFeedback } from '@/lib/reflections/review-types'
+import type { LivingStateSuggestion } from '@/lib/reflections/living-state-suggestion-types'
 import ReflectionList from './ReflectionList'
 import ReflectionDetail from './ReflectionDetail'
 import ReflectionTestPanel from './ReflectionTestPanel'
 import ReflectionCalibrationSummary from './ReflectionCalibrationSummary'
+import LivingStateSuggestionsPanel from './LivingStateSuggestionsPanel'
 
 type PresenceTab = 'ari' | 'eli'
 type MobileView = 'list' | 'detail'
@@ -21,6 +23,11 @@ export default function ReflectionShell() {
   const [mobileView, setMobileView] = useState<MobileView>('list')
 
   const { reflections, loading, error, refresh, markReviewed } = useReflections(presence)
+  const [suggestionsKey, setSuggestionsKey] = useState(0)
+
+  function handleSuggestionCreated(_suggestion: LivingStateSuggestion) {
+    setSuggestionsKey(k => k + 1)
+  }
 
   function handleSelect(r: ReflectionWithFeedback) {
     setSelected(r)
@@ -122,6 +129,12 @@ export default function ReflectionShell() {
       {/* Phase 24C: calibration summary — always visible */}
       <ReflectionCalibrationSummary presenceId={presence} />
 
+      {/* Phase 25: Living State suggestions panel */}
+      <LivingStateSuggestionsPanel
+        key={`${presence}-${suggestionsKey}`}
+        presenceId={presence}
+      />
+
       {/* Phase 24B: test panel — dev only, self-hiding in production */}
       <ReflectionTestPanel presence={presence} onJobProcessed={refresh} />
 
@@ -144,6 +157,7 @@ export default function ReflectionShell() {
                 <ReflectionDetail
                   reflection={selected}
                   onFeedbackSubmitted={handleFeedbackSubmitted}
+                  onSuggestionCreated={handleSuggestionCreated}
                 />
               ) : (
                 <div className="h-full flex items-center justify-center">
@@ -168,6 +182,7 @@ export default function ReflectionShell() {
                 reflection={selected}
                 onBack={handleBack}
                 onFeedbackSubmitted={handleFeedbackSubmitted}
+                onSuggestionCreated={handleSuggestionCreated}
               />
             )}
           </div>
