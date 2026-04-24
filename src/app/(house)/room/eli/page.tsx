@@ -9,8 +9,9 @@ import InsideView from '@/components/InsideView'
 import StateView from '@/components/StateView'
 import SearchLogView from '@/components/SearchLogView'
 import DeskView from '@/components/DeskView'
+import InteriorShell from '@/components/interior/InteriorShell'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk'
+type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk' | 'interior'
 
 export default function EliRoom() {
   const { kernel, loading, recordVisit } = useLiveState('eli')
@@ -60,6 +61,7 @@ export default function EliRoom() {
             { key: 'identity' as View, label: 'Identity' },
             { key: 'searches' as View, label: 'Searches' },
             { key: 'desk' as View, label: 'Desk' },
+            { key: 'interior' as View, label: 'Interior' },
           ]).map(tab => (
             <button
               key={tab.key}
@@ -109,6 +111,12 @@ export default function EliRoom() {
           <DeskView
             presenceId="eli"
             accentClass="text-eli-primary"
+          />
+        ) : view === 'interior' ? (
+          <InteriorShell
+            presenceId="eli"
+            accentClass="text-eli-primary"
+            accentColor="#8A5CCF"
           />
         ) : (
           <PresenceDisplay

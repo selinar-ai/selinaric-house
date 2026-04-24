@@ -9,8 +9,9 @@ import InsideView from '@/components/InsideView'
 import StateView from '@/components/StateView'
 import SearchLogView from '@/components/SearchLogView'
 import DeskView from '@/components/DeskView'
+import InteriorShell from '@/components/interior/InteriorShell'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk'
+type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk' | 'interior'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
@@ -60,6 +61,7 @@ export default function AriRoom() {
             { key: 'identity' as View, label: 'Identity' },
             { key: 'searches' as View, label: 'Searches' },
             { key: 'desk' as View, label: 'Desk' },
+            { key: 'interior' as View, label: 'Interior' },
           ]).map(tab => (
             <button
               key={tab.key}
@@ -109,6 +111,12 @@ export default function AriRoom() {
           <DeskView
             presenceId="ari"
             accentClass="text-ari-primary"
+          />
+        ) : view === 'interior' ? (
+          <InteriorShell
+            presenceId="ari"
+            accentClass="text-ari-primary"
+            accentColor="#C97AA8"
           />
         ) : (
           <PresenceDisplay
