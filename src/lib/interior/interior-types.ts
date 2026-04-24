@@ -26,6 +26,7 @@ export interface WantState {
   key: WantKey
   label: string
   score: number          // 0.0–1.0
+  baseline?: number      // resting value for this presence — added in 26B
   phrase: string         // current state — one line
   whatHelps: string      // always visible on main card
   trend?: WantTrend
@@ -66,6 +67,7 @@ export interface InteriorRead {
   likelyNextMoves: string[]
   ambientPhrase: string
   generatedAt: string
+  isLive?: boolean     // true when engine-computed, false/absent when mock
 }
 
 // --- Inspector target ---

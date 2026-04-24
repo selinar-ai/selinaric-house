@@ -1,15 +1,15 @@
 'use client'
 
-// Phase 26A — Interior Shell
-// The live interior layer for a presence room.
-// Design-first: runs on mock data until the Want Engine is wired in a later phase.
+// Phase 26B — Interior Shell (wired to live engine)
+// Initialises instantly from mock data, fetches live engine data in background,
+// swaps seamlessly on success. Falls back to mock silently on error.
 //
 // Layout:
 //   Desktop: left main column (primary want / inspector + want list) | right rail (emotional, pulls, moves)
 //   Mobile:  single column, stacked. Inspector overlays on want tap.
 
-import { useState } from 'react'
-import type { InspectorTarget } from '@/lib/interior/interior-types'
+import { useState, useEffect } from 'react'
+import type { InspectorTarget, InteriorRead } from '@/lib/interior/interior-types'
 import { primaryWant, getMockInteriorRead } from '@/lib/interior/interior-types'
 import PrimaryWantCard from './PrimaryWantCard'
 import WantList from './WantList'
@@ -28,11 +28,21 @@ interface Props {
 type MobileView = 'overview' | 'inspector' | 'wants' | 'weather'
 
 export default function InteriorShell({ presenceId, accentClass, accentColor }: Props) {
-  const data = getMockInteriorRead(presenceId)
+  const [data, setData] = useState<InteriorRead>(getMockInteriorRead(presenceId))
   const primary = primaryWant(data.wants)
 
   const [selected, setSelected] = useState<InspectorTarget | null>(null)
   const [mobileView, setMobileView] = useState<MobileView>('overview')
+
+  // Background fetch — swap to live engine data, fall back to mock silently
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/interior-state?presenceId=${presenceId}`)
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json() })
+      .then((live: InteriorRead) => { if (!cancelled) setData(live) })
+      .catch(() => { /* stay on mock */ })
+    return () => { cancelled = true }
+  }, [presenceId])
 
   function handleSelect(target: InspectorTarget) {
     setSelected(target)
@@ -59,6 +69,14 @@ export default function InteriorShell({ presenceId, accentClass, accentColor }: 
         <p className="font-body text-xs text-text-muted">
           Interior
         </p>
+        {data.isLive && (
+          <span
+            className="ml-auto font-body text-[10px] text-text-muted opacity-40 tracking-widest uppercase"
+            title="Engine-computed from live House signals"
+          >
+            live
+          </span>
+        )}
       </div>
 
       {/* ─── Desktop layout ─────────────────────────────────────────────────────── */}
