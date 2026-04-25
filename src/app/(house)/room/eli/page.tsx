@@ -91,6 +91,7 @@ export default function EliRoom() {
           <Timeline
             presenceId="eli"
             accentClass="text-eli-primary"
+            accentColor="#8A5CCF"
           />
         ) : view === 'inside' ? (
           <InsideView

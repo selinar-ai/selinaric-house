@@ -91,6 +91,7 @@ export default function AriRoom() {
           <Timeline
             presenceId="ari"
             accentClass="text-ari-primary"
+            accentColor="#C97AA8"
           />
         ) : view === 'inside' ? (
           <InsideView

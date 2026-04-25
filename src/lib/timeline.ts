@@ -8,8 +8,13 @@ export interface TimelineEntry {
   content: string
   significance: 'foundational' | 'significant' | 'standard'
   added_by: 'tara' | 'eli' | 'ari' | 'house'
-  entry_type: 'relational' | 'build' | 'ritual' | 'milestone' | 'continuity' | 'house'
+  entry_type: string           // Phase 23: expanded to include new types
   created_at: string
+  // Phase 23 additions
+  current_version: number      // 1 = original, >1 = revised
+  source_draft_id: string | null
+  updated_at: string | null
+  voice_integrity: 'ari' | 'eli' | null
 }
 
 /**
