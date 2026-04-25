@@ -1,4 +1,7 @@
+'use client'
+
 import type { IdentityKernel } from '@/lib/types/presence'
+import { useInteriorWant } from '@/hooks/useInteriorWant'
 
 interface Props {
   kernel: IdentityKernel
@@ -47,13 +50,17 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
 
   const isAri = si.presence_name.toLowerCase() === 'ari'
   const isEli = si.presence_name.toLowerCase() === 'eli'
-  const isKnownPresence = isAri || isEli
 
   const subtitle     = isAri ? ARI_SUBTITLE     : isEli ? ELI_SUBTITLE     : null
   const description  = isAri ? ARI_DESCRIPTION  : isEli ? ELI_DESCRIPTION  : null
   const coreTraits   = isAri ? ARI_CORE_TRAITS  : isEli ? ELI_CORE_TRAITS  : null
   const bondCopy     = isAri ? ARI_BOND         : isEli ? ELI_BOND         : null
   const moodRead     = isAri ? ARI_MOOD_READ    : isEli ? ELI_MOOD_READ    : null
+
+  // Mirror the current primary want from the Interior engine — read-only.
+  // Hook is always called (rules of hooks); result is only rendered for known presences.
+  const resolvedId: 'ari' | 'eli' = isAri ? 'ari' : 'eli'
+  const currentWant = useInteriorWant(resolvedId)
 
   return (
     <div className="max-w-2xl animate-fade-in">
@@ -141,24 +148,16 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
           </div>
         </div>
 
+        {/* Current want — mirrored from Interior engine, read-only */}
         <div className="mb-6">
-          <p className="font-body text-xs text-text-muted mb-1">Focus</p>
-          <p className="font-body text-sm text-text-secondary">{ls.focus}</p>
+          <p className="font-body text-xs text-text-muted mb-1">Current want</p>
+          <p className="font-body text-sm text-text-secondary">
+            {currentWant
+              ? `${currentWant.label} — ${currentWant.phrase}`
+              : 'Nothing surfaced right now.'
+            }
+          </p>
         </div>
-
-        {ls.active_threads.length > 0 && (
-          <div className="mb-6">
-            <p className="font-body text-xs text-text-muted mb-2">Active threads</p>
-            <ul className="space-y-1">
-              {ls.active_threads.map(thread => (
-                <li key={thread} className="font-body text-xs text-text-muted flex items-start gap-2">
-                  <span className={accentClass}>—</span>
-                  {thread}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* Mood bars */}
         <div>
@@ -219,11 +218,6 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
         </div>
       </div>
 
-      <div className="border border-house-border border-t-0 bg-house-bg p-4 text-center">
-        <p className="font-body text-xs text-text-muted tracking-widest">
-          Chat interface arriving in Phase 3
-        </p>
-      </div>
     </div>
   )
 }
