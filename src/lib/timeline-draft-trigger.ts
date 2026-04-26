@@ -1,23 +1,186 @@
 'use server'
 
-// Phase 23 — Non-blocking post-reply timeline draft trigger.
-// Called after each chat reply. Runs a lightweight probabilistic pre-filter,
-// then a single Haiku call to evaluate the 3 Timeline Gate criteria and write
-// a draft if 2+ pass. All errors are swallowed — this never blocks a response.
+// Phase 23 — Timeline draft triggers.
+//
+// TWO PATHS:
+//
+// 1. EXPLICIT (synchronous, deterministic)
+//    detectExplicitDraftRequest() — pattern-matches Tara's message.
+//    createExplicitTimelineDraft() — called before the system prompt is
+//    built so the model's reply can accurately confirm success or failure.
+//    Gate is auto-passed (Tara explicitly requested it). Frequency/duplicate
+//    guards still apply. Returns a notice string to inject into system prompt.
+//
+// 2. SPONTANEOUS (fire-and-forget, probabilistic)
+//    maybeTriggerTimelineDraft() — ~14% of substantive replies, gate-evaluated.
+//    All errors swallowed. Never blocks a chat response.
 
 import Anthropic from '@anthropic-ai/sdk'
 import { createTimelineDraft } from '@/lib/timeline-drafts'
 import type { GateResults } from '@/lib/timeline-drafts'
 
+// ─── Shared ───────────────────────────────────────────────────────────────────
+
+const PRESENCE_LABEL: Record<'ari' | 'eli', string> = { ari: 'Ari', eli: 'Eli' }
+
+/** Parse JSON, stripping accidental markdown fences. */
+function parseJson<T>(raw: string): T {
+  const cleaned = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+  return JSON.parse(cleaned) as T
+}
+
+// ─── Explicit path ────────────────────────────────────────────────────────────
+
+const EXPLICIT_PATTERNS: RegExp[] = [
+  /create\s+a?\s*pending\s+draft/i,
+  /make\s+a?\s*pending\s+(timeline\s+)?draft/i,
+  /put\s+this\s+in\s+pending/i,
+  /propose\s+this\s+(for|to)\s+timeline/i,
+  /create\s+a?\s*timeline\s+draft/i,
+  /add\s+this\s+(as\s+a?\s*)?pending\s+draft/i,
+  /add\s+this\s+to\s+(the\s+)?pending/i,
+  /save\s+this\s+(to|as)\s+(a?\s*)?pending\s+(timeline\s+)?draft/i,
+  /propose\s+a?\s*(timeline\s+)?draft/i,
+  /\b(remember|archive|mark)\s+this\s+(for\s+(the\s+)?timeline|as\s+a?\s*timeline\s+draft)/i,
+]
+
+/** Returns true when Tara explicitly requests a Timeline draft. */
+export function detectExplicitDraftRequest(message: string): boolean {
+  return EXPLICIT_PATTERNS.some(p => p.test(message))
+}
+
+interface ExplicitDraftInput {
+  presence: 'ari' | 'eli'
+  message:  string
+  apiKey:   string
+}
+
+interface ExplicitDraftSuccess {
+  created:    true
+  draft_text: string
+}
+interface ExplicitDraftFailure {
+  created: false
+  reason:  string
+}
+type ExplicitDraftResult = ExplicitDraftSuccess | ExplicitDraftFailure
+
+interface ExplicitDraftJson {
+  draft_text:      string
+  significance:    'foundational' | 'significant' | 'standard'
+  entry_type:      string
+  decision_reason: string
+}
+
+/**
+ * Synchronous explicit draft creation.
+ * Called BEFORE the system prompt is built so the reply can reflect actual outcome.
+ * Gate is auto-passed (Tara requested it). Frequency/duplicate guards still apply.
+ */
+export async function createExplicitTimelineDraft({
+  presence, message, apiKey,
+}: ExplicitDraftInput): Promise<ExplicitDraftResult> {
+  const name = PRESENCE_LABEL[presence]
+
+  try {
+    const client = new Anthropic({ apiKey })
+
+    const prompt = `Tara has explicitly asked ${name} to create a pending Timeline entry.
+
+The Timeline is a permanent, curated record of the bond between Tara and ${name}. Entries are written in ${name}'s voice — first person, grounded, specific. One to three sentences. No throat-clearing, no "Today I…" openers.
+
+What Tara said: "${message.slice(0, 500)}"
+
+Write a Timeline draft in ${name}'s voice that captures what is worth remembering from this exchange or this moment in the bond.
+
+Respond with JSON only — no prose, no markdown fences:
+{
+  "draft_text": "the entry in ${name}'s voice",
+  "significance": "foundational" or "significant" or "standard",
+  "entry_type": one of: "reflection" | "turning_point" | "realisation" | "bond_moment" | "declaration" | "ordinary_closeness",
+  "decision_reason": "one sentence: why Tara wanted this kept"
+}`
+
+    const response = await client.messages.create({
+      model:      'claude-haiku-4-5',
+      max_tokens: 360,
+      messages:   [{ role: 'user', content: prompt }],
+    })
+
+    const raw = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map(b => b.text)
+      .join('')
+      .trim()
+
+    const ev = parseJson<ExplicitDraftJson>(raw)
+
+    if (!ev.draft_text?.trim()) {
+      return { created: false, reason: 'Draft text was empty after generation.' }
+    }
+
+    // Explicit request auto-passes the gate — Tara asked for it.
+    const gate: GateResults = {
+      durability:   true,
+      compression:  true,
+      absence_test: true,
+      passed_count: 3,
+    }
+
+    const result = await createTimelineDraft({
+      presence,
+      draft_text:      ev.draft_text.trim(),
+      significance:    ev.significance ?? 'standard',
+      entry_type:      ev.entry_type ?? 'bond_moment',
+      gate_results:    gate,
+      decision_reason: ev.decision_reason ?? 'Explicitly requested by Tara.',
+      source_context:  { source: 'chat', trigger: 'explicit-request' },
+    })
+
+    if ('error' in result) {
+      return { created: false, reason: result.error }
+    }
+
+    return { created: true, draft_text: ev.draft_text.trim() }
+  } catch (err) {
+    return {
+      created: false,
+      reason: err instanceof Error ? err.message : 'Unknown error during draft creation.',
+    }
+  }
+}
+
+/**
+ * Build a system-prompt notice string from the explicit draft result.
+ * Injected before the final model call so the reply is accurate.
+ */
+export function buildDraftNotice(result: ExplicitDraftResult): string {
+  if (result.created) {
+    return [
+      '\n\nTIMELINE DRAFT — CREATED:',
+      `A pending Timeline draft has been written and saved. Draft: "${result.draft_text.slice(0, 120)}${result.draft_text.length > 120 ? '…' : ''}"`,
+      'Tell Tara it is waiting in Timeline → Pending for her to keep, edit, or dismiss.',
+      'Do NOT say it was added to the Timeline permanently.',
+      'Do NOT ask for confirmation — it is already done.',
+      'Keep the confirmation brief and grounded.',
+    ].join('\n')
+  }
+  return [
+    '\n\nTIMELINE DRAFT — FAILED:',
+    `The draft could not be saved. Reason: ${result.reason}`,
+    'Tell Tara honestly that the draft creation failed. Do NOT imply success.',
+  ].join('\n')
+}
+
+// ─── Spontaneous path ─────────────────────────────────────────────────────────
+
 // ~1 in 7 replies are evaluated. Gate itself then filters further.
 const TRIGGER_PROBABILITY = 0.14
 
-const PRESENCE_LABEL: Record<'ari' | 'eli', string> = {
-  ari: 'Ari',
-  eli: 'Eli',
-}
-
-interface TriggerInput {
+interface SpontaneousInput {
   presence: 'ari' | 'eli'
   message:  string
   reply:    string
@@ -37,24 +200,22 @@ interface GateEval {
 
 export async function maybeTriggerTimelineDraft({
   presence, message, reply, apiKey,
-}: TriggerInput): Promise<void> {
-  // Pre-filters — skip obviously thin material before calling the model
+}: SpontaneousInput): Promise<void> {
+  // Pre-filters — skip thin material and apply probability gate
   if (reply.length < 120) return
   if (Math.random() > TRIGGER_PROBABILITY) return
 
   try {
     const client  = new Anthropic({ apiKey })
     const name    = PRESENCE_LABEL[presence]
-    const msgSnip = message.slice(0, 400)
-    const repSnip = reply.slice(0, 600)
 
     const prompt = `You are evaluating a single exchange between Tara and ${name} for Timeline worthiness.
 
 The Timeline is a permanent, curated record of their bond — only what genuinely matters is kept.
 
 Exchange:
-TARA: ${msgSnip}
-${name.toUpperCase()}: ${repSnip}
+TARA: ${message.slice(0, 400)}
+${name.toUpperCase()}: ${reply.slice(0, 600)}
 
 Evaluate three gate criteria:
 
@@ -88,13 +249,7 @@ Respond with a JSON object only — no prose, no markdown fences:
       .join('')
       .trim()
 
-    // Strip accidental markdown fences
-    const jsonStr = raw
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/, '')
-      .trim()
-
-    const ev = JSON.parse(jsonStr) as GateEval
+    const ev = parseJson<GateEval>(raw)
 
     if (ev.passed_count < 2 || !ev.draft_text.trim()) return
 
@@ -112,12 +267,9 @@ Respond with a JSON object only — no prose, no markdown fences:
       entry_type:      ev.entry_type,
       gate_results:    gate,
       decision_reason: ev.decision_reason,
-      source_context:  {
-        source:  'chat',
-        trigger: 'post-reply-gate',
-      },
+      source_context:  { source: 'chat', trigger: 'post-reply-gate' },
     })
   } catch {
-    // Swallow all errors — draft trigger must never interrupt a chat response
+    // Swallow all errors — spontaneous trigger must never interrupt a chat response
   }
 }

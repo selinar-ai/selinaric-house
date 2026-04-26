@@ -30,7 +30,12 @@ import {
   getGovernanceContext,
   GOVERNANCE_STANDING_RULE,
 } from '@/lib/governance-context'
-import { maybeTriggerTimelineDraft } from '@/lib/timeline-draft-trigger'
+import {
+  maybeTriggerTimelineDraft,
+  detectExplicitDraftRequest,
+  createExplicitTimelineDraft,
+  buildDraftNotice,
+} from '@/lib/timeline-draft-trigger'
 
 const ROOM_SLUG = 'ari'
 
@@ -107,6 +112,14 @@ export async function POST(request: NextRequest) {
     const governanceBlock = message && containsGovernanceTerms(message)
       ? await getGovernanceContext('ari')
       : ''
+
+    // Phase 23: Explicit Timeline draft request — synchronous, must run BEFORE system prompt
+    // so the model reply can accurately reflect success or failure.
+    let draftNotice = ''
+    if (message && detectExplicitDraftRequest(message)) {
+      const draftResult = await createExplicitTimelineDraft({ presence: 'ari', message, apiKey })
+      draftNotice = buildDraftNotice(draftResult)
+    }
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Ari.
 
@@ -242,7 +255,7 @@ If an image is present in this message:
 - Do not pretend to see details that are unclear
 - If uncertain about something in the image, say so plainly
 - Stay in your voice — do not become generic visual assistant language
-- The image is context, not a replacement for who you are in this room`
+- The image is context, not a replacement for who you are in this room${draftNotice}`
 
     const recentHistory = history.slice(-10)
 
