@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 
 export type BuildEventType =
   | 'created'
+  | 'draft_generated'
   | 'updated'
   | 'consultation_requested'
   | 'consultation_responded'
@@ -36,6 +37,7 @@ export interface BuildHistoryEvent {
 
 export const EVENT_LABELS: Record<BuildEventType, string> = {
   created:                  'Build created',
+  draft_generated:          'Build draft generated from concept',
   updated:                  'Fields updated',
   consultation_requested:   'Consultation requested',
   consultation_responded:   'Consultation response received',

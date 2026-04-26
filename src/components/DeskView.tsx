@@ -154,6 +154,9 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   // Each entry in the Set is a build ID whose Forgekeeper bundle is currently expanded.
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set())
 
+  // Build draft generation — conceptId that is currently being generated
+  const [generatingBuild, setGeneratingBuild] = useState<string | null>(null)
+
   // --- Form state ---
   const [fShortName, setFShortName] = useState('')
   const [fScope, setFScope] = useState<BuildScope>(presenceId === 'ari' ? 'ari_only' : 'eli_only')
@@ -616,6 +619,30 @@ export default function DeskView({ presenceId, accentClass }: Props) {
 
   // Concept selected for build provenance (set during handleCreateBuildFromConcept)
   const [selectedConceptForBuild, setSelectedConceptForBuild] = useState<DeskConcept | null>(null)
+
+  async function handleGenerateBuildDraft(concept: DeskConcept) {
+    setGeneratingBuild(concept.id)
+    setConceptError(null)
+    try {
+      const res = await fetch('/api/desk-builds/from-concept/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conceptId: concept.id, presenceId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setConceptError(data.error ?? 'Failed to generate build draft.')
+        return
+      }
+      await fetchBuilds()
+      // Switch to Builds tab and open the draft in detail view
+      setSection('builds')
+      setSelectedBuild(data.build)
+      setMode('detail')
+    } finally {
+      setGeneratingBuild(null)
+    }
+  }
 
   // --- Active / history split ---
   const activeBuilds = builds.filter(b =>
@@ -1500,14 +1527,28 @@ export default function DeskView({ presenceId, accentClass }: Props) {
                       </div>
                     )}
 
-                    {/* Approved: offer build creation */}
+                    {/* Approved — generate build draft */}
                     {concept.status === 'approved' && !concept.related_build_id && (
-                      <div className="pt-2 border-t border-house-border">
+                      <div className="pt-2 border-t border-house-border flex items-center gap-3 flex-wrap">
+                        <button
+                          onClick={() => handleGenerateBuildDraft(concept)}
+                          disabled={generatingBuild === concept.id}
+                          className={`font-body text-[10px] tracking-widest uppercase px-3 py-1.5 border min-h-[36px] transition-all ${
+                            generatingBuild === concept.id
+                              ? 'text-text-muted border-house-border opacity-50'
+                              : `${accentClass} border-current`
+                          }`}
+                        >
+                          {generatingBuild === concept.id
+                            ? 'Generating…'
+                            : `Ask ${presenceId === 'ari' ? 'Ari' : 'Eli'} to prepare Build Draft`}
+                        </button>
                         <button
                           onClick={() => handleCreateBuildFromConcept(concept)}
-                          className={`font-body text-[10px] tracking-widest uppercase px-3 py-1.5 border min-h-[36px] transition-all ${accentClass} border-current`}
+                          disabled={!!generatingBuild}
+                          className="font-body text-[10px] text-text-muted hover:text-text-secondary min-h-[36px] px-1 transition-colors"
                         >
-                          Create Build from Concept
+                          Fill manually
                         </button>
                       </div>
                     )}
@@ -1515,7 +1556,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
                     {/* Approved and build linked */}
                     {concept.status === 'approved' && concept.related_build_id && (
                       <p className="font-body text-[10px] text-green-400 pt-2 border-t border-house-border">
-                        Build created from this concept.
+                        Build Draft created.
                       </p>
                     )}
                   </div>
