@@ -1,4 +1,4 @@
-'use server'
+import 'server-only'
 
 // Phase 23 — Timeline draft triggers.
 //
