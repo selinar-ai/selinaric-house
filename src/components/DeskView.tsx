@@ -29,6 +29,7 @@ import {
   DESK_STATUS_IN_PROGRESS,
   DESK_STATUS_PENDING,
 } from '@/lib/builds'
+import { type BuildHistoryEvent, EVENT_LABELS } from '@/lib/build-history'
 
 // --- Constants ---
 
@@ -163,11 +164,16 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   const [fRisks, setFRisks] = useState('')
   const [fTests, setFTests] = useState<TestsRun[]>(['none_yet'])
   const [fFocus, setFFocus] = useState('')
+  const [fImplementationNotes, setFImplementationNotes] = useState('')
   const [fConsultQuestion, setFConsultQuestion] = useState('')
   const [fConsultResponse, setFConsultResponse] = useState('')
   const [showConsultForm, setShowConsultForm] = useState(false)
   const [showReturnNotes, setShowReturnNotes] = useState(false)
   const [fReturnNotes, setFReturnNotes] = useState('')
+  // Build history (audit log) for the currently selected build
+  const [buildHistory, setBuildHistory] = useState<BuildHistoryEvent[]>([])
+  const [buildHistoryLoading, setBuildHistoryLoading] = useState(false)
+  const [showBuildHistory, setShowBuildHistory] = useState(false)
 
   // --- Fetch ---
   const fetchBuilds = useCallback(async () => {
@@ -205,12 +211,34 @@ export default function DeskView({ presenceId, accentClass }: Props) {
     fetchBuilds()
   }, [fetchBuilds])
 
+  // Load build audit history when a build is opened in detail view
+  const loadBuildHistory = useCallback(async (buildId: string) => {
+    setBuildHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/builds/history?buildId=${buildId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBuildHistory(data.events ?? [])
+      }
+    } finally {
+      setBuildHistoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedBuild && mode === 'detail') {
+      setShowBuildHistory(false)
+      loadBuildHistory(selectedBuild.id)
+    }
+  }, [selectedBuild?.id, mode, loadBuildHistory])
+
   // --- Form helpers ---
   function resetForm() {
     setFShortName('')
     setFScope(presenceId === 'ari' ? 'ari_only' : 'eli_only')
     setFSummary('')
     setFReason('')
+    setFImplementationNotes('')
     setFChangedFiles('')
     setFSurfaces([])
     setFRisks('')
@@ -229,6 +257,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
     setFScope(b.expected_scope)
     setFSummary(b.summary)
     setFReason(b.reason)
+    setFImplementationNotes(b.implementation_notes ?? '')
     setFChangedFiles(b.changed_files?.join('\n') ?? '')
     setFSurfaces(b.affected_surfaces ?? [])
     setFRisks(b.risks?.join('\n') ?? '')
@@ -262,6 +291,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
       expected_scope: fScope,
       summary: fSummary.trim(),
       reason: fReason.trim(),
+      implementation_notes: fImplementationNotes.trim(),
       changed_files: parseLinesField(fChangedFiles),
       affected_surfaces: fSurfaces,
       risks: parseLinesField(fRisks),
@@ -286,6 +316,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
       // Provenance: if this build was created from an approved concept, link it
       if (selectedConceptForBuild) {
         body.origin_concept_id = selectedConceptForBuild.id
+        body.origin_concept_short_id = selectedConceptForBuild.concept_id
       }
       const res = await fetch('/api/builds', {
         method: 'POST',
@@ -340,7 +371,14 @@ export default function DeskView({ presenceId, accentClass }: Props) {
 
   async function handleMarkReady() {
     if (!selectedBuild) return
+    // Validate required fields before marking ready
+    const readiness = checkSubmissionReadiness(selectedBuild)
+    if (!readiness.ready) {
+      setError(`Required before marking ready: ${readiness.missing.join(', ')}`)
+      return
+    }
     setSaving(true)
+    setError(null)
     try {
       const res = await fetch('/api/builds', {
         method: 'PATCH',
@@ -693,6 +731,20 @@ export default function DeskView({ presenceId, accentClass }: Props) {
             />
           </div>
 
+          {/* Implementation notes */}
+          <div>
+            <label className="font-body text-[10px] text-text-muted uppercase tracking-widest block mb-1">
+              Implementation notes <span className="normal-case">(optional — approach, decisions, trade-offs)</span>
+            </label>
+            <textarea
+              value={fImplementationNotes}
+              onChange={e => setFImplementationNotes(e.target.value)}
+              placeholder="How I implemented this. Key decisions made. Anything Forgekeeper or Workshop should know."
+              rows={3}
+              className="w-full bg-house-bg border border-house-border px-3 py-2 font-body text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors resize-none"
+            />
+          </div>
+
           {/* Changed files */}
           <div>
             <label className="font-body text-[10px] text-text-muted uppercase tracking-widest block mb-1">
@@ -837,6 +889,16 @@ export default function DeskView({ presenceId, accentClass }: Props) {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+          {/* Concept provenance badge */}
+          {build.origin_concept_id && (
+            <div className="flex items-center gap-2">
+              <span className="font-body text-[10px] text-text-muted uppercase tracking-widest">From concept</span>
+              <span className={`font-mono text-[10px] ${accentClass}`}>
+                {build.origin_concept_short_id ?? build.origin_concept_id.slice(0, 8)}
+              </span>
+            </div>
+          )}
+
           {/* Summary + reason */}
           {build.summary && (
             <div>
@@ -848,6 +910,12 @@ export default function DeskView({ presenceId, accentClass }: Props) {
             <div>
               <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-1">Reason</p>
               <p className="font-body text-sm text-text-secondary leading-relaxed">{build.reason}</p>
+            </div>
+          )}
+          {build.implementation_notes && (
+            <div>
+              <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-1">Implementation notes</p>
+              <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{build.implementation_notes}</p>
             </div>
           )}
 
@@ -1013,6 +1081,47 @@ export default function DeskView({ presenceId, accentClass }: Props) {
               )}
             </div>
           )}
+
+          {/* Build history audit log */}
+          <div>
+            <button
+              onClick={() => setShowBuildHistory(v => !v)}
+              className="font-body text-[10px] text-text-muted uppercase tracking-widest hover:text-text-secondary transition-colors"
+            >
+              {showBuildHistory ? '− Hide history' : '+ Build history'}
+              {buildHistory.length > 0 && (
+                <span className="ml-1.5 font-mono text-[9px]">({buildHistory.length})</span>
+              )}
+            </button>
+            {showBuildHistory && (
+              <div className="mt-2 space-y-1.5">
+                {buildHistoryLoading ? (
+                  <p className="font-mono text-[10px] text-text-muted">Loading…</p>
+                ) : buildHistory.length === 0 ? (
+                  <p className="font-mono text-[10px] text-text-muted">No history events yet.</p>
+                ) : (
+                  buildHistory.map(ev => (
+                    <div key={ev.id} className="flex gap-2 items-start">
+                      <p className="font-mono text-[10px] text-text-muted shrink-0 mt-0.5">
+                        {formatDate(ev.created_at)}
+                      </p>
+                      <div className="min-w-0">
+                        <span className="font-body text-[10px] text-text-secondary">
+                          {EVENT_LABELS[ev.event_type] ?? ev.event_type}
+                        </span>
+                        {ev.actor && ev.actor !== 'system' && (
+                          <span className="font-mono text-[10px] text-text-muted ml-1.5">— {ev.actor}</span>
+                        )}
+                        {ev.note && (
+                          <p className="font-body text-[10px] text-text-muted mt-0.5 italic">{ev.note}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {error && <p className="font-body text-xs text-red-400">{error}</p>}
         </div>

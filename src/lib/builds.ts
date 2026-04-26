@@ -79,6 +79,7 @@ export interface Build {
   expected_scope: BuildScope
   summary: string
   reason: string
+  implementation_notes: string
   changed_files: string[]
   affected_surfaces: AffectedSurface[]
   risks: string[]
@@ -88,6 +89,8 @@ export interface Build {
   desk_status: DeskStatus
   workshop_status: WorkshopStatus | null
   forgekeeper_review: ForgekeeperReview | null
+  origin_concept_id: string | null
+  origin_concept_short_id: string | null
   created_at: string
   updated_at: string
 }

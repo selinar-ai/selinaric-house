@@ -11,6 +11,7 @@ import {
   formatBuildId,
   type BuildOrigin,
 } from '@/lib/builds'
+import { logBuildEvent, originToActor } from '@/lib/build-history'
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -80,11 +81,14 @@ export async function POST(request: NextRequest) {
     expected_scope,
     summary,
     reason,
+    implementation_notes,
     changed_files,
     affected_surfaces,
     risks,
     tests_run,
     verify_focus,
+    origin_concept_id,
+    origin_concept_short_id,
   } = body
 
   if (!origin || !short_name) {
@@ -109,6 +113,7 @@ export async function POST(request: NextRequest) {
       expected_scope: expected_scope || (origin === 'ari_desk' ? 'ari_only' : origin === 'eli_desk' ? 'eli_only' : 'shared_house'),
       summary: summary || '',
       reason: reason || '',
+      implementation_notes: implementation_notes || '',
       changed_files: changed_files || [],
       affected_surfaces: affected_surfaces || [],
       risks: risks || [],
@@ -118,11 +123,24 @@ export async function POST(request: NextRequest) {
       workshop_status: null,
       consultation: null,
       forgekeeper_review: null,
+      origin_concept_id: origin_concept_id || null,
+      origin_concept_short_id: origin_concept_short_id || null,
     })
     .select()
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Log creation event (non-blocking — fire and forget)
+  if (data?.id) {
+    logBuildEvent({
+      buildId: data.id,
+      eventType: 'created',
+      nextDeskStatus: 'Draft',
+      actor: originToActor(origin),
+    }).catch(() => {})
+  }
+
   return NextResponse.json({ build: data })
 }
 
@@ -137,6 +155,25 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
 
+  // Fetch current build when a status-bearing change is incoming, so we can diff
+  const isStatusChange = 'desk_status' in updates || 'workshop_status' in updates || 'consultation' in updates
+  let prevDeskStatus: string | null = null
+  let prevWorkshopStatus: string | null = null
+  let prevOrigin: string | null = null
+
+  if (isStatusChange) {
+    const { data: current } = await supabase
+      .from('builds')
+      .select('desk_status, workshop_status, origin')
+      .eq('id', id)
+      .single()
+    if (current) {
+      prevDeskStatus = current.desk_status ?? null
+      prevWorkshopStatus = current.workshop_status ?? null
+      prevOrigin = current.origin ?? null
+    }
+  }
+
   // Always stamp updated_at
   const patch: Record<string, unknown> = { ...updates, updated_at: new Date().toISOString() }
 
@@ -148,5 +185,56 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Log the appropriate history event (non-blocking)
+  if (data?.id && isStatusChange) {
+    const nextDeskStatus: string | null = updates.desk_status ?? prevDeskStatus
+    const nextWorkshopStatus: string | null = updates.workshop_status ?? prevWorkshopStatus
+    const actor = prevOrigin ? originToActor(prevOrigin) : 'system'
+
+    // Infer event type from the status transition
+    type PatchEventType = import('@/lib/build-history').BuildEventType
+    let eventType: PatchEventType | null = null
+
+    if (updates.desk_status === 'Ready to Submit') {
+      eventType = 'marked_ready'
+    } else if (updates.desk_status === 'Sent for Verification') {
+      eventType = 'sent_for_verification'
+    } else if (updates.consultation) {
+      const consultation = updates.consultation as Record<string, unknown>
+      const cStatus = consultation?.status as string | undefined
+      if (cStatus === 'requested')  eventType = 'consultation_requested'
+      else if (cStatus === 'complete') eventType = 'consultation_responded'
+      else if (cStatus === 'declined') eventType = 'consultation_declined'
+      else                             eventType = 'updated'
+    } else {
+      eventType = 'updated'
+    }
+
+    if (eventType) {
+      logBuildEvent({
+        buildId: data.id,
+        eventType,
+        prevDeskStatus,
+        nextDeskStatus,
+        prevWorkshopStatus,
+        nextWorkshopStatus,
+        actor,
+        note: updates._history_note as string | undefined,
+      }).catch(() => {})
+    }
+  } else if (data?.id && !isStatusChange) {
+    // Pure field update — log as 'updated' only if non-trivial fields changed
+    const fieldKeys = Object.keys(updates).filter(k => !['updated_at', '_history_note'].includes(k))
+    if (fieldKeys.length > 0) {
+      logBuildEvent({
+        buildId: data.id,
+        eventType: 'updated',
+        actor: 'system',
+        note: `Fields updated: ${fieldKeys.join(', ')}`,
+      }).catch(() => {})
+    }
+  }
+
   return NextResponse.json({ build: data })
 }

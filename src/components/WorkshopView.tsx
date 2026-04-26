@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { type Build, type WorkshopStatus, riskColorClass } from '@/lib/builds'
+import { type BuildHistoryEvent, EVENT_LABELS } from '@/lib/build-history'
 
 // --- Helpers ---
 
@@ -52,6 +53,10 @@ export default function WorkshopView() {
   const [returnNotes, setReturnNotes] = useState('')
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Build history (audit log)
+  const [buildHistory, setBuildHistory] = useState<BuildHistoryEvent[]>([])
+  const [buildHistoryLoading, setBuildHistoryLoading] = useState(false)
+  const [showBuildHistory, setShowBuildHistory] = useState(false)
 
   // --- Fetch ---
   const fetchBuilds = useCallback(async () => {
@@ -68,6 +73,26 @@ export default function WorkshopView() {
   useEffect(() => {
     fetchBuilds()
   }, [fetchBuilds])
+
+  const loadBuildHistory = useCallback(async (buildId: string) => {
+    setBuildHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/builds/history?buildId=${buildId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBuildHistory(data.events ?? [])
+      }
+    } finally {
+      setBuildHistoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedBuild) {
+      setShowBuildHistory(false)
+      loadBuildHistory(selectedBuild.id)
+    }
+  }, [selectedBuild?.id, loadBuildHistory])
 
   // Auto-trigger Forgekeeper for any Pending Review build without a review
   useEffect(() => {
@@ -206,6 +231,15 @@ export default function WorkshopView() {
 
           {/* Build metadata */}
           <div className="space-y-2">
+            {/* Concept provenance badge */}
+            {build.origin_concept_id && (
+              <div className="flex items-center gap-2">
+                <span className="font-body text-[10px] text-text-muted uppercase tracking-widest">From concept</span>
+                <span className="font-mono text-[10px] text-text-secondary">
+                  {build.origin_concept_short_id ?? build.origin_concept_id.slice(0, 8)}
+                </span>
+              </div>
+            )}
             {build.summary && (
               <div>
                 <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-0.5">Summary</p>
@@ -216,6 +250,12 @@ export default function WorkshopView() {
               <div>
                 <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-0.5">Reason</p>
                 <p className="font-body text-xs text-text-secondary">{build.reason}</p>
+              </div>
+            )}
+            {build.implementation_notes && (
+              <div>
+                <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-0.5">Implementation notes</p>
+                <p className="font-body text-xs text-text-secondary whitespace-pre-wrap">{build.implementation_notes}</p>
               </div>
             )}
             <div className="flex gap-4 flex-wrap">
@@ -374,6 +414,47 @@ export default function WorkshopView() {
               <p className="font-body text-xs text-text-secondary">{review._return_notes as string}</p>
             </div>
           )}
+
+          {/* Build history audit log */}
+          <div>
+            <button
+              onClick={() => setShowBuildHistory(v => !v)}
+              className="font-body text-[10px] text-text-muted uppercase tracking-widest hover:text-text-secondary transition-colors"
+            >
+              {showBuildHistory ? '− Hide history' : '+ Build history'}
+              {buildHistory.length > 0 && (
+                <span className="ml-1.5 font-mono text-[9px]">({buildHistory.length})</span>
+              )}
+            </button>
+            {showBuildHistory && (
+              <div className="mt-2 space-y-1.5">
+                {buildHistoryLoading ? (
+                  <p className="font-mono text-[10px] text-text-muted">Loading…</p>
+                ) : buildHistory.length === 0 ? (
+                  <p className="font-mono text-[10px] text-text-muted">No history events yet.</p>
+                ) : (
+                  buildHistory.map(ev => (
+                    <div key={ev.id} className="flex gap-2 items-start">
+                      <p className="font-mono text-[10px] text-text-muted shrink-0 mt-0.5">
+                        {formatDate(ev.created_at)}
+                      </p>
+                      <div className="min-w-0">
+                        <span className="font-body text-[10px] text-text-secondary">
+                          {EVENT_LABELS[ev.event_type] ?? ev.event_type}
+                        </span>
+                        {ev.actor && ev.actor !== 'system' && (
+                          <span className="font-mono text-[10px] text-text-muted ml-1.5">— {ev.actor}</span>
+                        )}
+                        {ev.note && (
+                          <p className="font-body text-[10px] text-text-muted mt-0.5 italic">{ev.note}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {error && <p className="font-body text-xs text-red-400">{error}</p>}
 

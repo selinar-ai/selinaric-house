@@ -14,6 +14,7 @@ import {
   type Build,
   type ForgekeeperReview,
 } from '@/lib/builds'
+import { logBuildEvent } from '@/lib/build-history'
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -191,6 +192,18 @@ Output the review bundle as JSON. No preamble, no commentary. JSON only.`
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 })
+  }
+
+  // Log forgekeeper_complete event (non-blocking)
+  if (updated?.id) {
+    logBuildEvent({
+      buildId: updated.id,
+      eventType: 'forgekeeper_complete',
+      prevWorkshopStatus: 'Pending Review',
+      nextWorkshopStatus: 'Review Complete',
+      actor: 'forgekeeper',
+      note: review.risk_summary ? `Risk: ${review.risk_summary}` : undefined,
+    }).catch(() => {})
   }
 
   return NextResponse.json({ build: updated, review })

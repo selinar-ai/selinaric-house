@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { logBuildEvent, originToActor } from '@/lib/build-history'
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -24,6 +25,18 @@ export async function POST(request: NextRequest) {
   }
 
   const now = new Date().toISOString()
+
+  // Fetch current build for prev-state tracking
+  const { data: current } = await supabase
+    .from('builds')
+    .select('desk_status, workshop_status, origin, forgekeeper_review')
+    .eq('id', buildId)
+    .single()
+
+  const prevDeskStatus = current?.desk_status ?? null
+  const prevWorkshopStatus = current?.workshop_status ?? null
+  const buildOrigin = current?.origin ?? null
+
   let patch: Record<string, unknown> = { updated_at: now }
 
   switch (action) {
@@ -69,13 +82,6 @@ export async function POST(request: NextRequest) {
 
   // For return with notes: merge into existing review rather than overwriting
   if (action === 'return' && returnNotes) {
-    // Fetch current review first
-    const { data: current } = await supabase
-      .from('builds')
-      .select('forgekeeper_review')
-      .eq('id', buildId)
-      .single()
-
     const existingReview = current?.forgekeeper_review ?? {}
     patch.forgekeeper_review = {
       ...existingReview,
@@ -92,5 +98,30 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Log workshop decision event (non-blocking)
+  if (data?.id) {
+    type WorkshopEventType = import('@/lib/build-history').BuildEventType
+    const eventMap: Record<string, WorkshopEventType> = {
+      approve: 'approved',
+      return:  'returned',
+      hold:    'held',
+      reopen:  'reopened',
+    }
+    const eventType = eventMap[action]
+    if (eventType) {
+      logBuildEvent({
+        buildId: data.id,
+        eventType,
+        prevDeskStatus,
+        nextDeskStatus: (data.desk_status as string) ?? prevDeskStatus,
+        prevWorkshopStatus,
+        nextWorkshopStatus: (data.workshop_status as string) ?? prevWorkshopStatus,
+        actor: 'tara',
+        note: returnNotes ?? undefined,
+      }).catch(() => {})
+    }
+  }
+
   return NextResponse.json({ build: data })
 }
