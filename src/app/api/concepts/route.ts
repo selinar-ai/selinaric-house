@@ -38,7 +38,11 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false })
 
   if (!includeHistory) {
-    query = query.in('status', CONCEPT_STATUS_ACTIVE)
+    // Active view: pending + discussion (need decision) + approved-without-build (awaiting conversion)
+    // Rejected and approved-with-build go to history only.
+    query = query.or(
+      'status.in.(pending,discussion),and(status.eq.approved,related_build_id.is.null)'
+    )
   }
 
   const { data, error } = await query
