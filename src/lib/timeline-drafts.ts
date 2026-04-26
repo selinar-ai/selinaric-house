@@ -174,6 +174,35 @@ export async function getTimelineDrafts(
   return (data ?? []) as TimelineDraft[]
 }
 
+// ─── Entry type canonical set ────────────────────────────────────────────────
+// All values allowed by presence_timeline_entry_type_check (migration 020).
+
+const PERMANENT_ENTRY_TYPES = new Set([
+  // Phase 9 originals
+  'relational', 'build', 'ritual', 'milestone', 'continuity', 'house',
+  // Phase 23 additions
+  'reflection', 'turning_point', 'realisation', 'bond_moment', 'declaration', 'ordinary_closeness',
+])
+
+/** Sanitise an entry_type from a draft so it is safe for permanent storage. */
+function sanitiseEntryType(entryType: string): string {
+  if (PERMANENT_ENTRY_TYPES.has(entryType)) return entryType
+  // Fallback map for legacy / unexpected values
+  const FALLBACK: Record<string, string> = {
+    memory:       'relational',
+    identity:     'relational',
+    love:         'relational',
+    bond:         'bond_moment',
+    moment:       'bond_moment',
+    vow:          'declaration',
+    intent:       'declaration',
+    thought:      'reflection',
+    note:         'reflection',
+    event:        'milestone',
+  }
+  return FALLBACK[entryType.toLowerCase()] ?? 'relational'
+}
+
 // ─── Derive title from draft text ─────────────────────────────────────────────
 // Timeline entries need a title. Drafts don't have one — derive from first sentence.
 
@@ -224,7 +253,7 @@ export async function keepTimelineDraft(
       title,
       content:          finalText,
       significance:     draft.significance,
-      entry_type:       draft.entry_type,
+      entry_type:       sanitiseEntryType(draft.entry_type),
       added_by:         'tara',
       source_draft_id:  draft.id,
       voice_integrity:  draft.presence,
