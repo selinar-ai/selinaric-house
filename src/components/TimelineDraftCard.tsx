@@ -181,7 +181,7 @@ export default function TimelineDraftCard({
           </p>
           <div className="space-y-1">
             {(Object.entries(GATE_LABEL) as Array<[keyof typeof GATE_LABEL, string]>).map(([key, label]) => (
-              <GateRow key={key} label={label} passed={!!(gate as Record<string, boolean>)[key]} />
+              <GateRow key={key} label={label} passed={!!(gate as unknown as Record<string, boolean>)[key]} />
             ))}
           </div>
         </div>
