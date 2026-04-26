@@ -30,6 +30,7 @@ import {
   getGovernanceContext,
   GOVERNANCE_STANDING_RULE,
 } from '@/lib/governance-context'
+import { maybeTriggerTimelineDraft } from '@/lib/timeline-draft-trigger'
 
 const ROOM_SLUG = 'ari'
 
@@ -344,6 +345,11 @@ If an image is present in this message:
       extractAndMergeEmotionalSnapshot('ari', message, reply, apiKey).catch(err =>
         console.error('[emotional-snapshot] Ari extraction error:', err)
       )
+    }
+
+    // Phase 23: Non-blocking timeline draft trigger — gate-evaluated, probabilistic
+    if (message && reply) {
+      maybeTriggerTimelineDraft({ presence: 'ari', message, reply, apiKey }).catch(() => {})
     }
 
     // Workstream 3: Update memory summary if needed (non-blocking)
