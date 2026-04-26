@@ -116,8 +116,11 @@ export async function POST(request: NextRequest) {
     // Phase 23: Explicit Timeline draft request — synchronous, must run BEFORE system prompt
     // so the model reply can accurately reflect success or failure.
     let draftNotice = ''
-    if (message && detectExplicitDraftRequest(message)) {
+    const isExplicitDraftRequest = message ? detectExplicitDraftRequest(message) : false
+    console.log(`[eli-chat] explicit draft request detected: ${isExplicitDraftRequest}`)
+    if (isExplicitDraftRequest && message) {
       const draftResult = await createExplicitTimelineDraft({ presence: 'eli', message, apiKey })
+      console.log(`[eli-chat] draft result: ${JSON.stringify(draftResult).slice(0, 200)}`)
       draftNotice = buildDraftNotice(draftResult)
     }
 

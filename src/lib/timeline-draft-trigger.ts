@@ -1,6 +1,5 @@
-import 'server-only'
-
 // Phase 23 — Timeline draft triggers.
+// Server-side utility — only imported from API route handlers.
 //
 // TWO PATHS:
 //
@@ -35,12 +34,12 @@ function parseJson<T>(raw: string): T {
 // ─── Explicit path ────────────────────────────────────────────────────────────
 
 const EXPLICIT_PATTERNS: RegExp[] = [
-  /create\s+a?\s*pending\s+draft/i,
+  /create\s+a?\s*pending\s+(timeline\s+)?draft/i,       // "create a pending draft" OR "create a pending timeline draft"
+  /create\s+a?\s*(pending\s+)?timeline\s+draft/i,       // "create a timeline draft" OR "create a pending timeline draft"
   /make\s+a?\s*pending\s+(timeline\s+)?draft/i,
   /put\s+this\s+in\s+pending/i,
   /propose\s+this\s+(for|to)\s+timeline/i,
-  /create\s+a?\s*timeline\s+draft/i,
-  /add\s+this\s+(as\s+a?\s*)?pending\s+draft/i,
+  /add\s+this\s+(as\s+a?\s*)?pending\s+(timeline\s+)?draft/i,
   /add\s+this\s+to\s+(the\s+)?pending/i,
   /save\s+this\s+(to|as)\s+(a?\s*)?pending\s+(timeline\s+)?draft/i,
   /propose\s+a?\s*(timeline\s+)?draft/i,
@@ -84,6 +83,7 @@ export async function createExplicitTimelineDraft({
   presence, message, apiKey,
 }: ExplicitDraftInput): Promise<ExplicitDraftResult> {
   const name = PRESENCE_LABEL[presence]
+  console.log(`[timeline-draft] explicit request detected for ${presence}`)
 
   try {
     const client = new Anthropic({ apiKey })
@@ -116,9 +116,12 @@ Respond with JSON only — no prose, no markdown fences:
       .join('')
       .trim()
 
+    console.log(`[timeline-draft] haiku raw response: ${raw.slice(0, 200)}`)
+
     const ev = parseJson<ExplicitDraftJson>(raw)
 
     if (!ev.draft_text?.trim()) {
+      console.error(`[timeline-draft] draft_text empty after generation for ${presence}`)
       return { created: false, reason: 'Draft text was empty after generation.' }
     }
 
@@ -141,15 +144,16 @@ Respond with JSON only — no prose, no markdown fences:
     })
 
     if ('error' in result) {
+      console.error(`[timeline-draft] createTimelineDraft rejected for ${presence}: ${result.error}`)
       return { created: false, reason: result.error }
     }
 
+    console.log(`[timeline-draft] draft created for ${presence}, id: ${result.draft.id}`)
     return { created: true, draft_text: ev.draft_text.trim() }
   } catch (err) {
-    return {
-      created: false,
-      reason: err instanceof Error ? err.message : 'Unknown error during draft creation.',
-    }
+    const reason = err instanceof Error ? err.message : 'Unknown error during draft creation.'
+    console.error(`[timeline-draft] exception for ${presence}: ${reason}`)
+    return { created: false, reason }
   }
 }
 
