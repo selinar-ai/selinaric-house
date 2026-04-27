@@ -12,6 +12,7 @@ import ReflectionList from './ReflectionList'
 import ReflectionDetail from './ReflectionDetail'
 import ReflectionTestPanel from './ReflectionTestPanel'
 import ReflectionCalibrationSummary from './ReflectionCalibrationSummary'
+import ReflectionJobsQueue from './ReflectionJobsQueue'
 import LivingStateSuggestionsPanel from './LivingStateSuggestionsPanel'
 
 type PresenceTab = 'ari' | 'eli'
@@ -125,6 +126,9 @@ export default function ReflectionShell() {
           <p className="font-body text-sm text-red-400">{error}</p>
         </div>
       )}
+
+      {/* Phase 24D: pending job queue — visible when jobs are queued but not yet processed */}
+      <ReflectionJobsQueue presenceId={presence} onProcessed={refresh} />
 
       {/* Phase 24C: calibration summary — always visible */}
       <ReflectionCalibrationSummary presenceId={presence} />

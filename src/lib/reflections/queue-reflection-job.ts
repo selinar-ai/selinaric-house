@@ -2,6 +2,12 @@
 // All event triggers (timeline, concepts, workshop, living state) must use this.
 // Never scatter raw reflection_jobs inserts across routes.
 //
+// Two-step insert design:
+//   Step 1 — core insert (presence_id, trigger_type, source_refs, status).
+//            Always works regardless of which migrations are applied.
+//   Step 2 — metadata enrichment (source_summary, priority).
+//            Non-blocking best-effort; silently no-ops if migration 018 is not yet applied.
+//
 // Duplicate guard: prevents double-queuing for the same presence + trigger + source
 // while a job is still pending. Completed jobs do not block re-queuing for recurring
 // events (e.g. living_state_transition fires each time state meaningfully shifts).
@@ -65,22 +71,31 @@ export async function queueReflectionJob(
 
   const sourceRef: SourceRef = { type: sourceKind, id: sourceId }
 
+  // Step 1: core insert — guaranteed to work on any schema version
   const { data, error } = await supabase
     .from('reflection_jobs')
     .insert({
       presence_id: presenceId,
       trigger_type: triggerType,
       source_refs: [sourceRef],
-      source_summary: sourceSummary ?? null,
-      priority,
       status: 'pending',
     })
     .select()
     .single()
 
-  if (error) {
-    console.error('[reflection] Failed to queue job:', error.message)
+  if (error || !data) {
+    console.error('[reflection] Failed to queue job:', error?.message)
     return null
+  }
+
+  // Step 2: metadata enrichment (migration 018 columns) — fire and forget
+  // If source_summary / priority columns don't exist yet, the update silently no-ops.
+  if (sourceSummary || priority !== 5) {
+    supabase
+      .from('reflection_jobs')
+      .update({ source_summary: sourceSummary ?? null, priority })
+      .eq('id', (data as Record<string, unknown>).id as string)
+      .then(() => {})
   }
 
   return data as ReflectionJob
