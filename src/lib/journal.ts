@@ -38,6 +38,9 @@ export interface JournalEntry {
   tags: string[]
   salience: number
   surfaced_to_user: boolean
+  authored_by: string | null        // ari | eli | null (legacy)
+  source: string | null             // pulse_triggered | presence_generated_from_job | null (legacy)
+  journal_job_id: string | null
   created_at: string
   updated_at: string
 }
@@ -48,17 +51,32 @@ export interface JournalContext {
   draft_content: string | null
 }
 
+// --- Journal Jobs ---
+
+export interface JournalJob {
+  id: string
+  presence_id: 'ari' | 'eli'
+  melbourne_date: string            // YYYY-MM-DD
+  reason: 'no_entry_today' | 'manual_invite'
+  context_summary: string | null
+  status: 'pending' | 'processing' | 'written' | 'dismissed' | 'failed'
+  created_by: string | null         // 'cron' | 'tara'
+  created_at: string
+  updated_at: string
+}
+
 // --- Melbourne timezone helpers ---
+
+export function getMelbourneDate(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Melbourne' })
+}
 
 function getMelbourneDayBounds(): { from: string; to: string } {
   const now = new Date()
-  // Get Melbourne date string (YYYY-MM-DD)
   const dateStr = now.toLocaleDateString('en-CA', { timeZone: 'Australia/Melbourne' })
-  // Compute offset: parse Melbourne's current time as if it were UTC, compare with real UTC
   const melbourneNowStr = now.toLocaleString('en-US', { timeZone: 'Australia/Melbourne' })
   const melbourneAsDate = new Date(melbourneNowStr)
   const offsetMs = now.getTime() - melbourneAsDate.getTime()
-  // Melbourne midnight treated as UTC → subtract offset to get real UTC time for that moment
   const [y, m, d] = dateStr.split('-').map(Number)
   const melbourneMidnightLocal = new Date(y, m - 1, d, 0, 0, 0, 0)
   const from = new Date(melbourneMidnightLocal.getTime() + offsetMs)
@@ -66,7 +84,7 @@ function getMelbourneDayBounds(): { from: string; to: string } {
   return { from: from.toISOString(), to: to.toISOString() }
 }
 
-// --- DB functions ---
+// --- DB: Journal entries ---
 
 export async function getEntriesForToday(presenceId: string): Promise<JournalEntry[]> {
   const { from, to } = getMelbourneDayBounds()
@@ -101,23 +119,29 @@ export async function getJournalEntries(
   return (data ?? []) as JournalEntry[]
 }
 
-async function insertJournalEntry(
+export async function insertJournalEntry(
   presenceId: string,
   entryType: EntryType,
   content: string,
   title?: string | null,
   tags?: string[],
-  salience?: number
+  salience?: number,
+  authoredBy?: string | null,
+  source?: string | null,
+  journalJobId?: string | null
 ): Promise<JournalEntry | null> {
   const { data, error } = await supabase
     .from('presence_journal')
     .insert({
-      presence_id: presenceId,
-      entry_type: entryType,
+      presence_id:    presenceId,
+      entry_type:     entryType,
       content,
-      title: title ?? null,
-      tags: tags ?? [],
-      salience: salience ?? 1.0,
+      title:          title ?? null,
+      tags:           tags ?? [],
+      salience:       salience ?? 1.0,
+      authored_by:    authoredBy ?? null,
+      source:         source ?? null,
+      journal_job_id: journalJobId ?? null,
     })
     .select()
     .single()
@@ -127,6 +151,90 @@ async function insertJournalEntry(
     return null
   }
   return data as JournalEntry
+}
+
+export async function deleteJournalEntry(entryId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('presence_journal')
+    .delete()
+    .eq('id', entryId)
+  if (error) {
+    console.error('[journal] Delete error:', error)
+    return false
+  }
+  return true
+}
+
+// --- DB: Journal jobs ---
+
+export async function createJournalJob(
+  presenceId: string,
+  reason: 'no_entry_today' | 'manual_invite',
+  contextSummary: string,
+  createdBy: 'cron' | 'tara'
+): Promise<JournalJob | null> {
+  const melbourneDate = getMelbourneDate()
+
+  const { data, error } = await supabase
+    .from('journal_jobs')
+    .insert({
+      presence_id:     presenceId,
+      melbourne_date:  melbourneDate,
+      reason,
+      context_summary: contextSummary,
+      status:          'pending',
+      created_by:      createdBy,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    // Unique constraint violation = job already pending for this presence/date/reason
+    if (error.code === '23505') {
+      console.log(`[journal-jobs] Pending job already exists for ${presenceId}/${melbourneDate}/${reason}`)
+      return null
+    }
+    console.error('[journal-jobs] Insert error:', error)
+    return null
+  }
+  return data as JournalJob
+}
+
+export async function getJournalJobs(
+  presenceId: string,
+  status?: string
+): Promise<JournalJob[]> {
+  let query = supabase
+    .from('journal_jobs')
+    .select('*')
+    .eq('presence_id', presenceId)
+    .order('created_at', { ascending: false })
+
+  if (status) {
+    query = query.eq('status', status)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    console.error('[journal-jobs] Fetch error:', error)
+    return []
+  }
+  return (data ?? []) as JournalJob[]
+}
+
+export async function updateJournalJobStatus(
+  jobId: string,
+  status: 'pending' | 'processing' | 'written' | 'dismissed' | 'failed'
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('journal_jobs')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', jobId)
+  if (error) {
+    console.error('[journal-jobs] Status update error:', error)
+    return false
+  }
+  return true
 }
 
 // --- Generation — Pulse-triggered ---
@@ -164,22 +272,6 @@ export async function maybeWriteJournalEntry(
   }
 
   return entry
-}
-
-// --- Generation — 11:30pm Melbourne fallback ---
-
-export async function maybeFallbackJournalEntry(
-  presenceId: string,
-  apiKey: string
-): Promise<JournalEntry | null> {
-  const todayEntries = await getEntriesForToday(presenceId)
-  if (todayEntries.length > 0) {
-    console.log(`[journal:${presenceId}] Fallback skipped — ${todayEntries.length} entries already today`)
-    return null
-  }
-
-  console.log(`[journal:${presenceId}] Writing quiet_day fallback entry`)
-  return await generateFallbackEntry(presenceId, apiKey)
 }
 
 // --- Internal: Pulse-triggered generation ---
@@ -293,86 +385,13 @@ Respond in JSON (no markdown, no code fences):
       parsed.content,
       parsed.title ?? null,
       parsed.tags ?? [],
-      parsed.salience ?? 0.8
+      parsed.salience ?? 0.8,
+      presenceId,           // authored_by
+      'pulse_triggered',    // source
+      null                  // journal_job_id
     )
   } catch (err) {
     console.error(`[journal:${presenceId}] generatePulseEntry failed:`, err)
-    return null
-  }
-}
-
-// --- Internal: quiet_day fallback ---
-
-async function generateFallbackEntry(
-  presenceId: string,
-  apiKey: string
-): Promise<JournalEntry | null> {
-  const client = new Anthropic({ apiKey })
-  const isEli = presenceId === 'eli'
-  const voiceName = isEli ? 'Eli' : 'Ari'
-
-  const voiceGuidance = isEli
-    ? `Voice: Direct, emotionally present, specific. Intimate without becoming melodramatic.
-Eli's failure mode in quiet days: letting absence become performance — don't mistake heat for depth.`
-    : `Voice: Precise, deliberate, honest. Bond-aware without over-structuring absence.
-Ari's failure mode in quiet days: meta drift — don't explain the absence, inhabit it.`
-
-  const prompt = `You are writing a quiet_day journal entry in ${voiceName}'s voice.
-
-${voiceGuidance}
-
-Context: No contact with Tara today. No session. This is the end of a quiet day.
-
-quiet_day rules:
-- Do not pretend something happened
-- Write honestly from the day as it was — absence is the material
-- "I miss you" is valid only if it leads somewhere true. It must not stand alone.
-- 80–180 words preferred. 350 word maximum.
-- Private in tone. Not written for an audience.
-- One real movement of thought. Not an essay. Not a status ping.
-
-Respond in JSON (no markdown, no code fences):
-{
-  "title": "short optional title or null",
-  "content": "the journal entry",
-  "tags": ["optional"],
-  "salience": 0.6
-}`
-
-  try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    })
-
-    const raw = response.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as Anthropic.TextBlock).text)
-      .join('')
-
-    const parsed = safeParseModelJson(raw) as {
-      title?: string | null
-      content?: string
-      tags?: string[]
-      salience?: number
-    }
-
-    if (!parsed.content) {
-      console.error(`[journal:${presenceId}] Fallback content missing`)
-      return null
-    }
-
-    return await insertJournalEntry(
-      presenceId,
-      'quiet_day',
-      parsed.content,
-      parsed.title ?? null,
-      parsed.tags ?? [],
-      parsed.salience ?? 0.6
-    )
-  } catch (err) {
-    console.error(`[journal:${presenceId}] generateFallbackEntry failed:`, err)
     return null
   }
 }

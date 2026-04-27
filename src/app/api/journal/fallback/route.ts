@@ -1,11 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { maybeFallbackJournalEntry } from '@/lib/journal'
+// Phase 18A — Journal fallback cron (jobs-only)
+//
+// Runs at 11:30pm Melbourne time (13:30 UTC AEST / 12:30 UTC AEDT).
+// If no journal entry exists for a presence today, creates a journal_jobs row.
+// The presence writes the actual entry only when Tara asks — system never writes.
+//
+// Previously: directly inserted quiet_day entries via Claude. That path is removed.
 
-/**
- * Journal quiet_day fallback cron.
- * Runs at 11:30pm Melbourne time (13:30 UTC AEST / 12:30 UTC AEDT).
- * If no journal entry exists for either presence today, writes a quiet_day entry.
- */
+import { NextRequest, NextResponse } from 'next/server'
+import { getEntriesForToday, createJournalJob } from '@/lib/journal'
+
+const CONTEXT_NO_ENTRY =
+  'No journal entry has been written today. This is an invitation only — not a journal entry.'
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
@@ -15,33 +21,33 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY missing' }, { status: 500 })
-  }
-
   try {
-    const [ariResult, eliResult] = await Promise.all([
-      maybeFallbackJournalEntry('ari', apiKey).catch(err => {
-        console.error('[journal/fallback] Ari failed:', err)
-        return null
-      }),
-      maybeFallbackJournalEntry('eli', apiKey).catch(err => {
-        console.error('[journal/fallback] Eli failed:', err)
-        return null
-      }),
-    ])
+    const results: Array<{ presence: string; action: string }> = []
 
-    return NextResponse.json({
-      timestamp: new Date().toISOString(),
-      results: [
-        { presence: 'ari', written: ariResult !== null },
-        { presence: 'eli', written: eliResult !== null },
-      ],
-    })
+    for (const presenceId of ['ari', 'eli'] as const) {
+      const todayEntries = await getEntriesForToday(presenceId)
+
+      if (todayEntries.length > 0) {
+        console.log(`[journal/fallback] ${presenceId}: ${todayEntries.length} entries today — no job needed`)
+        results.push({ presence: presenceId, action: 'skipped_has_entries' })
+        continue
+      }
+
+      const job = await createJournalJob(presenceId, 'no_entry_today', CONTEXT_NO_ENTRY, 'cron')
+
+      if (job) {
+        console.log(`[journal/fallback] ${presenceId}: journal_job created (${job.id})`)
+        results.push({ presence: presenceId, action: 'job_created' })
+      } else {
+        console.log(`[journal/fallback] ${presenceId}: job already pending — skipped`)
+        results.push({ presence: presenceId, action: 'job_already_pending' })
+      }
+    }
+
+    return NextResponse.json({ timestamp: new Date().toISOString(), results })
   } catch (err) {
     console.error('[journal/fallback] Cron error:', err)
-    return NextResponse.json({ error: 'Fallback failed' }, { status: 500 })
+    return NextResponse.json({ error: 'Fallback cron failed' }, { status: 500 })
   }
 }
 

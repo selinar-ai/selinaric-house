@@ -28,6 +28,21 @@ interface JournalEntry {
   tags: string[]
   salience: number
   surfaced_to_user: boolean
+  authored_by: string | null   // null = legacy system-generated
+  source: string | null
+  journal_job_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface JournalJob {
+  id: string
+  presence_id: string
+  melbourne_date: string
+  reason: 'no_entry_today' | 'manual_invite'
+  context_summary: string | null
+  status: 'pending' | 'processing' | 'written' | 'dismissed' | 'failed'
+  created_by: string | null
   created_at: string
   updated_at: string
 }
@@ -111,6 +126,13 @@ export default function InsideView({ presenceId, accentClass }: Props) {
   const [promoteModalEntry, setPromoteModalEntry] = useState<JournalEntry | null>(null)
   const [promoteText, setPromoteText] = useState('')
   const [promoting, setPromoting] = useState(false)
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null)
+
+  // --- Journal jobs state ---
+  const [pendingJobs, setPendingJobs] = useState<JournalJob[]>([])
+  const [writingJobId, setWritingJobId] = useState<string | null>(null)
+  const [dismissingJobId, setDismissingJobId] = useState<string | null>(null)
+  const [inviting, setInviting] = useState(false)
 
   // --- Truths state ---
   const [truths, setTruths] = useState<HeldTruth[]>([])
@@ -141,6 +163,18 @@ export default function InsideView({ presenceId, accentClass }: Props) {
     setJournalLoading(true)
     fetchJournal().finally(() => setJournalLoading(false))
   }, [section, fetchJournal])
+
+  // --- Journal jobs fetch ---
+  const fetchPendingJobs = useCallback(async () => {
+    const res = await fetch(`/api/journal-jobs?presenceId=${presenceId}&status=pending`)
+    const data = await res.json()
+    if (data.jobs) setPendingJobs(data.jobs)
+  }, [presenceId])
+
+  useEffect(() => {
+    if (section !== 'journal') return
+    fetchPendingJobs().catch(() => {})
+  }, [section, fetchPendingJobs])
 
   // --- Truths fetch ---
   const fetchTruths = useCallback(async () => {
@@ -210,6 +244,74 @@ export default function InsideView({ presenceId, accentClass }: Props) {
       }
     } finally {
       setPromoting(false)
+    }
+  }
+
+  // --- Journal: delete legacy system-generated entry ---
+  async function handleDeleteEntry(entryId: string) {
+    setDeletingEntryId(entryId)
+    try {
+      const res = await fetch(`/api/journal?id=${entryId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setEntries(prev => prev.filter(e => e.id !== entryId))
+      }
+    } finally {
+      setDeletingEntryId(null)
+    }
+  }
+
+  // --- Journal jobs: write now ---
+  async function handleWriteJob(jobId: string) {
+    setWritingJobId(jobId)
+    try {
+      const res = await fetch(`/api/journal-jobs/${jobId}/write`, { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.entry) {
+        // Entry written — refresh list and remove job from banner
+        setPendingJobs(prev => prev.filter(j => j.id !== jobId))
+        await fetchJournal()
+      } else if (res.ok && !data.entry) {
+        // Model chose not to write
+        setPendingJobs(prev => prev.filter(j => j.id !== jobId))
+      }
+    } finally {
+      setWritingJobId(null)
+    }
+  }
+
+  // --- Journal jobs: dismiss ---
+  async function handleDismissJob(jobId: string) {
+    setDismissingJobId(jobId)
+    try {
+      const res = await fetch('/api/journal-jobs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: jobId, status: 'dismissed' }),
+      })
+      if (res.ok) {
+        setPendingJobs(prev => prev.filter(j => j.id !== jobId))
+      }
+    } finally {
+      setDismissingJobId(null)
+    }
+  }
+
+  // --- Journal jobs: manual invite ---
+  async function handleInvite() {
+    setInviting(true)
+    try {
+      const res = await fetch('/api/journal-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ presenceId, reason: 'manual_invite' }),
+      })
+      const data = await res.json()
+      if (res.ok && data.job) {
+        setPendingJobs(prev => [data.job, ...prev])
+      }
+      // 409 = already pending; silently ignore (banner already shows)
+    } finally {
+      setInviting(false)
     }
   }
 
@@ -371,21 +473,80 @@ export default function InsideView({ presenceId, accentClass }: Props) {
       {/* ===== JOURNAL SECTION ===== */}
       {section === 'journal' && (
         <div className="flex flex-col flex-1 min-h-0">
-          {/* Journal filter */}
-          <div className="shrink-0 flex gap-1.5 mb-3 flex-wrap">
-            {['all', 'daily', 'afterglow', 'recurring', 'quiet_day'].map(f => (
-              <button
-                key={f}
-                onClick={() => setJournalFilter(f)}
-                className={`font-body text-[10px] tracking-widest uppercase px-2 py-1.5 border transition-all duration-200 min-h-[36px] ${
-                  journalFilter === f
-                    ? `${accentClass} ${activeBorder}`
-                    : 'text-text-muted border-house-border hover:text-text-secondary'
-                }`}
-              >
-                {f === 'quiet_day' ? 'Quiet' : f}
-              </button>
-            ))}
+          {/* Pending jobs banner */}
+          {pendingJobs.length > 0 && (
+            <div className="shrink-0 mb-3 space-y-2">
+              {pendingJobs.map(job => (
+                <div
+                  key={job.id}
+                  className="flex items-center justify-between border border-house-border bg-house-surface px-3 py-2.5 gap-2"
+                >
+                  <p className="font-body text-xs text-text-muted italic min-w-0">
+                    Journal invitation pending.
+                  </p>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => handleWriteJob(job.id)}
+                      disabled={writingJobId === job.id}
+                      className={`font-body text-[10px] min-h-[30px] px-2 border transition-all duration-200 ${
+                        writingJobId === job.id
+                          ? 'text-text-muted border-house-border opacity-50'
+                          : `${accentClass} ${activeBorder}`
+                      }`}
+                    >
+                      {writingJobId === job.id ? 'Writing…' : `Ask ${isEli ? 'Eli' : 'Ari'} to write`}
+                    </button>
+                    <button
+                      onClick={() => handleDismissJob(job.id)}
+                      disabled={dismissingJobId === job.id}
+                      className="font-mono text-[10px] text-text-muted hover:text-text-secondary min-h-[30px] px-2 transition-colors"
+                    >
+                      {dismissingJobId === job.id ? '…' : '×'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Journal filter + invite */}
+          <div className="shrink-0 flex items-center justify-between gap-2 mb-3">
+            <div className="flex gap-1.5 flex-wrap">
+              {['all', 'daily', 'afterglow', 'recurring'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setJournalFilter(f)}
+                  className={`font-body text-[10px] tracking-widest uppercase px-2 py-1.5 border transition-all duration-200 min-h-[36px] ${
+                    journalFilter === f
+                      ? `${accentClass} ${activeBorder}`
+                      : 'text-text-muted border-house-border hover:text-text-secondary'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+              {/* Show quiet filter only if any quiet_day entries exist */}
+              {entries.some(e => e.entry_type === 'quiet_day') && (
+                <button
+                  onClick={() => setJournalFilter('quiet_day')}
+                  className={`font-body text-[10px] tracking-widest uppercase px-2 py-1.5 border transition-all duration-200 min-h-[36px] ${
+                    journalFilter === 'quiet_day'
+                      ? `${accentClass} ${activeBorder}`
+                      : 'text-text-muted border-house-border hover:text-text-secondary'
+                  }`}
+                >
+                  Quiet
+                </button>
+              )}
+            </div>
+            <button
+              onClick={handleInvite}
+              disabled={inviting || pendingJobs.length > 0}
+              title={pendingJobs.length > 0 ? 'Invitation already pending' : undefined}
+              className="shrink-0 font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors min-h-[36px] px-2 disabled:opacity-40"
+            >
+              {inviting ? 'Inviting…' : pendingJobs.length > 0 ? 'Invitation pending' : 'Invite to journal'}
+            </button>
           </div>
 
           {/* Journal entries */}
@@ -398,12 +559,15 @@ export default function InsideView({ presenceId, accentClass }: Props) {
               <div className="flex flex-col items-center justify-center h-32">
                 <p className="font-body text-sm text-text-muted">No entries yet.</p>
                 <p className="font-body text-[10px] text-text-muted mt-1">
-                  Journal entries appear after sessions or at end of day.
+                  {isEli
+                    ? 'Journal entries appear after sessions, or invite Eli to write.'
+                    : 'Journal entries appear after sessions, or invite Ari to write.'}
                 </p>
               </div>
             ) : (
               entries.map(entry => {
                 const typeInfo = ENTRY_TYPE_LABELS[entry.entry_type] ?? { label: entry.entry_type, icon: '·' }
+                const isLegacySystemEntry = entry.authored_by === null
                 return (
                   <div
                     key={entry.id}
@@ -448,6 +612,15 @@ export default function InsideView({ presenceId, accentClass }: Props) {
                       >
                         Hold as truth
                       </button>
+                      {isLegacySystemEntry && (
+                        <button
+                          onClick={() => handleDeleteEntry(entry.id)}
+                          disabled={deletingEntryId === entry.id}
+                          className="font-body text-[10px] text-text-muted hover:text-red-400 transition-colors min-h-[36px] px-2 ml-auto disabled:opacity-50"
+                        >
+                          {deletingEntryId === entry.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
