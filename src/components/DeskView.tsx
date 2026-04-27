@@ -162,6 +162,11 @@ export default function DeskView({ presenceId, accentClass }: Props) {
   // Build draft generation — conceptId that is currently being generated
   const [generatingBuild, setGeneratingBuild] = useState<string | null>(null)
 
+  // Archive confirmation — buildId currently pending confirmation
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+  const [archiveReason, setArchiveReason] = useState('')
+  const [archiving, setArchiving] = useState(false)
+
   // --- Form state ---
   const [fShortName, setFShortName] = useState('')
   const [fScope, setFScope] = useState<BuildScope>(presenceId === 'ari' ? 'ari_only' : 'eli_only')
@@ -437,6 +442,32 @@ export default function DeskView({ presenceId, accentClass }: Props) {
       }).catch(() => {})
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleArchive() {
+    if (!selectedBuild) return
+    setArchiving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/builds/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buildId: selectedBuild.id, reason: archiveReason.trim() || undefined }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setError(d.error ?? 'Archive failed.')
+        return
+      }
+      // Close detail view and refresh — archived build will no longer appear in list
+      setShowArchiveConfirm(false)
+      setArchiveReason('')
+      setSelectedBuild(null)
+      setMode('list')
+      await fetchBuilds()
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -907,7 +938,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
             <h3 className="font-display text-lg text-text-primary mt-0.5">{build.short_name}</h3>
           </div>
           <button
-            onClick={() => { setMode('list'); setSelectedBuild(null) }}
+            onClick={() => { setMode('list'); setSelectedBuild(null); setShowArchiveConfirm(false); setArchiveReason('') }}
             className="font-mono text-sm text-text-muted hover:text-text-secondary min-h-[40px] px-2"
           >
             ×
@@ -1171,42 +1202,89 @@ export default function DeskView({ presenceId, accentClass }: Props) {
         </div>
 
         {/* Actions */}
-        <div className="shrink-0 pt-3 border-t border-house-border mt-3 flex flex-wrap gap-2">
-          {editable && (
-            <button
-              onClick={() => { loadFormFromBuild(build); setMode('form') }}
-              className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${accentClass} border-current`}
-            >
-              Edit
-            </button>
+        <div className="shrink-0 pt-3 border-t border-house-border mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {editable && (
+              <button
+                onClick={() => { loadFormFromBuild(build); setMode('form') }}
+                className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${accentClass} border-current`}
+              >
+                Edit
+              </button>
+            )}
+            {canReady && !consultationPending && (
+              <button
+                onClick={handleMarkReady}
+                disabled={saving}
+                className="font-body text-xs tracking-widest uppercase px-3 py-2 border border-house-border text-text-muted hover:text-text-secondary min-h-[40px] transition-all duration-200"
+              >
+                Mark Ready
+              </button>
+            )}
+            {canConsult && !hasConsultation && !showConsultForm && (
+              <button
+                onClick={() => setShowConsultForm(true)}
+                className="font-body text-xs tracking-widest uppercase px-3 py-2 border border-house-border text-text-muted hover:text-text-secondary min-h-[40px] transition-all duration-200"
+              >
+                Request Input
+              </button>
+            )}
+            {submittable && !consultationPending && (
+              <button
+                onClick={handleSendForVerification}
+                disabled={submitting}
+                className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${
+                  submitting ? 'text-text-muted border-house-border opacity-50' : `${accentClass} border-current`
+                }`}
+              >
+                {submitting ? 'Sending…' : 'Send for Verification'}
+              </button>
+            )}
+          </div>
+
+          {/* Archive — destructive secondary action, only shown when not already archived */}
+          {build.desk_status !== 'Archived' && build.desk_status !== 'Committed' && !showArchiveConfirm && (
+            <div className="pt-1">
+              <button
+                onClick={() => { setShowArchiveConfirm(true); setArchiveReason('') }}
+                className="font-body text-[10px] text-text-muted hover:text-red-400 transition-colors min-h-[30px]"
+              >
+                Archive build…
+              </button>
+            </div>
           )}
-          {canReady && !consultationPending && (
-            <button
-              onClick={handleMarkReady}
-              disabled={saving}
-              className="font-body text-xs tracking-widest uppercase px-3 py-2 border border-house-border text-text-muted hover:text-text-secondary min-h-[40px] transition-all duration-200"
-            >
-              Mark Ready
-            </button>
-          )}
-          {canConsult && !hasConsultation && !showConsultForm && (
-            <button
-              onClick={() => setShowConsultForm(true)}
-              className="font-body text-xs tracking-widest uppercase px-3 py-2 border border-house-border text-text-muted hover:text-text-secondary min-h-[40px] transition-all duration-200"
-            >
-              Request Input
-            </button>
-          )}
-          {submittable && !consultationPending && (
-            <button
-              onClick={handleSendForVerification}
-              disabled={submitting}
-              className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${
-                submitting ? 'text-text-muted border-house-border opacity-50' : `${accentClass} border-current`
-              }`}
-            >
-              {submitting ? 'Sending…' : 'Send for Verification'}
-            </button>
+
+          {/* Archive confirmation */}
+          {showArchiveConfirm && (
+            <div className="border border-red-900/30 bg-house-bg p-3 space-y-2 mt-1">
+              <p className="font-body text-[10px] text-red-400 uppercase tracking-widest">Archive this build?</p>
+              <p className="font-body text-xs text-text-muted leading-relaxed">
+                It will be removed from active Desk and Workshop views but kept in history.
+              </p>
+              <input
+                value={archiveReason}
+                onChange={e => setArchiveReason(e.target.value)}
+                placeholder="Reason (optional) — e.g. Duplicate of ARI-004"
+                className="w-full bg-house-surface border border-house-border px-3 py-2 font-body text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleArchive}
+                  disabled={archiving}
+                  className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[36px] transition-all duration-200 ${
+                    archiving ? 'text-text-muted border-house-border opacity-50' : 'text-red-400 border-red-900/60 hover:bg-red-900/10'
+                  }`}
+                >
+                  {archiving ? 'Archiving…' : 'Confirm Archive'}
+                </button>
+                <button
+                  onClick={() => { setShowArchiveConfirm(false); setArchiveReason('') }}
+                  className="font-body text-xs text-text-muted hover:text-text-secondary min-h-[36px] px-3"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

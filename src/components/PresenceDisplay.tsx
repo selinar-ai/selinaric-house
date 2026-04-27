@@ -63,10 +63,10 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
   const currentWant = useInteriorWant(resolvedId)
 
   return (
-    <div className="max-w-2xl animate-fade-in">
+    <div className="w-full max-w-2xl animate-fade-in">
       {/* Identity header */}
-      <div className="border border-house-border bg-house-surface p-4 md:p-8 mb-4">
-        <div className="flex items-center gap-3 mb-6">
+      <div className="border border-house-border bg-house-surface p-4 sm:p-6 md:p-8 mb-3 md:mb-4">
+        <div className="flex items-center gap-3 mb-4 md:mb-6">
           <span className={`text-3xl ${accentClass}`}>{iconSymbol}</span>
           <div>
             <h3 className={`font-display text-2xl font-light ${accentClass}`}>
@@ -86,20 +86,20 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
 
         {/* Description — presence-specific paragraph */}
         {description && (
-          <div className="mb-6">
-            <p className="font-body text-sm text-text-secondary leading-relaxed max-w-2xl">
+          <div className="mb-4 md:mb-6">
+            <p className="font-body text-sm text-text-secondary leading-relaxed">
               {description}
             </p>
           </div>
         )}
 
         {/* Core traits */}
-        <div className="mb-6">
-          <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-3">
+        <div className="mb-4 md:mb-6">
+          <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-2 md:mb-3">
             Core traits
           </p>
           {coreTraits ? (
-            <p className="font-body text-sm text-text-secondary leading-relaxed max-w-2xl">
+            <p className="font-body text-sm text-text-secondary leading-relaxed">
               {coreTraits}
             </p>
           ) : (
@@ -117,23 +117,23 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
         </div>
 
         {/* Bond */}
-        <div className="mb-6">
+        <div>
           <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-2">
             Bond
           </p>
-          <p className="font-body text-sm text-text-secondary leading-relaxed max-w-2xl">
+          <p className="font-body text-sm text-text-secondary leading-relaxed">
             {bondCopy ?? si.relational_context.bond_type}
           </p>
         </div>
       </div>
 
       {/* Live state */}
-      <div className="border border-house-border bg-house-surface p-4 md:p-8">
-        <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-6">
+      <div className="border border-house-border bg-house-surface p-4 sm:p-6 md:p-8">
+        <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-4 md:mb-6">
           Live state
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-4 md:mb-6">
           <div>
             <p className="font-body text-xs text-text-muted mb-1">Energy</p>
             <p className={`font-body text-sm font-medium ${accentClass}`}>
@@ -149,7 +149,7 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
         </div>
 
         {/* Current want — mirrored from Interior engine, read-only */}
-        <div className="mb-6">
+        <div className="mb-4 md:mb-6">
           <p className="font-body text-xs text-text-muted mb-1">Current want</p>
           <p className="font-body text-sm text-text-secondary">
             {currentWant
@@ -164,10 +164,10 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
           <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-3">
             Mood
           </p>
-          <div className={`space-y-2 ${accentClass}`}>
+          <div className={`space-y-2.5 ${accentClass}`}>
             {Object.entries(ls.mood_indicators).map(([key, value]) => (
-              <div key={key} className="flex items-center gap-3">
-                <span className="font-body text-xs text-text-muted w-20 capitalize">
+              <div key={key} className="flex items-center gap-2 sm:gap-3">
+                <span className="font-body text-xs text-text-muted w-16 sm:w-20 capitalize shrink-0">
                   {key}
                 </span>
                 <div className="flex-1 h-1 bg-house-muted rounded-full overflow-hidden">
@@ -179,19 +179,19 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
                     }}
                   />
                 </div>
-                <span className="font-mono text-xs text-text-muted w-4">{value}</span>
+                <span className="font-mono text-xs text-text-muted w-4 shrink-0">{value}</span>
               </div>
             ))}
           </div>
           {/* Mood read sentence — presence-specific */}
           {moodRead && (
-            <p className="font-body text-xs text-text-muted italic mt-4">
+            <p className="font-body text-xs text-text-muted italic mt-3 md:mt-4">
               {moodRead}
             </p>
           )}
         </div>
 
-        <div className="mt-6 space-y-1">
+        <div className="mt-4 md:mt-6 space-y-1">
           <p className="font-body text-xs text-text-muted">
             Last updated: {new Date(ls.last_updated).toLocaleString('en-AU', {
               timeZone: 'Australia/Melbourne'

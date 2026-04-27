@@ -22,6 +22,7 @@ export type BuildEventType =
   | 'held'
   | 'reopened'
   | 'committed'
+  | 'archived'
 
 export interface BuildHistoryEvent {
   id:                   string
@@ -53,6 +54,7 @@ export const EVENT_LABELS: Record<BuildEventType, string> = {
   held:                     'Held in Workshop',
   reopened:                 'Reopened in Workshop',
   committed:                'Committed',
+  archived:                 'Archived',
 }
 
 // ─── Write ────────────────────────────────────────────────────────────────────

@@ -46,11 +46,12 @@ export async function GET(request: NextRequest) {
       .from('builds')
       .select('*')
       .eq('origin', origin)
+      .neq('desk_status', 'Archived')   // archived builds never appear in desk queries
       .order('created_at', { ascending: false })
 
     if (!includeHistory) {
-      // Active: exclude terminal-only builds from the active tab
-      // (history tab shows all; active tab hides Committed)
+      // Active: also exclude Committed from the active tab
+      // (history tab shows all non-archived; active tab hides Committed too)
       query = query.neq('desk_status', 'Committed')
     }
 
@@ -59,11 +60,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ builds: data ?? [] })
   }
 
-  // Workshop: all builds with a workshop_status (submitted builds)
+  // Workshop: all builds with a workshop_status, excluding archived
   const { data, error } = await supabase
     .from('builds')
     .select('*')
     .not('workshop_status', 'is', null)
+    .neq('desk_status', 'Archived')     // archived builds never appear in Workshop
     .order('updated_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

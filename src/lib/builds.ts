@@ -33,6 +33,7 @@ export type DeskStatus =
   | 'Approved for Implementation'
   | 'Returned for Edits'
   | 'Committed'
+  | 'Archived'
 
 export type WorkshopStatus =
   | 'Pending Review'
@@ -95,6 +96,8 @@ export interface Build {
   forgekeeper_review: ForgekeeperReview | null
   origin_concept_id: string | null
   origin_concept_short_id: string | null
+  archived_at: string | null
+  archived_reason: string | null
   created_at: string
   updated_at: string
 }
@@ -262,7 +265,7 @@ export function checkSubmissionReadiness(build: Partial<Build>): SubmissionReadi
 
 // --- Status helpers ---
 
-export const DESK_STATUS_TERMINAL: DeskStatus[] = ['Committed']
+export const DESK_STATUS_TERMINAL: DeskStatus[] = ['Committed', 'Archived']
 export const DESK_STATUS_IN_PROGRESS: DeskStatus[] = [
   'Draft',
   'Consultation Requested',
