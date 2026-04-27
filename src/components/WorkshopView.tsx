@@ -216,9 +216,14 @@ export default function WorkshopView() {
     const isRunning = running === build.id
     const isActioning_ = actioning === build.id
     const review = build.forgekeeper_review
-    const canAct = build.workshop_status !== 'Committed'
-      && build.workshop_status !== 'Returned'
-      && build.workshop_status !== 'Plan Approved'
+    // Explicit allowlist — only these statuses receive action buttons.
+    // Everything else (Returned, Committed, Plan Approved, null, unknown) is read-only.
+    const canAct = (
+      build.workshop_status === 'Pending Review' ||
+      build.workshop_status === 'Review Complete' ||
+      build.workshop_status === 'Ready to Commit' ||
+      build.workshop_status === 'Held'
+    )
     // Determine review mode: use stored _review_mode if available, else detect from evidence
     const reviewMode = review?._review_mode
       ?? (hasImplementationEvidence(build) ? 'implementation' : 'plan')
@@ -442,6 +447,39 @@ export default function WorkshopView() {
             <div>
               <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-1">Return notes</p>
               <p className="font-body text-xs text-text-secondary">{review._return_notes as string}</p>
+            </div>
+          )}
+
+          {/* Terminal state — read-only message, no actions available */}
+          {!canAct && (
+            <div className="border border-house-border bg-house-bg px-3 py-3">
+              {build.workshop_status === 'Returned' && (
+                <>
+                  <p className="font-body text-[10px] text-amber-400 uppercase tracking-widest mb-1">Returned</p>
+                  <p className="font-body text-xs text-text-muted leading-relaxed">
+                    This build was returned for edits. Revise it from the originating Desk, then send for verification again.
+                  </p>
+                </>
+              )}
+              {build.workshop_status === 'Plan Approved' && (
+                <>
+                  <p className="font-body text-[10px] text-blue-400 uppercase tracking-widest mb-1">Plan approved</p>
+                  <p className="font-body text-xs text-text-muted leading-relaxed">
+                    The build plan was approved for implementation. It has returned to the originating Desk. Re-submit after implementation is complete.
+                  </p>
+                </>
+              )}
+              {build.workshop_status === 'Committed' && (
+                <>
+                  <p className="font-body text-[10px] text-green-400 uppercase tracking-widest mb-1">Committed</p>
+                  <p className="font-body text-xs text-text-muted leading-relaxed">
+                    This build was approved and committed. No further action required.
+                  </p>
+                </>
+              )}
+              {build.workshop_status !== 'Returned' && build.workshop_status !== 'Plan Approved' && build.workshop_status !== 'Committed' && (
+                <p className="font-body text-xs text-text-muted">This build is not currently in a reviewable state.</p>
+              )}
             </div>
           )}
 
