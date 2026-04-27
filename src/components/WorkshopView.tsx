@@ -47,7 +47,7 @@ export default function WorkshopView() {
   const [section, setSection] = useState<WorkshopSection>('pending')
   const [builds, setBuilds] = useState<Build[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedBuild, setSelectedBuild] = useState<Build | null>(null)
+  const [selectedBuildId, setSelectedBuildId] = useState<string | null>(null)
   const [running, setRunning] = useState<string | null>(null) // buildId being reviewed
   const [actioning, setActioning] = useState<string | null>(null)
   const [returnNotes, setReturnNotes] = useState('')
@@ -60,6 +60,9 @@ export default function WorkshopView() {
   // Soft-refresh indicator (shown during background polls, not initial load)
   const [refreshing, setRefreshing] = useState(false)
 
+  // Derive selectedBuild from builds list — always in sync, no copy drift
+  const selectedBuild = selectedBuildId ? builds.find(b => b.id === selectedBuildId) ?? null : null
+
   // --- Fetch ---
   // silent=true: background poll — no loading spinner, selectedBuild kept in sync
   // silent=false: initial load or manual refresh — shows loading spinner
@@ -71,11 +74,6 @@ export default function WorkshopView() {
       const data = await res.json()
       const latest: Build[] = data.builds ?? []
       setBuilds(latest)
-      // Keep selectedBuild in sync with latest DB state
-      setSelectedBuild(prev => {
-        if (!prev) return prev
-        return latest.find(b => b.id === prev.id) ?? prev
-      })
     } finally {
       if (!silent) setLoading(false)
       else setRefreshing(false)
@@ -107,11 +105,11 @@ export default function WorkshopView() {
   }, [])
 
   useEffect(() => {
-    if (selectedBuild) {
+    if (selectedBuildId) {
       setShowBuildHistory(false)
-      loadBuildHistory(selectedBuild.id)
+      loadBuildHistory(selectedBuildId)
     }
-  }, [selectedBuild?.id, loadBuildHistory])
+  }, [selectedBuildId, loadBuildHistory])
 
   // Auto-trigger Forgekeeper for any Pending Review build.
   // Intentionally no !b.forgekeeper_review guard — second and subsequent
@@ -140,11 +138,8 @@ export default function WorkshopView() {
         setError(`Forgekeeper error: ${errData.error ?? 'unknown'}`)
       } else {
         const data = await res.json()
-        // Update the specific build in state
+        // Update the specific build in state — selectedBuild derives automatically
         setBuilds(prev => prev.map(b => b.id === buildId ? data.build : b))
-        if (selectedBuild?.id === buildId) {
-          setSelectedBuild(data.build)
-        }
       }
     } catch (err) {
       setError(`Forgekeeper unreachable: ${err instanceof Error ? err.message : 'unknown'}`)
@@ -166,7 +161,6 @@ export default function WorkshopView() {
       if (!res.ok) { setError('Action failed.'); return }
       const data = await res.json()
       setBuilds(prev => prev.map(b => b.id === buildId ? data.build : b))
-      setSelectedBuild(data.build)
       setShowReturnForm(false)
       setReturnNotes('')
     } finally {
@@ -184,11 +178,11 @@ export default function WorkshopView() {
   // --- Render helpers ---
 
   function BuildListItem({ build }: { build: Build }) {
-    const isSelected = selectedBuild?.id === build.id
+    const isSelected = selectedBuildId === build.id
     const isRunning = running === build.id
     return (
       <button
-        onClick={() => { setSelectedBuild(build); setShowReturnForm(false); setError(null) }}
+        onClick={() => { setSelectedBuildId(build.id); setShowReturnForm(false); setError(null) }}
         className={`w-full text-left border bg-house-surface p-3 transition-all duration-200 animate-fade-in ${
           isSelected ? 'border-house-muted border-l-2 border-l-text-secondary' : 'border-house-border hover:border-house-muted'
         }`}
@@ -238,7 +232,7 @@ export default function WorkshopView() {
             <p className="font-display text-lg text-text-primary mt-0.5">{build.short_name}</p>
           </div>
           <button
-            onClick={() => setSelectedBuild(null)}
+            onClick={() => setSelectedBuildId(null)}
             className="font-mono text-sm text-text-muted hover:text-text-secondary min-h-[40px] px-2 shrink-0"
           >
             ×
@@ -642,9 +636,9 @@ export default function WorkshopView() {
           )}
         </div>
 
-        {/* Review panel */}
+        {/* Review panel — key forces remount when selection changes, preventing stale render */}
         {selectedBuild && (
-          <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <div key={selectedBuildId ?? 'none'} className="flex-1 min-w-0 min-h-0 overflow-hidden">
             <ReviewPanel build={selectedBuild} />
           </div>
         )}
