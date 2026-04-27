@@ -398,15 +398,9 @@ export default function DeskView({ presenceId, accentClass }: Props) {
 
   async function handleSendForVerification() {
     if (!selectedBuild) return
-    const readiness = checkSubmissionReadiness({
-      summary: fSummary || selectedBuild.summary,
-      reason: fReason || selectedBuild.reason,
-      changed_files: fChangedFiles ? parseLinesField(fChangedFiles) : selectedBuild.changed_files,
-      expected_scope: fScope || selectedBuild.expected_scope,
-      affected_surfaces: fSurfaces.length ? fSurfaces : selectedBuild.affected_surfaces,
-      tests_run: fTests,
-      verify_focus: fFocus ? parseLinesField(fFocus) : selectedBuild.verify_focus,
-    })
+    // Always check readiness against the saved build — form fields may be empty
+    // when the user is in detail view (not actively editing).
+    const readiness = checkSubmissionReadiness(selectedBuild)
     if (!readiness.ready) {
       setError(`Required before submission: ${readiness.missing.join(', ')}`)
       return

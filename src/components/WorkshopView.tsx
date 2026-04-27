@@ -57,21 +57,40 @@ export default function WorkshopView() {
   const [buildHistory, setBuildHistory] = useState<BuildHistoryEvent[]>([])
   const [buildHistoryLoading, setBuildHistoryLoading] = useState(false)
   const [showBuildHistory, setShowBuildHistory] = useState(false)
+  // Soft-refresh indicator (shown during background polls, not initial load)
+  const [refreshing, setRefreshing] = useState(false)
 
   // --- Fetch ---
-  const fetchBuilds = useCallback(async () => {
-    setLoading(true)
+  // silent=true: background poll — no loading spinner, selectedBuild kept in sync
+  // silent=false: initial load or manual refresh — shows loading spinner
+  const fetchBuilds = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    else setRefreshing(true)
     try {
       const res = await fetch('/api/builds')
       const data = await res.json()
-      setBuilds(data.builds ?? [])
+      const latest: Build[] = data.builds ?? []
+      setBuilds(latest)
+      // Keep selectedBuild in sync with latest DB state
+      setSelectedBuild(prev => {
+        if (!prev) return prev
+        return latest.find(b => b.id === prev.id) ?? prev
+      })
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
+      else setRefreshing(false)
     }
   }, [])
 
   useEffect(() => {
     fetchBuilds()
+  }, [fetchBuilds])
+
+  // Periodic silent refresh — picks up status changes from Desk resubmissions
+  // without requiring a page reload or manual action.
+  useEffect(() => {
+    const interval = setInterval(() => fetchBuilds(true), 30000)
+    return () => clearInterval(interval)
   }, [fetchBuilds])
 
   const loadBuildHistory = useCallback(async (buildId: string) => {
@@ -94,11 +113,11 @@ export default function WorkshopView() {
     }
   }, [selectedBuild?.id, loadBuildHistory])
 
-  // Auto-trigger Forgekeeper for any Pending Review build without a review
+  // Auto-trigger Forgekeeper for any Pending Review build.
+  // Intentionally no !b.forgekeeper_review guard — second and subsequent
+  // submissions must also get a fresh review run.
   useEffect(() => {
-    const pending = builds.filter(
-      b => b.workshop_status === 'Pending Review' && !b.forgekeeper_review
-    )
+    const pending = builds.filter(b => b.workshop_status === 'Pending Review')
     pending.forEach(b => {
       if (running === b.id) return
       runForgekeeper(b.id)
@@ -564,10 +583,17 @@ export default function WorkshopView() {
     <div className="flex flex-col h-full animate-fade-in">
       {/* Header */}
       <div className="shrink-0 mb-4">
-        <p className="font-body text-xs text-text-muted uppercase tracking-widest">Workshop</p>
-        <p className="font-body text-[10px] text-text-muted mt-1">
-          Build verification and decision space.
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-body text-xs text-text-muted uppercase tracking-widest">Workshop</p>
+          <button
+            onClick={() => fetchBuilds()}
+            disabled={loading || refreshing}
+            className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors min-h-[30px] px-2"
+            title="Reload build list"
+          >
+            {refreshing ? '↻' : 'Reload'}
+          </button>
+        </div>
         <div className="flex gap-1.5 mt-2">
           <button
             onClick={() => setSection('pending')}
