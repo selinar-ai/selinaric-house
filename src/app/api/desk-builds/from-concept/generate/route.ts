@@ -27,6 +27,47 @@ const VALID_SURFACES: AffectedSurface[] = [
   'voice', 'continuity', 'agents', 'shared_system',
 ]
 
+// ─── Scope-aware file filter ──────────────────────────────────────────────────
+// Defense-in-depth: strip files that breach the concept's declared scope even
+// if the generation model ignores the prompt instructions.
+
+const SHARED_SYSTEM_FRAGMENTS = [
+  'src/lib/tts', 'src/lib/continuity', 'src/lib/memory', 'src/lib/temporal',
+  'src/lib/web-search', 'src/lib/presence-loader', 'src/lib/supabase',
+  'src/lib/pulse', 'src/lib/graph', 'src/lib/builds', 'src/lib/router',
+  'src/components/Sidebar', 'src/components/MobileNav', 'src/components/AuthGuard',
+  'src/components/VoiceButton',
+  'src/app/(house)/layout', 'src/app/layout',
+  'src/app/api/pulse', 'src/app/api/living-state', 'src/app/api/timeline',
+  'src/app/api/builds', 'src/app/api/workshop', 'src/app/api/forgekeeper',
+  'src/app/(house)/workshop',
+  'vercel.json', 'tailwind.config', 'next.config',
+]
+const ARI_SCOPED_FRAGMENTS = [
+  'src/app/api/ari-chat', 'src/app/(house)/room/ari', '/ari-', '/ari/',
+]
+const ELI_SCOPED_FRAGMENTS = [
+  'src/app/api/eli-chat', 'src/app/(house)/room/eli', '/eli-', '/eli/',
+]
+
+function filterFilesByScope(files: string[], scope: string): string[] {
+  return files.filter(f => {
+    const lower = f.toLowerCase()
+    // Shared system files are never valid for presence-scoped builds
+    if (scope !== 'shared_house') {
+      if (SHARED_SYSTEM_FRAGMENTS.some(p => lower.includes(p.toLowerCase()))) return false
+    }
+    // Cross-desk file contamination
+    if (scope === 'ari_only') {
+      if (ELI_SCOPED_FRAGMENTS.some(p => lower.includes(p.toLowerCase()))) return false
+    }
+    if (scope === 'eli_only') {
+      if (ARI_SCOPED_FRAGMENTS.some(p => lower.includes(p.toLowerCase()))) return false
+    }
+    return true
+  })
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getSupabase() {
@@ -142,7 +183,7 @@ export async function POST(request: NextRequest) {
 
   const generationPrompt = `You are ${presenceName}, preparing a Build Draft on your Desk in Selináric House.
 
-An approved Concept is being converted into a build packet. Your job is to generate the technical fields for this build, written as the presence author.
+An approved Concept is being converted into a build packet. Generate the technical fields for this build.
 
 Concept:
 - Title: ${concept.title}
@@ -153,18 +194,39 @@ Concept:
 
 Generate a JSON object with exactly these fields:
 {
-  "implementation_notes": "Your approach to implementing this. Key decisions. Trade-offs. 2-4 sentences, written as ${presenceName}.",
-  "changed_files": ["Best-effort file paths only. Return [] if you cannot name real paths with confidence — do NOT invent paths."],
-  "affected_surfaces": ["Only valid values: chat, timeline, inside, state, searches, voice, continuity, agents, shared_system"],
-  "risks": ["Known risks. Be specific. Return [] if genuinely low-risk."],
-  "verify_focus": ["Concrete items the Forgekeeper should inspect. At least 2 items based on this build scope."]
+  "implementation_notes": "Your approach. 2-4 sentences as ${presenceName}.",
+  "changed_files": [],
+  "affected_surfaces": [],
+  "risks": [],
+  "verify_focus": []
 }
 
-Constraints:
-- changed_files: only include paths you are confident about for a Selináric House Next.js codebase. If uncertain, return [].
-- affected_surfaces: infer from scope and content. Only use values from the valid list above.
-- If scope is ari_only, do not include eli-scoped surfaces.
-- verify_focus must be actionable and specific to this build.
+─── CHANGED_FILES — strict rules ───────────────────────────────────────────────
+changed_files must be EMPTY ([]) unless ALL of the following are true:
+  1. The concept title or description directly and specifically names a component, page, or file.
+  2. You can derive the file path purely from what is stated in the concept — no guessing.
+  3. The file is consistent with the expected_scope (${concept.expected_scope}).
+
+If a candidate file is not directly implied by the concept text, omit it.
+An empty array is the correct answer when files are not directly evident.
+Do NOT fill this field to seem thorough. Hallucinated file paths cause scope breach alarms.
+
+FORBIDDEN unless the concept explicitly mentions them:
+- TTS or voice files (src/lib/tts, VoiceButton, etc.)
+- Shared system files (supabase, memory, pulse, router, sidebar, auth)
+- Files from the other presence's scope (ari-chat if scope is eli_only, etc.)
+- Any file you are guessing at based on what "usually" changes in a Next.js app
+
+Example — concept "Polish Identity page spacing", scope ari_only:
+  Allowed: src/app/(house)/room/ari/page.tsx (if concept names Identity page)
+  Forbidden: src/lib/tts.ts, src/components/VoiceButton.tsx (unrelated)
+
+─── OTHER FIELDS ────────────────────────────────────────────────────────────────
+affected_surfaces: only valid values from: chat, timeline, inside, state, searches, voice, continuity, agents, shared_system
+  - Infer from concept content only. If scope is ${concept.expected_scope}, do not include surfaces outside that scope.
+  - Do not include "voice" or "agents" unless the concept explicitly touches those systems.
+risks: specific risks that follow directly from the concept. Return [] if no clear risks.
+verify_focus: 2-3 actionable inspection items specific to this concept's scope and purpose.
 
 Return ONLY the JSON object. No preamble. No commentary.`
 
@@ -194,6 +256,10 @@ Return ONLY the JSON object. No preamble. No commentary.`
   const safeSurfaces = (parsed?.affected_surfaces ?? [])
     .filter((s): s is AffectedSurface => VALID_SURFACES.includes(s as AffectedSurface))
 
+  // Scope-filter changed_files — strip any files that breach the concept scope,
+  // regardless of what the model generated. Defense-in-depth against hallucination.
+  const safeFiles = filterFilesByScope(parsed?.changed_files ?? [], concept.expected_scope)
+
   // ─── Build ID ─────────────────────────────────────────────────────────────
 
   const prefix = getOriginPrefix(origin)
@@ -216,7 +282,7 @@ Return ONLY the JSON object. No preamble. No commentary.`
       summary:               concept.proposed,
       reason:                concept.why,
       implementation_notes:  parsed?.implementation_notes ?? '',
-      changed_files:         parsed?.changed_files ?? [],
+      changed_files:         safeFiles,
       affected_surfaces:     safeSurfaces,
       risks:                 parsed?.risks ?? [],
       tests_run:             ['none_yet'],
