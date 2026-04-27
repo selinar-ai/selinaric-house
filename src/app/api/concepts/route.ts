@@ -14,6 +14,7 @@ import {
   CONCEPT_STATUS_ACTIVE,
   type DeskConcept,
 } from '@/lib/concepts'
+import { queueReflectionJob } from '@/lib/reflections/queue-reflection-job'
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -133,5 +134,17 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Queue reflection job when a concept is approved (non-blocking)
+  if (data && status === 'approved') {
+    queueReflectionJob({
+      presenceId: data.presence_id as 'ari' | 'eli',
+      triggerType: 'concept_approved',
+      sourceKind: 'concept',
+      sourceId: data.id,
+      sourceSummary: `Concept approved: ${data.concept_id} — ${data.title}`,
+    }).catch(() => {})
+  }
+
   return NextResponse.json({ concept: data })
 }

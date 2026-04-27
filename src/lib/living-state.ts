@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
+import { queueReflectionJob } from '@/lib/reflections/queue-reflection-job'
 
 // --- Types ---
 
@@ -83,6 +84,20 @@ export async function maybeUpdateLivingState(
   if (ctx.recent_messages.length === 0) return false
 
   const updated = await generateStateUpdate(presenceId, ctx, apiKey)
+
+  // Queue reflection job for meaningful state transitions (non-blocking).
+  // Uses previous_state.id (the living_state row UUID) so reflection-sources
+  // can load the current row for context. The id is stable — only the contents change.
+  if (updated && ctx.previous_state?.id && ['ari', 'eli'].includes(presenceId)) {
+    queueReflectionJob({
+      presenceId: presenceId as 'ari' | 'eli',
+      triggerType: 'living_state_transition',
+      sourceKind: 'living_state',
+      sourceId: ctx.previous_state.id,
+      sourceSummary: `Living state shifted — ${presenceId}, ${sessionClassification} session`,
+    }).catch(() => {})
+  }
+
   return updated
 }
 

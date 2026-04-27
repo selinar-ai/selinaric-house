@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { logBuildEvent, originToActor } from '@/lib/build-history'
+import { queueReflectionJob } from '@/lib/reflections/queue-reflection-job'
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -135,6 +136,25 @@ export async function POST(request: NextRequest) {
         nextWorkshopStatus: (data.workshop_status as string) ?? prevWorkshopStatus,
         actor: 'tara',
         note: returnNotes ?? undefined,
+      }).catch(() => {})
+    }
+  }
+
+  // Queue reflection job when a build is committed (non-blocking)
+  // Only 'approve' (Committed) — not 'approve_plan', because reflection-sources
+  // requires desk_status = 'Committed' before it will load the build as a source.
+  if (action === 'approve' && data?.id) {
+    const presenceId =
+      buildOrigin === 'ari_desk' ? 'ari' :
+      buildOrigin === 'eli_desk' ? 'eli' : null
+
+    if (presenceId) {
+      queueReflectionJob({
+        presenceId,
+        triggerType: 'forgekeeper_accepted',
+        sourceKind: 'build',
+        sourceId: data.id,
+        sourceSummary: `Build committed: ${(data as Record<string, unknown>).build_id} — ${(data as Record<string, unknown>).short_name}`,
       }).catch(() => {})
     }
   }

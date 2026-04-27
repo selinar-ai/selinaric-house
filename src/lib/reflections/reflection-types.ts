@@ -59,6 +59,8 @@ export interface ReflectionJob {
   presence_id: 'ari' | 'eli'
   trigger_type: ReflectionTriggerType
   source_refs: SourceRef[]
+  source_summary: string | null
+  priority: number
   status: ReflectionJobStatus
   created_at: string
   completed_at: string | null

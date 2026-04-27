@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { queueReflectionJob } from '@/lib/reflections/queue-reflection-job'
 
 export async function GET(request: NextRequest) {
   const presenceId = request.nextUrl.searchParams.get('presence')
@@ -51,6 +52,17 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: 'Failed to save entry' }, { status: 500 })
+    }
+
+    // Queue reflection job for the kept Timeline entry (non-blocking)
+    if (data?.id && data?.presence_id) {
+      queueReflectionJob({
+        presenceId: data.presence_id as 'ari' | 'eli',
+        triggerType: 'timeline_keep',
+        sourceKind: 'timeline_entry',
+        sourceId: data.id,
+        sourceSummary: `Timeline entry kept: ${data.title}`,
+      }).catch(() => {})
     }
 
     return NextResponse.json({ entry: data })
