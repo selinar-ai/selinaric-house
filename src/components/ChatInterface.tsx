@@ -8,6 +8,8 @@ import EmojiPicker from '@/components/EmojiPicker'
 import VoiceButton from '@/components/VoiceButton'
 import { stopAllTTS } from '@/lib/tts'
 
+const MAX_IMAGES = 4
+
 interface Props {
   presenceId: 'ari' | 'eli'
   accentClass: string
@@ -36,9 +38,9 @@ export default function ChatInterface({
   // Phase 19: Emotional continuity state
   const [emotionalContinuityMessageIds, setEmotionalContinuityMessageIds] = useState<Set<string>>(new Set())
 
-  // Image upload state
-  const [selectedImage, setSelectedImage] = useState<File | null>(null)
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  // Phase 25A: Multi-image upload state
+  const [selectedImages, setSelectedImages] = useState<File[]>([])
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -49,28 +51,64 @@ export default function ChatInterface({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Image selection
-  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // Revoke all blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      imagePreviewUrls.forEach(url => URL.revokeObjectURL(url))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    const validationError = validateImage(file)
-    if (validationError) {
-      setError(validationError)
+  // --- Image selection (multi) ---
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+
+    const remaining = MAX_IMAGES - selectedImages.length
+    if (remaining <= 0) {
+      setError(`Maximum ${MAX_IMAGES} images per message.`)
+      e.target.value = ''
       return
     }
 
-    setSelectedImage(file)
-    setImagePreviewUrl(URL.createObjectURL(file))
-    setError(null)
+    const toAdd = files.slice(0, remaining)
+    const valid: File[] = []
+    const previews: string[] = []
+
+    for (const file of toAdd) {
+      const err = validateImage(file)
+      if (err) {
+        setError(err)
+        continue
+      }
+      valid.push(file)
+      previews.push(URL.createObjectURL(file))
+    }
+
+    if (valid.length) {
+      setSelectedImages(prev => [...prev, ...valid])
+      setImagePreviewUrls(prev => [...prev, ...previews])
+      setError(null)
+    }
+
+    e.target.value = '' // reset so same file can be re-selected
   }
 
-  function clearSelectedImage() {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
-    setSelectedImage(null)
-    setImagePreviewUrl(null)
+  function removeImage(index: number) {
+    URL.revokeObjectURL(imagePreviewUrls[index])
+    setSelectedImages(prev => prev.filter((_, i) => i !== index))
+    setImagePreviewUrls(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function clearAllImages() {
+    imagePreviewUrls.forEach(url => URL.revokeObjectURL(url))
+    setSelectedImages([])
+    setImagePreviewUrls([])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
+
+  // --- Emoji insertion at cursor ---
 
   function handleEmojiSelect(emoji: string) {
     const textarea = textareaRef.current
@@ -88,19 +126,13 @@ export default function ChatInterface({
     }
   }
 
-  // Cleanup preview URL on unmount
-  useEffect(() => {
-    return () => {
-      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // --- Send ---
 
   async function handleSend() {
     const hasText = !!input.trim()
-    const hasImage = !!selectedImage
+    const hasImages = selectedImages.length > 0
 
-    if ((!hasText && !hasImage) || sending || submittingRef.current) return
+    if ((!hasText && !hasImages) || sending || submittingRef.current) return
     submittingRef.current = true
 
     const userContent = input.trim()
@@ -108,16 +140,16 @@ export default function ChatInterface({
     setSending(true)
     setError(null)
 
-    let uploadedUrl: string | null = null
-    let uploadedPath: string | null = null
+    const uploadedUrls: string[] = []
+    const uploadedPaths: string[] = []
 
     try {
-      // Upload image first if present
-      if (selectedImage) {
+      // Upload all images sequentially; abort on first failure
+      for (const image of selectedImages) {
         try {
-          const result = await uploadImage(selectedImage, presenceId)
-          uploadedUrl = result.url
-          uploadedPath = result.path
+          const result = await uploadImage(image, presenceId)
+          uploadedUrls.push(result.url)
+          uploadedPaths.push(result.path)
         } catch (uploadErr) {
           setError(`Image upload failed: ${uploadErr instanceof Error ? uploadErr.message : 'unknown error'}`)
           setSending(false)
@@ -126,15 +158,16 @@ export default function ChatInterface({
         }
       }
 
-      const messageType = hasImage && hasText ? 'text_image' : hasImage ? 'image' : 'text'
-      const displayContent = userContent || ''
+      const messageType = hasImages && hasText ? 'text_image' : hasImages ? 'image' : 'text'
 
       const savedUserMessage = await saveMessage({
         role: 'user',
-        content: displayContent,
+        content: userContent || '',
         message_type: messageType,
-        image_url: uploadedUrl,
-        image_path: uploadedPath,
+        // Backward compat: first image in legacy column; full array in image_urls
+        image_url: uploadedUrls[0] ?? null,
+        image_path: uploadedPaths[0] ?? null,
+        image_urls: uploadedUrls.length > 1 ? uploadedUrls : null,
       })
 
       if (!savedUserMessage) {
@@ -142,7 +175,7 @@ export default function ChatInterface({
         return
       }
 
-      clearSelectedImage()
+      clearAllImages()
 
       const recentHistory = messages.slice(-10).map(m => ({
         role: m.role,
@@ -157,10 +190,12 @@ export default function ChatInterface({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: displayContent || null,
+          message: userContent || null,
           history: recentHistory,
           liveState,
-          imageUrl: uploadedUrl,
+          // Send full array; API routes handle both
+          imageUrl: uploadedUrls[0] ?? null,
+          imageUrls: uploadedUrls.length > 0 ? uploadedUrls : undefined,
           sessionId: sessionIdRef.current,
         }),
         signal: AbortSignal.timeout(30000)
@@ -211,11 +246,15 @@ export default function ChatInterface({
     }
   }
 
+  // --- Enter key: plain Enter = newline, Ctrl/Cmd+Enter = send ---
+
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       handleSend()
     }
+    // plain Enter: default textarea behavior (newline)
+    // Shift+Enter: also newline (no special handling needed)
   }
 
   async function handleClear() {
@@ -254,7 +293,14 @@ export default function ChatInterface({
     )
   }
 
-  const canSend = (!!input.trim() || !!selectedImage) && !sending
+  const canSend = (!!input.trim() || selectedImages.length > 0) && !sending
+
+  // Determine which image URLs to show for a message (multi-image aware)
+  function getMessageImageUrls(msg: Message): string[] {
+    if (msg.image_urls?.length) return msg.image_urls
+    if (msg.image_url) return [msg.image_url]
+    return []
+  }
 
   return (
     <div className="max-w-2xl w-full flex flex-col h-full">
@@ -290,87 +336,95 @@ export default function ChatInterface({
           </div>
         )}
 
-        {messages.map((message, i) => (
-          <div
-            key={message.id || i}
-            className={`flex gap-3 animate-fade-in ${
-              message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
-            }`}
-          >
-            <div className={`flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm ${
-              message.role === 'assistant' ? accentClass : 'text-text-muted'
-            }`}>
-              {message.role === 'assistant' ? iconSymbol : '◌'}
-            </div>
+        {messages.map((message, i) => {
+          const msgImageUrls = getMessageImageUrls(message)
+          return (
+            <div
+              key={message.id || i}
+              className={`flex gap-3 animate-fade-in ${
+                message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+              }`}
+            >
+              <div className={`flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm ${
+                message.role === 'assistant' ? accentClass : 'text-text-muted'
+              }`}>
+                {message.role === 'assistant' ? iconSymbol : '◌'}
+              </div>
 
-            <div className={`max-w-[75%] md:max-w-xs lg:max-w-md px-3 py-2.5 md:px-4 md:py-3 ${
-              message.role === 'user'
-                ? 'bg-house-muted text-text-primary'
-                : 'bg-house-bg border border-house-border text-text-primary'
-            }`}>
-              {/* Image in message */}
-              {message.image_url && (
-                <button
-                  onClick={() => setLightboxUrl(message.image_url!)}
-                  className="block mb-2 w-full cursor-pointer"
-                >
-                  <img
-                    src={message.image_url}
-                    alt=""
-                    className="max-w-full max-h-64 object-contain border border-house-border"
-                    loading="lazy"
-                  />
-                </button>
-              )}
-
-              {/* Text content */}
-              {message.content ? (
-                <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
-                  {message.content}
-                </p>
-              ) : !message.image_url ? (
-                <p className="font-body text-sm leading-relaxed whitespace-pre-wrap text-text-muted italic">
-                  (empty)
-                </p>
-              ) : null}
-
-              {/* Phase 17: Continuity cue */}
-              {message.role === 'assistant' && message.id && continuityMessageIds.has(message.id) && (
-                <p className="font-body text-xs text-text-muted mt-2 italic">
-                  continued from prior turn
-                </p>
-              )}
-
-              {/* Phase 19: Emotional continuity cue */}
-              {message.role === 'assistant' && message.id && emotionalContinuityMessageIds.has(message.id) && (
-                <p className="font-body text-xs text-text-muted mt-1 italic">
-                  held prior atmosphere
-                </p>
-              )}
-
-              {/* Phase 20: Voice button (presence messages only) */}
-              <div className="flex items-center gap-2 mt-2">
-                {message.created_at && (
-                  <span className="font-body text-xs text-text-muted">
-                    {new Date(message.created_at).toLocaleTimeString('en-AU', {
-                      timeZone: 'Australia/Melbourne',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </span>
+              <div className={`max-w-[75%] md:max-w-xs lg:max-w-md px-3 py-2.5 md:px-4 md:py-3 ${
+                message.role === 'user'
+                  ? 'bg-house-muted text-text-primary'
+                  : 'bg-house-bg border border-house-border text-text-primary'
+              }`}>
+                {/* Images in message — grid when multiple */}
+                {msgImageUrls.length > 0 && (
+                  <div className={`mb-2 ${msgImageUrls.length > 1 ? 'grid grid-cols-2 gap-1' : ''}`}>
+                    {msgImageUrls.map((url, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setLightboxUrl(url)}
+                        className="block w-full cursor-pointer"
+                      >
+                        <img
+                          src={url}
+                          alt=""
+                          className="max-w-full max-h-48 object-contain border border-house-border"
+                          loading="lazy"
+                        />
+                      </button>
+                    ))}
+                  </div>
                 )}
-                {message.role === 'assistant' && message.content && (
-                  <VoiceButton
-                    text={message.content}
-                    presenceId={presenceId}
-                    accentClass={accentClass}
-                    buttonClass="min-w-[44px] min-h-[44px] -m-2"
-                  />
+
+                {/* Text content */}
+                {message.content ? (
+                  <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
+                    {message.content}
+                  </p>
+                ) : msgImageUrls.length === 0 ? (
+                  <p className="font-body text-sm leading-relaxed whitespace-pre-wrap text-text-muted italic">
+                    (empty)
+                  </p>
+                ) : null}
+
+                {/* Phase 17: Continuity cue */}
+                {message.role === 'assistant' && message.id && continuityMessageIds.has(message.id) && (
+                  <p className="font-body text-xs text-text-muted mt-2 italic">
+                    continued from prior turn
+                  </p>
                 )}
+
+                {/* Phase 19: Emotional continuity cue */}
+                {message.role === 'assistant' && message.id && emotionalContinuityMessageIds.has(message.id) && (
+                  <p className="font-body text-xs text-text-muted mt-1 italic">
+                    held prior atmosphere
+                  </p>
+                )}
+
+                {/* Phase 20: Voice button (presence messages only) */}
+                <div className="flex items-center gap-2 mt-2">
+                  {message.created_at && (
+                    <span className="font-body text-xs text-text-muted">
+                      {new Date(message.created_at).toLocaleTimeString('en-AU', {
+                        timeZone: 'Australia/Melbourne',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                  )}
+                  {message.role === 'assistant' && message.content && (
+                    <VoiceButton
+                      text={message.content}
+                      presenceId={presenceId}
+                      accentClass={accentClass}
+                      buttonClass="min-w-[44px] min-h-[44px] -m-2"
+                    />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         {sending && (
           <div className="flex gap-3 animate-fade-in">
@@ -396,24 +450,34 @@ export default function ChatInterface({
         </div>
       )}
 
-      {/* Image preview */}
-      {imagePreviewUrl && (
-        <div className="border border-house-border border-t-0 bg-house-bg px-3 py-2 md:px-4 flex items-center gap-3">
-          <img
-            src={imagePreviewUrl}
-            alt="Preview"
-            className="w-16 h-16 object-cover border border-house-border"
-          />
-          <span className="font-body text-xs text-text-muted flex-1 truncate">
-            {selectedImage?.name}
-          </span>
-          <button
-            onClick={clearSelectedImage}
-            className="text-text-muted hover:text-text-secondary text-sm min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors"
-            title="Remove image"
-          >
-            ✕
-          </button>
+      {/* Multi-image previews strip */}
+      {selectedImages.length > 0 && (
+        <div className="border border-house-border border-t-0 bg-house-bg px-3 py-2 md:px-4 flex gap-2 overflow-x-auto">
+          {selectedImages.map((file, index) => (
+            <div key={index} className="relative shrink-0">
+              <img
+                src={imagePreviewUrls[index]}
+                alt={file.name}
+                className="w-16 h-16 object-cover border border-house-border"
+              />
+              <button
+                onClick={() => removeImage(index)}
+                className="absolute -top-1 -right-1 w-5 h-5 bg-house-bg border border-house-border text-text-muted hover:text-red-400 text-xs flex items-center justify-center transition-colors"
+                title={`Remove ${file.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {selectedImages.length < MAX_IMAGES && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 w-16 h-16 border border-dashed border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted flex items-center justify-center text-xl transition-colors"
+              title="Add another image"
+            >
+              +
+            </button>
+          )}
         </div>
       )}
 
@@ -423,24 +487,32 @@ export default function ChatInterface({
           ref={fileInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
+          multiple
           onChange={handleImageSelect}
           className="hidden"
         />
 
+        {/* Image attach button — accent when images queued */}
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={sending}
+          disabled={sending || selectedImages.length >= MAX_IMAGES}
           className={`
             shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center
             border transition-all duration-200 text-lg
-            ${sending
-              ? 'text-text-muted border-house-border cursor-not-allowed'
-              : selectedImage
+            ${sending || selectedImages.length >= MAX_IMAGES
+              ? 'text-text-muted border-house-border cursor-not-allowed opacity-50'
+              : selectedImages.length > 0
               ? `${accentClass} border-current`
               : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
             }
           `}
-          title="Upload image"
+          title={
+            selectedImages.length >= MAX_IMAGES
+              ? `Max ${MAX_IMAGES} images per message`
+              : selectedImages.length > 0
+              ? `${selectedImages.length} image${selectedImages.length > 1 ? 's' : ''} selected`
+              : 'Attach image'
+          }
         >
           📷
         </button>
@@ -452,7 +524,11 @@ export default function ChatInterface({
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={selectedImage ? `Add a message (optional)...` : `Say something to ${presenceName}...`}
+          placeholder={
+            selectedImages.length > 0
+              ? 'Add a message (optional)… Ctrl+Enter to send'
+              : `Say something to ${presenceName}… Ctrl+Enter to send`
+          }
           rows={1}
           className="
             flex-1 bg-house-bg border border-house-border
@@ -467,6 +543,7 @@ export default function ChatInterface({
             target.style.height = `${Math.min(target.scrollHeight, 120)}px`
           }}
         />
+
         <button
           onClick={handleSend}
           disabled={!canSend}

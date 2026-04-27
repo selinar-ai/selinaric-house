@@ -11,6 +11,7 @@ export interface Message {
   message_type?: 'text' | 'image' | 'text_image'
   image_url?: string | null
   image_path?: string | null
+  image_urls?: string[] | null   // Phase 25A: multiple attachments
 }
 
 export function useMessages(roomSlug: 'ari' | 'eli') {
@@ -21,7 +22,7 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
     async function loadMessages() {
       const { data, error } = await supabase
         .from('room_messages')
-        .select('id, room_slug, role, content, created_at, message_type, image_url, image_path')
+        .select('id, room_slug, role, content, created_at, message_type, image_url, image_path, image_urls')
         .eq('room_slug', roomSlug)
         .order('created_at', { ascending: false })
         .limit(100)
@@ -57,6 +58,9 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
       }
       if (message.image_path) {
         row.image_path = message.image_path
+      }
+      if (message.image_urls?.length) {
+        row.image_urls = message.image_urls
       }
 
       const { data, error } = await supabase

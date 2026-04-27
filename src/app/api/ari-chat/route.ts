@@ -42,9 +42,14 @@ const ROOM_SLUG = 'ari'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, history = [], liveState: clientLiveState, imageUrl, sessionId } = body
+    const { message, history = [], liveState: clientLiveState, imageUrl, imageUrls, sessionId } = body
 
-    if ((!message || typeof message !== 'string') && !imageUrl) {
+    // Resolve image list: prefer explicit array; fall back to legacy single-image field
+    const imageUrlList: string[] = Array.isArray(imageUrls) && imageUrls.length > 0
+      ? imageUrls
+      : (imageUrl ? [imageUrl] : [])
+
+    if ((!message || typeof message !== 'string') && imageUrlList.length === 0) {
       return NextResponse.json({ error: 'Message or image required' }, { status: 400 })
     }
 
@@ -262,12 +267,13 @@ If an image is present in this message:
 
     const recentHistory = history.slice(-10)
 
-    // Build the user content — text only, or multimodal with image
+    // Build the user content — text only, or multimodal with one or more images
     let userContent: Anthropic.MessageParam['content']
-    if (imageUrl) {
-      const contentParts: Anthropic.ContentBlockParam[] = [
-        { type: 'image', source: { type: 'url', url: imageUrl } },
-      ]
+    if (imageUrlList.length > 0) {
+      const contentParts: Anthropic.ContentBlockParam[] = imageUrlList.map(url => ({
+        type: 'image' as const,
+        source: { type: 'url' as const, url },
+      }))
       if (message) {
         contentParts.push({ type: 'text', text: message })
       }

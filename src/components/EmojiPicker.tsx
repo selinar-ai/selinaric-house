@@ -4,24 +4,71 @@ import { useState, useRef, useEffect } from 'react'
 
 const EMOJI_CATEGORIES = [
   {
-    label: 'Smileys',
-    emojis: ['😊', '😂', '🥰', '😍', '🥹', '😘', '😌', '🤭', '😏', '🫠', '😴', '🤔', '😅', '😭', '🥺', '😤', '🙄', '😳', '🫣', '😈'],
+    label: 'Faces',
+    icon: '😊',
+    emojis: [
+      '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','🫠','😉','😊','😇',
+      '🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑',
+      '🤗','🤭','🫢','🫣','🤫','🤔','🫡','🤐','🤨','😐','😑','😶','😏','😒',
+      '🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧',
+      '🥵','🥶','🥴','😵','🤯','🥳','😎','🤓','🧐','😕','😟','🙁','☹️','😮',
+      '😲','😳','🥺','🥹','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣',
+      '😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️',
+    ],
+  },
+  {
+    label: 'Hands',
+    icon: '👋',
+    emojis: [
+      '👋','🤚','🖐️','✋','🖖','🫱','🫲','🫳','🫴','👌','🤌','🤏','✌️','🤞',
+      '🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊',
+      '🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','✍️','💅',
+    ],
   },
   {
     label: 'Hearts',
-    emojis: ['❤️', '🖤', '💜', '💗', '💕', '💘', '💖', '🤍', '❤️‍🔥', '💔', '🫶', '💝', '💞'],
+    icon: '❤️',
+    emojis: [
+      '❤️','🩷','🧡','💛','💚','💙','🩵','💜','🤎','🖤','🩶','🤍','💔',
+      '❤️‍🔥','❤️‍🩹','❣️','💕','💞','💓','💗','💖','💘','💝','💟',
+      '✨','⭐','🌟','💫','🔥','🕯️','🗝️','🛡️','🪞','🧿','🪶','🪽',
+      '♾️','✅','❌','⚠️','🛑','📌',
+    ],
   },
   {
-    label: 'Gestures',
-    emojis: ['👋', '🤲', '🫂', '💪', '🤝', '🙏', '✌️', '🤞', '🫰', '👀', '👁️', '🫡', '💅'],
+    label: 'Food',
+    icon: '☕',
+    emojis: [
+      '☕','🍵','🧃','🥛','🍷','🍺','🍻','🥂','🍰','🎂','🍕','🍔','🌮',
+      '🌯','🍟','🌭','🍜','🍝','🍣','🍱','🍫','🍪','🍯','🥑','🍳','🥩',
+      '🥗','🥐','🍓','🍒','🍋',
+    ],
   },
   {
     label: 'Nature',
-    emojis: ['🌙', '✨', '🔥', '🌊', '🌸', '🌿', '⚡', '🦋', '🌹', '🍃', '☀️', '🌧️', '❄️'],
+    icon: '🌿',
+    emojis: [
+      '🐶','🐱','🦁','🐯','🐵','🐼','🐻','🐨','🐰','🦊','🐺','🐴','🐦',
+      '🐧','🐸','🐢','🐍','🐝','🦋','🐙','🐠','🐋','🌸','🌹','🌷','🌻',
+      '🌙','☀️','🌧️','⛈️','🌈','🌊','🌲','🌿','🍃','🌵',
+    ],
   },
   {
-    label: 'Symbols',
-    emojis: ['💫', '⭐', '🎵', '🎶', '💭', '💬', '🏠', '🗝️', '🔮', '🪞', '🕯️', '📌', '🎯'],
+    label: 'Things',
+    icon: '🏠',
+    emojis: [
+      '🏠','🏡','🛠️','🧱','🧰','🔧','🔨','⚙️','💻','🖥️','📱','📷','🎧',
+      '🎙️','🔍','📚','📖','📝','📎','🗂️','🗃️','🧭','🗺️','⏰','🕰️','💡',
+      '🔒','🔓',
+    ],
+  },
+  {
+    label: 'People',
+    icon: '🙋',
+    emojis: [
+      '🙋‍♀️','🙋‍♂️','🤷‍♀️','🤷‍♂️','🏃‍♀️','🏃‍♂️','💃','🕺','🧘‍♀️','🧘‍♂️',
+      '👩‍💻','👨‍💻','🧑‍🍳','👮‍♀️','👰‍♀️','🤵‍♂️','🧙‍♀️','🧙‍♂️',
+    ],
   },
 ]
 
@@ -66,25 +113,33 @@ export default function EmojiPicker({ onSelect }: Props) {
 
       {open && (
         <div className="absolute bottom-full left-0 mb-2 w-72 md:w-80 bg-house-surface border border-house-border shadow-lg z-30 animate-fade-in">
-          {/* Category tabs */}
-          <div className="flex border-b border-house-border">
+          {/* Category tabs — emoji icons, horizontally scrollable */}
+          <div className="flex border-b border-house-border overflow-x-auto scrollbar-none">
             {EMOJI_CATEGORIES.map((cat, i) => (
               <button
                 key={cat.label}
                 onClick={() => setActiveCategory(i)}
-                className={`flex-1 py-2 font-body text-[10px] tracking-wide uppercase transition-colors ${
+                title={cat.label}
+                className={`shrink-0 px-3 py-2.5 text-base transition-colors ${
                   activeCategory === i
-                    ? 'text-text-secondary bg-house-bg'
-                    : 'text-text-muted hover:text-text-secondary'
+                    ? 'bg-house-bg opacity-100'
+                    : 'opacity-50 hover:opacity-80'
                 }`}
               >
-                {cat.label}
+                {cat.icon}
               </button>
             ))}
           </div>
 
+          {/* Category label */}
+          <div className="px-3 pt-2 pb-0.5">
+            <span className="font-body text-[9px] tracking-widest uppercase text-text-muted">
+              {EMOJI_CATEGORIES[activeCategory].label}
+            </span>
+          </div>
+
           {/* Emoji grid */}
-          <div className="p-2 grid grid-cols-7 gap-0.5 max-h-48 overflow-y-auto">
+          <div className="p-2 grid grid-cols-7 gap-0.5 max-h-52 overflow-y-auto">
             {EMOJI_CATEGORIES[activeCategory].emojis.map(emoji => (
               <button
                 key={emoji}
@@ -92,7 +147,7 @@ export default function EmojiPicker({ onSelect }: Props) {
                   onSelect(emoji)
                   setOpen(false)
                 }}
-                className="min-w-[40px] min-h-[40px] flex items-center justify-center text-xl hover:bg-house-bg rounded transition-colors"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center text-xl hover:bg-house-bg rounded transition-colors"
               >
                 {emoji}
               </button>
