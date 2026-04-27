@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import {
   analyzeScope,
+  hasImplementationEvidence,
   type Build,
   type ForgekeeperReview,
 } from '@/lib/builds'
@@ -57,13 +58,6 @@ Rules:
 - Flag scope breaches explicitly and without qualification
 - Output must be valid JSON matching the required schema
 
-Your job:
-- Inspect submitted build work
-- Surface issues
-- Predict consequences
-- Provide recommendations
-- Support review and commit decisions
-
 Output JSON schema:
 {
   "issue_list": string[],          // concrete issues. Empty array if none.
@@ -77,12 +71,55 @@ Output JSON schema:
     "scope_breach_details": string  // empty string if no breach
   },
   "risk_summary": "Low" | "Medium" | "High"
-}
+}`
 
-Risk calibration:
-- Low: room-local, tests run, no scope breach, low surface impact
-- Medium: shared surfaces touched, limited tests, minor scope concerns
-- High: scope breach detected, no tests, shared system modification, multi-room impact`
+// --- Mode-specific review instructions ---
+
+const PLAN_REVIEW_INSTRUCTIONS = `REVIEW MODE: Plan Review
+
+This build packet is a PLAN — no code has been implemented yet.
+changed_files may be empty or provisional. tests_run is expected to be "none_yet".
+
+DO NOT flag:
+- Empty or missing changed_files (expected at this stage)
+- "no tests run" (expected — tests happen post-implementation)
+- Absence of implementation evidence
+
+DO assess:
+- Is the plan description complete and unambiguous enough to implement safely?
+- Is the scope declaration consistent with what the plan intends to touch?
+- Are the stated risks realistic and complete for the described change?
+- Are the verify_focus items specific and actionable for a developer to check post-implementation?
+- Would this plan, if implemented exactly as described, introduce predictable safety or stability issues?
+- Is the plan itself internally consistent (no contradictions between summary, reason, scope, surfaces)?
+
+Risk calibration for Plan Review:
+- Low: plan is clear, scope is narrow and consistent, risks are identified, verify_focus is specific
+- Medium: plan has ambiguous scope, may touch shared surfaces, risks are vague or incomplete
+- High: plan describes scope breach, touches shared systems, introduces architectural risk, or is underspecified to the point of being unimplementable safely`
+
+const IMPLEMENTATION_REVIEW_INSTRUCTIONS = `REVIEW MODE: Implementation Review
+
+This build has implementation evidence (actual tests run + changed files declared).
+You are reviewing IMPLEMENTED WORK, not a plan.
+
+DO assess:
+- Are changed_files consistent with the stated scope and summary?
+- Are the tests run sufficient for the type of change described?
+- Does the implementation evidence suggest the plan was followed?
+- Are there scope breaches in the declared file list?
+- Are the verify_focus items specific enough to confirm implementation correctness?
+
+Flag these as issues:
+- Declared changed_files that suggest scope breach
+- Tests that are insufficient given the surface area of change
+- Inconsistency between tests_run and changed_files (e.g., UI changes but no manual_check)
+- Verify_focus items that are vague or not actionable
+
+Risk calibration for Implementation Review:
+- Low: scope-local, appropriate tests, no scope breach, low surface impact
+- Medium: shared surfaces touched, limited test coverage, minor scope concerns
+- High: scope breach detected, no tests for risky change, shared system modification, multi-room impact`
 
 // --- Main handler ---
 
@@ -121,8 +158,15 @@ export async function POST(request: NextRequest) {
     b.origin
   )
 
+  // Detect review mode from implementation evidence
+  const isPlanReview = !hasImplementationEvidence(b)
+  const reviewMode = isPlanReview ? 'Plan Review' : 'Implementation Review'
+  const modeInstructions = isPlanReview ? PLAN_REVIEW_INSTRUCTIONS : IMPLEMENTATION_REVIEW_INSTRUCTIONS
+
   // Build the review prompt
-  const reviewPrompt = `Review this build submission and return a structured JSON review bundle.
+  const reviewPrompt = `${modeInstructions}
+
+---
 
 Build packet:
 ${JSON.stringify({
@@ -131,6 +175,7 @@ ${JSON.stringify({
   origin: b.origin,
   summary: b.summary,
   reason: b.reason,
+  implementation_notes: b.implementation_notes,
   changed_files: b.changed_files,
   expected_scope: b.expected_scope,
   affected_surfaces: b.affected_surfaces,
@@ -141,12 +186,14 @@ ${JSON.stringify({
 }, null, 2)}
 
 Pre-analysis (deterministic):
+- Review mode: ${reviewMode}
 - Scope breach detected: ${scopeAnalysis.scopeBreachDetected}
 - Breach details: ${scopeAnalysis.breachDetails || 'none'}
 - Shared system files touched: ${scopeAnalysis.sharedFilesFound.join(', ') || 'none'}
 - Ari-scoped files: ${scopeAnalysis.ariFilesFound.join(', ') || 'none'}
 - Eli-scoped files: ${scopeAnalysis.eliFilesFound.join(', ') || 'none'}
 - Changed file count: ${b.changed_files?.length ?? 0}
+- Tests run: ${b.tests_run?.join(', ') || 'none'}
 
 Primary inspection lens (verify_focus):
 ${b.verify_focus?.length ? b.verify_focus.map(f => `- ${f}`).join('\n') : '- not specified'}
@@ -176,6 +223,8 @@ Output the review bundle as JSON. No preamble, no commentary. JSON only.`
   const review: ForgekeeperReview = {
     ...parsed,
     reviewed_at: new Date().toISOString(),
+    // Store review mode in the bundle so Workshop UI can distinguish plan vs implementation
+    _review_mode: isPlanReview ? 'plan' : 'implementation',
   }
 
   // Persist review + update workshop_status to Review Complete
@@ -202,7 +251,7 @@ Output the review bundle as JSON. No preamble, no commentary. JSON only.`
       prevWorkshopStatus: 'Pending Review',
       nextWorkshopStatus: 'Review Complete',
       actor: 'forgekeeper',
-      note: review.risk_summary ? `Risk: ${review.risk_summary}` : undefined,
+      note: `${reviewMode} — Risk: ${review.risk_summary}`,
     }).catch(() => {})
   }
 

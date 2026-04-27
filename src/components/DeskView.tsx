@@ -70,6 +70,8 @@ function getDeskVoice(presenceId: 'ari' | 'eli') {
       commitIntro: 'Approved and recorded.',
       heldHeader: 'Held in Workshop.',
       heldIntro: 'Pending further decision.',
+      approvedForImplHeader: 'Plan approved.',
+      approvedForImplIntro: 'The build plan passed Workshop review. Implement the changes, update files and tests, then re-submit for implementation review.',
       emptyActive: 'No active builds.',
       emptyHistory: 'No build history yet.',
       newBuildLabel: 'New Build',
@@ -82,6 +84,8 @@ function getDeskVoice(presenceId: 'ari' | 'eli') {
     commitIntro: 'Done.',
     heldHeader: 'Held.',
     heldIntro: 'Still in Workshop.',
+    approvedForImplHeader: 'Plan approved.',
+    approvedForImplIntro: 'The build plan passed Workshop review. Implement the changes, update files and tests, then re-submit for implementation review.',
     emptyActive: 'Nothing active.',
     emptyHistory: 'No history yet.',
     newBuildLabel: 'New Build',
@@ -92,6 +96,7 @@ function getDeskVoice(presenceId: 'ari' | 'eli') {
 
 function statusColor(status: DeskStatus | string): string {
   if (status === 'Committed') return 'text-green-400'
+  if (status === 'Approved for Implementation') return 'text-blue-400'
   if (status === 'Returned for Edits') return 'text-amber-400'
   if (status === 'Sent for Verification' || status === 'Pending Review') return 'text-text-secondary'
   if (status.includes('Consultation')) return 'text-blue-400'
@@ -1089,6 +1094,24 @@ export default function DeskView({ presenceId, accentClass }: Props) {
                   {build.forgekeeper_review.risk_summary} risk
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Approved for Implementation status */}
+          {build.desk_status === 'Approved for Implementation' && (
+            <div className="border border-blue-900/30 bg-house-surface p-3 space-y-2">
+              <p className={`font-display text-base ${accentClass}`}>{voice.approvedForImplHeader}</p>
+              <p className="font-body text-xs text-text-muted leading-relaxed">{voice.approvedForImplIntro}</p>
+              <div className="space-y-1 pt-1">
+                <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">Next steps</p>
+                <p className="font-body text-xs text-text-secondary">1. Implement the changes in the codebase</p>
+                <p className="font-body text-xs text-text-secondary">2. Update <span className="font-mono">Changed files</span> with actual paths</p>
+                <p className="font-body text-xs text-text-secondary">3. Update <span className="font-mono">Tests run</span> with evidence</p>
+                <p className="font-body text-xs text-text-secondary">4. Edit → Mark Ready → Send for Verification</p>
+              </div>
+              {build.updated_at && (
+                <p className="font-mono text-[10px] text-text-muted mt-1">{formatDate(build.updated_at)}</p>
+              )}
             </div>
           )}
 

@@ -16,6 +16,7 @@ export type BuildEventType =
   | 'marked_ready'
   | 'sent_for_verification'
   | 'forgekeeper_complete'
+  | 'plan_approved'
   | 'approved'
   | 'returned'
   | 'held'
@@ -46,6 +47,7 @@ export const EVENT_LABELS: Record<BuildEventType, string> = {
   marked_ready:             'Marked ready',
   sent_for_verification:    'Sent for verification',
   forgekeeper_complete:     'Forgekeeper review complete',
+  plan_approved:            'Build plan approved for implementation',
   approved:                 'Approved for commit',
   returned:                 'Returned for edits',
   held:                     'Held in Workshop',

@@ -30,6 +30,7 @@ export type DeskStatus =
   | 'Consultation Complete'
   | 'Ready to Submit'
   | 'Sent for Verification'
+  | 'Approved for Implementation'
   | 'Returned for Edits'
   | 'Committed'
 
@@ -37,6 +38,7 @@ export type WorkshopStatus =
   | 'Pending Review'
   | 'Review Complete'
   | 'Ready to Commit'
+  | 'Plan Approved'
   | 'Returned'
   | 'Held'
   | 'Committed'
@@ -66,7 +68,9 @@ export interface ForgekeeperReview {
   }
   risk_summary: RiskSummary
   reviewed_at: string          // ISO timestamp
-  // Optional: added by workshop return action
+  // Set by Forgekeeper: 'plan' = reviewed as a plan packet; 'implementation' = reviewed as implemented code
+  _review_mode?: 'plan' | 'implementation'
+  // Added by workshop return action
   _return_notes?: string
   _returned_at?: string
 }
@@ -216,7 +220,26 @@ export function formatBuildId(prefix: string, n: number): string {
   return `${prefix}-${String(n).padStart(3, '0')}`
 }
 
+// --- Implementation evidence detection ---
+//
+// A build has implementation evidence when it has actual test results
+// (not just the default 'none_yet') AND lists at least one changed file.
+// Used to distinguish Plan Review mode from Implementation Review mode
+// in Workshop and Forgekeeper.
+
+export function hasImplementationEvidence(
+  build: Pick<Build, 'tests_run' | 'changed_files'>
+): boolean {
+  const hasRealTests = build.tests_run?.some(t => t !== 'none_yet') ?? false
+  const hasChangedFiles = (build.changed_files?.length ?? 0) > 0
+  return hasRealTests && hasChangedFiles
+}
+
 // --- Submission readiness check ---
+//
+// Plan submissions (no implementation evidence) do not require changed_files
+// or completed tests — those are confirmed during the implementation step.
+// Implementation submissions require both.
 
 export interface SubmissionReadiness {
   ready: boolean
@@ -227,11 +250,13 @@ export function checkSubmissionReadiness(build: Partial<Build>): SubmissionReadi
   const missing: string[] = []
   if (!build.summary?.trim()) missing.push('summary')
   if (!build.reason?.trim()) missing.push('reason')
-  if (!build.changed_files?.length) missing.push('changedFiles')
   if (!build.expected_scope) missing.push('expectedScope')
   if (!build.affected_surfaces?.length) missing.push('affectedSurfaces')
-  if (!build.tests_run?.length) missing.push('testsRun')
   if (!build.verify_focus?.length) missing.push('verifyFocus')
+  // changed_files and tests_run are NOT required for plan-phase submissions.
+  // Forgekeeper plan-review mode will note them as unconfirmed, not block submission.
+  // For implementation-phase submissions (desk re-sends after implementing),
+  // the presence is expected to fill these in — Forgekeeper will flag if missing.
   return { ready: missing.length === 0, missing }
 }
 
@@ -244,12 +269,15 @@ export const DESK_STATUS_IN_PROGRESS: DeskStatus[] = [
   'Consultation Active',
   'Consultation Complete',
   'Ready to Submit',
+  'Approved for Implementation',
   'Returned for Edits',
 ]
 export const DESK_STATUS_PENDING: DeskStatus[] = ['Sent for Verification']
 
 export function isEditable(status: DeskStatus): boolean {
-  return ['Draft', 'Consultation Complete', 'Returned for Edits'].includes(status)
+  // 'Approved for Implementation' is editable so the presence can update
+  // changed_files, tests_run, and implementation_notes before re-submitting.
+  return ['Draft', 'Consultation Complete', 'Approved for Implementation', 'Returned for Edits'].includes(status)
 }
 
 export function canSubmit(status: DeskStatus): boolean {
@@ -257,13 +285,13 @@ export function canSubmit(status: DeskStatus): boolean {
 }
 
 export function canRequestConsultation(status: DeskStatus): boolean {
-  // 'Returned for Edits' included so Forgekeeper-mandated consultation can be
-  // initiated from a returned build before resubmission.
-  return ['Draft', 'Consultation Complete', 'Returned for Edits'].includes(status)
+  // 'Returned for Edits' and 'Approved for Implementation' included so the
+  // presence can request input before re-submitting.
+  return ['Draft', 'Consultation Complete', 'Approved for Implementation', 'Returned for Edits'].includes(status)
 }
 
 export function canMarkReady(status: DeskStatus): boolean {
-  return ['Draft', 'Consultation Complete', 'Returned for Edits'].includes(status)
+  return ['Draft', 'Consultation Complete', 'Approved for Implementation', 'Returned for Edits'].includes(status)
 }
 
 // --- Risk color helpers ---

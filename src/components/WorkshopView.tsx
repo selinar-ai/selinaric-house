@@ -6,7 +6,7 @@
 // Non-relational. No presence voice. Structured output only.
 
 import { useState, useEffect, useCallback } from 'react'
-import { type Build, type WorkshopStatus, riskColorClass } from '@/lib/builds'
+import { type Build, type WorkshopStatus, riskColorClass, hasImplementationEvidence } from '@/lib/builds'
 import { type BuildHistoryEvent, EVENT_LABELS } from '@/lib/build-history'
 
 // --- Helpers ---
@@ -30,6 +30,7 @@ function originLabel(origin: string): string {
 function workshopStatusColor(status: WorkshopStatus | string | null): string {
   if (!status) return 'text-text-muted'
   if (status === 'Committed') return 'text-green-400'
+  if (status === 'Plan Approved') return 'text-blue-400'
   if (status === 'Returned') return 'text-amber-400'
   if (status === 'Held') return 'text-text-muted'
   if (status === 'Pending Review') return 'text-blue-400 animate-pulse-soft'
@@ -170,7 +171,7 @@ export default function WorkshopView() {
 
   // --- Split into pending / history ---
   const pendingStatuses: WorkshopStatus[] = ['Pending Review', 'Review Complete', 'Ready to Commit', 'Held']
-  const historyStatuses: WorkshopStatus[] = ['Committed', 'Returned']
+  const historyStatuses: WorkshopStatus[] = ['Plan Approved', 'Committed', 'Returned']
 
   const pendingBuilds = builds.filter(b => b.workshop_status && pendingStatuses.includes(b.workshop_status as WorkshopStatus))
   const historyBuilds = builds.filter(b => b.workshop_status && historyStatuses.includes(b.workshop_status as WorkshopStatus))
@@ -215,7 +216,13 @@ export default function WorkshopView() {
     const isRunning = running === build.id
     const isActioning_ = actioning === build.id
     const review = build.forgekeeper_review
-    const canAct = build.workshop_status !== 'Committed' && build.workshop_status !== 'Returned'
+    const canAct = build.workshop_status !== 'Committed'
+      && build.workshop_status !== 'Returned'
+      && build.workshop_status !== 'Plan Approved'
+    // Determine review mode: use stored _review_mode if available, else detect from evidence
+    const reviewMode = review?._review_mode
+      ?? (hasImplementationEvidence(build) ? 'implementation' : 'plan')
+    const isPlanReview = reviewMode === 'plan'
 
     return (
       <div className="flex flex-col h-full overflow-hidden border border-house-border bg-house-surface animate-fade-in">
@@ -228,6 +235,16 @@ export default function WorkshopView() {
               <span className={`font-body text-[10px] ${workshopStatusColor(build.workshop_status)}`}>
                 {build.workshop_status}
               </span>
+              {/* Review mode badge — shown once Forgekeeper has run */}
+              {review && (
+                <span className={`font-body text-[10px] px-1.5 py-0.5 border ${
+                  isPlanReview
+                    ? 'text-text-muted border-house-border'
+                    : 'text-text-secondary border-house-muted'
+                }`}>
+                  {isPlanReview ? 'Plan Review' : 'Implementation Review'}
+                </span>
+              )}
             </div>
             <p className="font-display text-lg text-text-primary mt-0.5">{build.short_name}</p>
           </div>
@@ -504,17 +521,33 @@ export default function WorkshopView() {
         {/* Action buttons */}
         {canAct && !showReturnForm && (
           <div className="shrink-0 border-t border-house-border px-4 py-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => handleAction(build.id, 'approve')}
-              disabled={!!isActioning_ || isRunning || !review}
-              className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${
-                isActioning_ || isRunning || !review
-                  ? 'text-text-muted border-house-border opacity-50'
-                  : 'text-green-400 border-green-900/60 hover:bg-green-900/10'
-              }`}
-            >
-              {isActioning_ ? 'Working…' : 'Approve for Commit'}
-            </button>
+            {isPlanReview ? (
+              /* Plan Review: approve the plan, return to desk for implementation */
+              <button
+                onClick={() => handleAction(build.id, 'approve_plan')}
+                disabled={!!isActioning_ || isRunning || !review}
+                className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${
+                  isActioning_ || isRunning || !review
+                    ? 'text-text-muted border-house-border opacity-50'
+                    : 'text-blue-400 border-blue-900/60 hover:bg-blue-900/10'
+                }`}
+              >
+                {isActioning_ ? 'Working…' : 'Approve Build Plan'}
+              </button>
+            ) : (
+              /* Implementation Review: actual commit approval */
+              <button
+                onClick={() => handleAction(build.id, 'approve')}
+                disabled={!!isActioning_ || isRunning || !review}
+                className={`font-body text-xs tracking-widest uppercase px-3 py-2 border min-h-[40px] transition-all duration-200 ${
+                  isActioning_ || isRunning || !review
+                    ? 'text-text-muted border-house-border opacity-50'
+                    : 'text-green-400 border-green-900/60 hover:bg-green-900/10'
+                }`}
+              >
+                {isActioning_ ? 'Working…' : 'Approve for Commit'}
+              </button>
+            )}
 
             <button
               onClick={() => setShowReturnForm(true)}

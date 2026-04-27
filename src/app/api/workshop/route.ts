@@ -1,6 +1,10 @@
 // Phase 21 — Workshop actions API
-// POST { buildId, action } — workshop decisions: approve | return | hold | reclassify
+// POST { buildId, action } — workshop decisions
+//
+// Action 'approve_plan' → desk_status: Approved for Implementation, workshop_status: Plan Approved
+//   Used when build is a plan packet (no implementation evidence). Greenlights implementation.
 // Action 'approve' → desk_status: Committed, workshop_status: Committed
+//   Used when build has implementation evidence (tests + changed files). Final commit approval.
 // Action 'return'  → desk_status: Returned for Edits, workshop_status: Returned
 // Action 'hold'    → workshop_status: Held (desk unchanged)
 // Action 'reopen'  → workshop_status: Ready to Commit (undo hold)
@@ -40,7 +44,18 @@ export async function POST(request: NextRequest) {
   let patch: Record<string, unknown> = { updated_at: now }
 
   switch (action) {
+    case 'approve_plan':
+      // Plan review approval — no code has been implemented yet.
+      // Returns the build to the desk marked for implementation.
+      patch = {
+        ...patch,
+        desk_status: 'Approved for Implementation',
+        workshop_status: 'Plan Approved',
+      }
+      break
+
     case 'approve':
+      // Implementation review approval — code has been implemented and reviewed.
       patch = {
         ...patch,
         desk_status: 'Committed',
@@ -103,10 +118,11 @@ export async function POST(request: NextRequest) {
   if (data?.id) {
     type WorkshopEventType = import('@/lib/build-history').BuildEventType
     const eventMap: Record<string, WorkshopEventType> = {
-      approve: 'approved',
-      return:  'returned',
-      hold:    'held',
-      reopen:  'reopened',
+      approve_plan: 'plan_approved',
+      approve:      'approved',
+      return:       'returned',
+      hold:         'held',
+      reopen:       'reopened',
     }
     const eventType = eventMap[action]
     if (eventType) {
