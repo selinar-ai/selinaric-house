@@ -52,10 +52,10 @@ type EntryType = typeof VALID_ENTRY_TYPES[number]
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = getSupabase()
-  const jobId = params.id
+  const { id: jobId } = await params
 
   if (!jobId) {
     return NextResponse.json({ error: 'Job ID required' }, { status: 400 })
