@@ -403,7 +403,7 @@ export default function ArchivesPage() {
                 <span className={`font-body text-xs tracking-widest uppercase ${sourceImportOpen ? activeTabConfig.accent : 'text-text-muted'}`}>
                   Paste conversation
                 </span>
-                <span className="font-body text-[10px] text-text-muted ml-1">max 100k chars</span>
+                <span className="font-body text-[10px] text-text-muted ml-1">max 500k chars</span>
               </button>
 
               {sourceImportOpen && (
@@ -434,7 +434,7 @@ export default function ArchivesPage() {
                       className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted placeholder:text-text-muted resize-y font-mono"
                     />
                     <p className="font-body text-[10px] text-text-muted mt-1">
-                      {sourceForm.raw_content.length.toLocaleString()} / 100,000 chars
+                      {sourceForm.raw_content.length.toLocaleString()} / 500,000 chars
                     </p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -479,7 +479,7 @@ export default function ArchivesPage() {
                         sourceSubmitting ||
                         !sourceForm.title.trim() ||
                         !sourceForm.raw_content.trim() ||
-                        sourceForm.raw_content.length > 100_000
+                        sourceForm.raw_content.length > 500_000
                       }
                       className={`font-body text-xs px-4 py-1.5 border transition-all disabled:opacity-40 ${activeTabConfig.accent} ${activeTabConfig.border} hover:bg-house-bg`}
                     >

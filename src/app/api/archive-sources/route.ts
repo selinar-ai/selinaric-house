@@ -4,7 +4,7 @@
 //      Always excludes soft-deleted rows
 // POST { tab, title, raw_content, source_date?, source_document?, notes? }
 //      Defaults applied server-side from tab. char_count computed on insert.
-//      Max content: 100,000 characters.
+//      Max content: 500,000 characters (storage limit; extraction limit is separate).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -25,7 +25,7 @@ function getSupabase() {
 
 const VALID_ARCHIVE_NAMES: ArchiveName[] = ['velvet', 'violet', 'house']
 const VALID_REVIEW_STATUSES: ReviewStatus[] = ['pending', 'reviewed', 'extracted']
-const MAX_CONTENT_CHARS = 100_000
+const MAX_CONTENT_CHARS = 500_000
 
 export async function GET(request: NextRequest) {
   const supabase = getSupabase()
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
   const trimmedContent = (raw_content as string).trim()
   if (trimmedContent.length > MAX_CONTENT_CHARS) {
     return NextResponse.json(
-      { error: `raw_content exceeds ${MAX_CONTENT_CHARS.toLocaleString()} character limit` },
+      { error: `raw_content exceeds ${MAX_CONTENT_CHARS.toLocaleString()} character storage limit` },
       { status: 422 }
     )
   }

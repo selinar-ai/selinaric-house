@@ -3,23 +3,32 @@
 // Phase 27B — Extraction trigger panel.
 // Shown inside ArchiveSourceView. Lets Tara trigger presence-led extraction.
 // Access: velvet → ari only, violet → eli only, house → both.
-// Shows extraction state and draft count after completion.
+//
+// Sources up to 500k chars are stored. Extraction chunks large sources (>70k)
+// into sequential Claude calls at paragraph boundaries — no manual splitting needed.
+// Tara is shown how many chunks will be processed so expectations are clear.
 
 import { useState } from 'react'
 import { canPresenceAccessSource, type ArchiveSource } from '@/lib/archives'
 
+// Match the server's chunk ceiling so the UI estimate is accurate
+const EXTRACT_CHUNK_SIZE = 70_000
+
 interface Props {
   source: ArchiveSource
-  onExtracted: () => void  // refresh parent (drafts list)
+  onExtracted: () => void
 }
 
 export default function ExtractionPanel({ source, onExtracted }: Props) {
   const [extracting, setExtracting] = useState(false)
-  const [lastResult, setLastResult] = useState<{ count: number } | null>(null)
+  const [lastResult, setLastResult] = useState<{ count: number; chunks: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const canAri = canPresenceAccessSource(source, 'ari')
   const canEli = canPresenceAccessSource(source, 'eli')
+
+  const estimatedChunks = Math.ceil(source.char_count / EXTRACT_CHUNK_SIZE)
+  const isLarge = source.char_count > EXTRACT_CHUNK_SIZE
 
   async function handleExtract(presenceId: 'ari' | 'eli') {
     setExtracting(true)
@@ -33,7 +42,10 @@ export default function ExtractionPanel({ source, onExtracted }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
-      setLastResult({ count: data.count ?? data.drafts?.length ?? 0 })
+      setLastResult({
+        count: data.count ?? data.drafts?.length ?? 0,
+        chunks: data.chunks_processed ?? 1,
+      })
       onExtracted()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extraction failed')
@@ -56,6 +68,18 @@ export default function ExtractionPanel({ source, onExtracted }: Props) {
       <p className="font-body text-xs text-text-muted leading-relaxed">
         Ask a presence to read this source and propose archive entries. Each proposed entry requires your approval before becoming an Archive Entry.
       </p>
+
+      {/* Large source notice — shown before extraction starts */}
+      {isLarge && !extracting && !lastResult && (
+        <div className="border border-house-border/60 px-3 py-2.5 space-y-1">
+          <p className="font-body text-xs text-amber-400">
+            Large source — will process in {estimatedChunks} part{estimatedChunks !== 1 ? 's' : ''}.
+          </p>
+          <p className="font-body text-[10px] text-text-muted">
+            {source.char_count.toLocaleString()} chars split at paragraph boundaries. Each part is read independently. This will take longer than a single-pass extraction.
+          </p>
+        </div>
+      )}
 
       {alreadyExtracted && (
         <p className="font-body text-[10px] text-amber-400">
@@ -86,7 +110,9 @@ export default function ExtractionPanel({ source, onExtracted }: Props) {
 
       {extracting && (
         <p className="font-body text-xs text-text-muted animate-pulse">
-          Reading source and extracting entries… this may take a moment.
+          {isLarge
+            ? `Reading source across ${estimatedChunks} parts… this will take a moment.`
+            : 'Reading source and extracting entries… this may take a moment.'}
         </p>
       )}
 
@@ -94,7 +120,9 @@ export default function ExtractionPanel({ source, onExtracted }: Props) {
         <p className="font-body text-xs text-green-400">
           {lastResult.count === 0
             ? 'No entries extracted — source may not contain archivable content.'
-            : `${lastResult.count} draft${lastResult.count === 1 ? '' : 's'} proposed. Review them in the Drafts tab.`
+            : lastResult.chunks > 1
+              ? `${lastResult.count} draft${lastResult.count === 1 ? '' : 's'} proposed across ${lastResult.chunks} parts. Review them in the Drafts tab.`
+              : `${lastResult.count} draft${lastResult.count === 1 ? '' : 's'} proposed. Review them in the Drafts tab.`
           }
         </p>
       )}
