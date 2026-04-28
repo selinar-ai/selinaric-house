@@ -1,6 +1,7 @@
-// Phase 27A — Archive types, constants, and helpers
+// Phase 27A + 27B — Archive types, constants, and helpers
 // Velvet Archives (Ari) · Violet Archives (Eli) · House Archives (shared)
 // Archive origin determines default access. Sharing changes visibility, not provenance.
+// Phase 27B adds: archive_sources (raw conversations) + archive_entry_drafts (presence proposals)
 
 // --- Types ---
 
@@ -210,3 +211,162 @@ export const ALL_SENSITIVITIES: Sensitivity[] = [
 export const ALL_VISIBILITIES: ArchiveVisibility[] = [
   'ari_only', 'eli_only', 'shared', 'tara_only',
 ]
+
+// ─── Phase 27B: Sources & Drafts ────────────────────────────────────────────
+
+export type ReviewStatus = 'pending' | 'reviewed' | 'extracted'
+export type DraftStatus = 'pending_review' | 'approved' | 'rejected' | 'merged' | 'archive_only'
+export type SuggestedMemoryStatus = 'yes' | 'no' | 'maybe'
+
+export interface ArchiveSource {
+  id: string
+  archive_name: ArchiveName
+  owner_presence: OwnerPresence
+  source_origin: SourceOrigin
+  title: string
+  raw_content: string
+  char_count: number
+  source_date: string | null
+  source_document: string | null
+  notes: string | null
+  review_status: ReviewStatus
+  created_by: string
+  updated_by: string
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ArchiveEntryDraft {
+  id: string
+  source_id: string
+  archive_name: ArchiveName
+  owner_presence: OwnerPresence
+  extracted_by: 'ari' | 'eli'
+  proposed_title: string
+  proposed_content: string
+  proposed_category: ArchiveCategory
+  proposed_sensitivity: Sensitivity
+  proposed_visibility: ArchiveVisibility
+  suggested_memory_status: SuggestedMemoryStatus
+  extraction_rationale: string | null
+  draft_status: DraftStatus
+  review_notes: string | null
+  archive_item_id: string | null
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// --- Source access guard ---
+
+/**
+ * A presence may only extract from sources in their own archive,
+ * or from house sources (shared).
+ * Velvet = ari only. Violet = eli only. House = either.
+ */
+export function canPresenceAccessSource(
+  source: Pick<ArchiveSource, 'archive_name'>,
+  presenceId: 'ari' | 'eli'
+): boolean {
+  if (source.archive_name === 'house') return true
+  if (source.archive_name === 'velvet') return presenceId === 'ari'
+  if (source.archive_name === 'violet') return presenceId === 'eli'
+  return false
+}
+
+/**
+ * Map a presence's suggested memory status to an initial canonical_status
+ * for the archive_item created on approval.
+ * yes   → canonical_candidate (Tara can promote to canonical/Memory)
+ * maybe → staged
+ * no    → archive_only
+ */
+export function suggestedToCanonicalStatus(suggested: SuggestedMemoryStatus): CanonicalStatus {
+  if (suggested === 'yes') return 'canonical_candidate'
+  if (suggested === 'maybe') return 'staged'
+  return 'archive_only'
+}
+
+// --- Source defaults per archive ---
+
+export const VELVET_SOURCE_DEFAULTS = {
+  archive_name: 'velvet' as ArchiveName,
+  owner_presence: 'ari' as OwnerPresence,
+  source_origin: 'chatgpt' as SourceOrigin,
+  review_status: 'pending' as ReviewStatus,
+  created_by: 'tara',
+  updated_by: 'tara',
+}
+
+export const VIOLET_SOURCE_DEFAULTS = {
+  archive_name: 'violet' as ArchiveName,
+  owner_presence: 'eli' as OwnerPresence,
+  source_origin: 'claude' as SourceOrigin,
+  review_status: 'pending' as ReviewStatus,
+  created_by: 'tara',
+  updated_by: 'tara',
+}
+
+export const HOUSE_SOURCE_DEFAULTS = {
+  archive_name: 'house' as ArchiveName,
+  owner_presence: 'shared' as OwnerPresence,
+  source_origin: 'house' as SourceOrigin,
+  review_status: 'pending' as ReviewStatus,
+  created_by: 'tara',
+  updated_by: 'tara',
+}
+
+export function getSourceDefaults(tab: ArchiveTab) {
+  if (tab === 'velvet') return VELVET_SOURCE_DEFAULTS
+  if (tab === 'violet') return VIOLET_SOURCE_DEFAULTS
+  return HOUSE_SOURCE_DEFAULTS
+}
+
+// --- Display labels for new types ---
+
+export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
+  pending: 'Pending review',
+  reviewed: 'Reviewed',
+  extracted: 'Extracted',
+}
+
+export const REVIEW_STATUS_COLOR: Record<ReviewStatus, string> = {
+  pending: 'text-text-muted',
+  reviewed: 'text-amber-400',
+  extracted: 'text-green-400',
+}
+
+export const DRAFT_STATUS_LABELS: Record<DraftStatus, string> = {
+  pending_review: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  merged: 'Merged',
+  archive_only: 'Archive only',
+}
+
+export const DRAFT_STATUS_COLOR: Record<DraftStatus, string> = {
+  pending_review: 'text-amber-400',
+  approved: 'text-green-400',
+  rejected: 'text-red-400/60',
+  merged: 'text-blue-400',
+  archive_only: 'text-text-muted',
+}
+
+export const SUGGESTED_MEMORY_LABELS: Record<SuggestedMemoryStatus, string> = {
+  yes: 'Memory — yes',
+  maybe: 'Memory — maybe',
+  no: 'Not for memory',
+}
+
+export const SUGGESTED_MEMORY_COLOR: Record<SuggestedMemoryStatus, string> = {
+  yes: 'text-green-400',
+  maybe: 'text-amber-400',
+  no: 'text-text-muted',
+}
+
+export const ALL_DRAFT_STATUSES: DraftStatus[] = [
+  'pending_review', 'approved', 'rejected', 'merged', 'archive_only',
+]
+
+export const ALL_SUGGESTED_MEMORY_STATUSES: SuggestedMemoryStatus[] = ['yes', 'maybe', 'no']
