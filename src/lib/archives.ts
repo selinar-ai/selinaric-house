@@ -144,8 +144,8 @@ export const CATEGORY_LABELS: Record<ArchiveCategory, string> = {
 export const STATUS_LABELS: Record<CanonicalStatus, string> = {
   staged: 'Staged',
   needs_review: 'Needs review',
-  canonical_candidate: 'Candidate',
-  canonical: 'Canonical',
+  canonical_candidate: 'Memory candidate',
+  canonical: 'Memory',
   duplicate: 'Duplicate',
   superseded: 'Superseded',
   archive_only: 'Archive only',

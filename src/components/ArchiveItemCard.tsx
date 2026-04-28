@@ -216,7 +216,7 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
           {/* Eligibility */}
           <section>
             <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-2">
-              Eligibility {!eligible && <span className="normal-case ml-1 text-[10px]">(canonical only)</span>}
+              Eligibility {!eligible && <span className="normal-case ml-1 text-[10px]">(memory only)</span>}
             </p>
             <div className="flex gap-2 flex-wrap">
               {(
@@ -230,7 +230,7 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
                   key={key}
                   onClick={() => eligible && patch({ [key]: !value })}
                   disabled={!eligible || patching}
-                  title={eligible ? undefined : 'Only canonical items can be eligible'}
+                  title={eligible ? undefined : 'Only memory items can be eligible'}
                   className={`
                     font-body text-xs px-3 py-1.5 border transition-all
                     ${value
@@ -323,7 +323,7 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
                 disabled={patching}
                 className="font-body text-xs px-4 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
               >
-                Mark canonical
+                Mark as memory
               </button>
             )}
 
