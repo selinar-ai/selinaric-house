@@ -34,10 +34,10 @@ const PATCHABLE_FIELDS = new Set([
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const supabase = getSupabase()
-  const { id } = params
+  const { id } = await context.params
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
@@ -113,10 +113,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const supabase = getSupabase()
-  const { id } = params
+  const { id } = await context.params
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
