@@ -6,7 +6,9 @@ import { validateImage, uploadImage } from '@/lib/uploads'
 import ImageLightbox from '@/components/ImageLightbox'
 import EmojiPicker from '@/components/EmojiPicker'
 import VoiceButton from '@/components/VoiceButton'
+import RecallIndicator from '@/components/RecallIndicator'
 import { stopAllTTS } from '@/lib/tts'
+import type { RecallEntry } from '@/lib/archive-recall'
 
 const MAX_IMAGES = 4
 
@@ -37,6 +39,9 @@ export default function ChatInterface({
 
   // Phase 19: Emotional continuity state
   const [emotionalContinuityMessageIds, setEmotionalContinuityMessageIds] = useState<Set<string>>(new Set())
+
+  // Phase 28A: Archive recall state — map message id → recall entries
+  const [recallMessageMap, setRecallMessageMap] = useState<Map<string, RecallEntry[]>>(new Map())
 
   // Phase 25A: Multi-image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([])
@@ -234,6 +239,15 @@ export default function ChatInterface({
       if (data.continuityUsed && data.emotionalContinuityUsed && savedReply?.id) {
         setEmotionalContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
       }
+
+      // Phase 28A: Track recall entries per message
+      if (data.recallUsed && savedReply?.id && Array.isArray(data.recallEntries)) {
+        setRecallMessageMap(prev => {
+          const next = new Map(prev)
+          next.set(savedReply.id!, data.recallEntries as RecallEntry[])
+          return next
+        })
+      }
     } catch (err) {
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         setError('Response timed out. Try again.')
@@ -268,6 +282,7 @@ export default function ChatInterface({
     setContinuityActive(false)
     setContinuityMessageIds(new Set())
     setEmotionalContinuityMessageIds(new Set())
+    setRecallMessageMap(new Map())
   }
 
   async function handleFreshThread() {
@@ -276,6 +291,7 @@ export default function ChatInterface({
     setContinuityActive(false)
     setContinuityMessageIds(new Set())
     setEmotionalContinuityMessageIds(new Set())
+    setRecallMessageMap(new Map())
   }
 
   if (loading) {
@@ -399,6 +415,14 @@ export default function ChatInterface({
                   <p className="font-body text-xs text-text-muted mt-1 italic">
                     held prior atmosphere
                   </p>
+                )}
+
+                {/* Phase 28A: Recall indicator */}
+                {message.role === 'assistant' && message.id && recallMessageMap.has(message.id) && (
+                  <RecallIndicator
+                    entries={recallMessageMap.get(message.id)!}
+                    accentClass={accentClass}
+                  />
                 )}
 
                 {/* Phase 20: Voice button (presence messages only) */}

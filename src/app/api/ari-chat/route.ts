@@ -36,6 +36,13 @@ import {
   createExplicitTimelineDraft,
   buildDraftNotice,
 } from '@/lib/timeline-draft-trigger'
+import {
+  detectArchiveRecallIntent,
+  extractRecallQuery,
+  getRecallableArchiveEntries,
+  formatArchiveRecallContext,
+  type RecallEntry,
+} from '@/lib/archive-recall'
 
 const ROOM_SLUG = 'ari'
 
@@ -127,6 +134,17 @@ export async function POST(request: NextRequest) {
       const draftResult = await createExplicitTimelineDraft({ presence: 'ari', message, apiKey })
       console.log(`[ari-chat] draft result: ${JSON.stringify(draftResult).slice(0, 200)}`)
       draftNotice = buildDraftNotice(draftResult)
+    }
+
+    // Phase 28A: Archive recall — detect manual trigger, retrieve scoped entries
+    let recallEntries: RecallEntry[] = []
+    let recallContext = ''
+    const recallIntent = message ? detectArchiveRecallIntent(message) : false
+    if (recallIntent && message) {
+      const recallQuery = extractRecallQuery(message)
+      console.log(`[ari-chat] archive recall triggered, query: "${recallQuery}"`)
+      recallEntries = await getRecallableArchiveEntries('ari', recallQuery)
+      recallContext = formatArchiveRecallContext('ari', recallQuery, recallEntries)
     }
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Ari.
@@ -250,7 +268,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Style reminders:
 Communication style: ${si.communication_style.tone}
 Typical phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
@@ -379,7 +397,7 @@ If an image is present in this message:
       console.error('Memory update error:', err)
     )
 
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed: recallIntent, recallEntries })
   } catch (error: unknown) {
     console.error('Ari chat error:', error)
 
