@@ -129,10 +129,22 @@ interface RawArchiveItem {
   created_at: string
 }
 
-function scoreItem(item: RawArchiveItem, terms: string[]): number {
-  if (terms.length === 0) return 1  // no terms → include everything
+/**
+ * Returns { textScore, totalScore } for an item against the query terms.
+ *
+ * textScore   — raw lexical match from title/excerpt/content/category/metadata.
+ *               Must be > 0 for the entry to be eligible at all.
+ * totalScore  — textScore + status bonus (applied only when textScore > 0).
+ *
+ * Rules:
+ * - If terms is empty, textScore = 0 (no match, not eligible).
+ * - Canonical status bonus is added only after a positive text match —
+ *   it may never be the sole reason an entry is returned.
+ */
+function scoreItem(item: RawArchiveItem, terms: string[]): { textScore: number; totalScore: number } {
+  if (terms.length === 0) return { textScore: 0, totalScore: 0 }
 
-  let score = 0
+  let textScore = 0
   const title = item.title.toLowerCase()
   const excerpt = (item.excerpt ?? '').toLowerCase()
   const category = item.category.toLowerCase()
@@ -142,18 +154,19 @@ function scoreItem(item: RawArchiveItem, terms: string[]): number {
   const rawSnippet = item.raw_content.slice(0, 3_000).toLowerCase()
 
   for (const term of terms) {
-    if (title.includes(term)) score += 3
-    if (excerpt.includes(term)) score += 2
-    if (rawSnippet.includes(term)) score += 1
-    if (category.includes(term)) score += 1
-    if (sourceDoc.includes(term)) score += 1
-    if (importLabel.includes(term)) score += 0.5
+    if (title.includes(term)) textScore += 3
+    if (excerpt.includes(term)) textScore += 2
+    if (rawSnippet.includes(term)) textScore += 1
+    if (category.includes(term)) textScore += 1
+    if (sourceDoc.includes(term)) textScore += 1
+    if (importLabel.includes(term)) textScore += 0.5
   }
 
-  // Prefer canonical over canonical_candidate
-  if (item.canonical_status === 'canonical') score += 0.5
+  // Status bonus applied ONLY when there is a real text match.
+  // Canonical status alone must never make an entry recallable.
+  const statusBonus = textScore > 0 && item.canonical_status === 'canonical' ? 0.5 : 0
 
-  return score
+  return { textScore, totalScore: textScore + statusBonus }
 }
 
 function buildSnippet(item: RawArchiveItem, maxChars = 1_500): string {
@@ -215,13 +228,19 @@ export async function getRecallableArchiveEntries(
   // Apply server-side access scope guard
   const inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
 
-  // Score by query relevance
+  // Score by query relevance.
+  // An entry is only eligible if it has a positive text match (textScore > 0).
+  // Memory/canonical status may boost ranking but cannot create eligibility alone.
   const terms = extractTerms(query)
-  const scored = inScope
-    .map(item => ({ item, score: scoreItem(item, terms) }))
-    .filter(({ score }) => score > 0)
+
+  // No meaningful terms → no recall. Return empty immediately.
+  if (terms.length === 0) return []
+
+  const candidates = inScope
+    .map(item => ({ item, ...scoreItem(item, terms) }))
+    .filter(({ textScore }) => textScore > 0)           // hard gate: text match required
     .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score
+      if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
       // Tiebreak: canonical > candidate, then newer first
       if (a.item.canonical_status !== b.item.canonical_status) {
         return a.item.canonical_status === 'canonical' ? -1 : 1
@@ -229,21 +248,7 @@ export async function getRecallableArchiveEntries(
       return new Date(b.item.created_at).getTime() - new Date(a.item.created_at).getTime()
     })
     .slice(0, safeLimit)
-
-  // If no scored results and query terms are present, return nothing
-  // If no terms (bare trigger phrase), return top N by canonicality + recency
-  const candidates = scored.length > 0
-    ? scored.map(({ item }) => item)
-    : (terms.length === 0
-        ? inScope
-            .sort((a, b) => {
-              if (a.canonical_status !== b.canonical_status) {
-                return a.canonical_status === 'canonical' ? -1 : 1
-              }
-              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            })
-            .slice(0, safeLimit)
-        : [])
+    .map(({ item }) => item)
 
   // Build RecallEntry shape — never expose full raw_content
   return candidates.map(item => ({
