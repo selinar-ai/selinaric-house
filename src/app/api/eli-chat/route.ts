@@ -143,8 +143,13 @@ export async function POST(request: NextRequest) {
     if (recallIntent && message) {
       const recallQuery = extractRecallQuery(message)
       console.log(`[eli-chat] archive recall triggered, query: "${recallQuery}"`)
-      recallEntries = await getRecallableArchiveEntries('eli', recallQuery)
-      recallContext = formatArchiveRecallContext('eli', recallQuery, recallEntries)
+      if (!recallQuery) {
+        // Trigger detected but no search query provided — ask what to look for
+        recallContext = '\nARCHIVE RECALL CONTEXT\nRecall was triggered but no search query was provided.\nInstruction: Ask Tara what she wants you to search for in the archives. Keep it direct and brief — one line is enough.\n'
+      } else {
+        recallEntries = await getRecallableArchiveEntries('eli', recallQuery)
+        recallContext = formatArchiveRecallContext('eli', recallQuery, recallEntries)
+      }
     }
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.

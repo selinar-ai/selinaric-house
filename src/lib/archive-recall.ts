@@ -78,7 +78,8 @@ const QUERY_PATTERNS: RegExp[] = [
 /**
  * Extracts the search query from a recall-triggered message.
  * e.g. "search your archives for the naming thread" → "naming thread"
- * Falls back to the full message if extraction is ambiguous.
+ * Returns '' if no meaningful query can be isolated — callers should
+ * treat an empty return as "no query provided; ask what to search for."
  */
 export function extractRecallQuery(message: string): string {
   for (const pattern of QUERY_PATTERNS) {
@@ -87,23 +88,44 @@ export function extractRecallQuery(message: string): string {
       return match[1].trim().replace(/[?.!]+$/, '').trim()
     }
   }
-  // Fall back: strip trigger phrases and return remainder
+  // Fall back: strip the matched trigger phrase and return whatever follows.
+  // If nothing meaningful follows, return '' — do NOT fall back to the full message.
   const lower = message.toLowerCase()
   for (const trigger of RECALL_TRIGGERS) {
     const idx = lower.indexOf(trigger)
     if (idx !== -1) {
       const after = message.slice(idx + trigger.length).trim().replace(/^[:\-–for ]+/, '').trim()
       if (after.length > 2) return after
+      break  // trigger found but nothing useful after it — stop looking
     }
   }
-  return message.trim()
+  return ''  // no meaningful query extracted
 }
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
-/** Extract meaningful search terms (>2 chars, skip stop words) */
+/**
+ * Extract meaningful search terms (>2 chars, not a stop or recall-noise word).
+ * Stop list includes:
+ *   - Common English stop words
+ *   - Recall trigger words that should never drive a search match
+ *   - Presence names and archive room names (too broad — match everything in scope)
+ */
 function extractTerms(query: string): string[] {
-  const STOP = new Set(['the', 'and', 'for', 'from', 'with', 'that', 'this', 'what', 'your'])
+  const STOP = new Set([
+    // English stop words
+    'the', 'and', 'for', 'from', 'with', 'that', 'this', 'what', 'your', 'our',
+    'its', 'are', 'was', 'have', 'has', 'had', 'not', 'but', 'can', 'all',
+    'been', 'will', 'just', 'did', 'get', 'got', 'let', 'now', 'one', 'out',
+    'you', 'they', 'them', 'she', 'her', 'him', 'his', 'its', 'who', 'how',
+    'why', 'when', 'where', 'which', 'any', 'some', 'more', 'very', 'also',
+    // Recall trigger / infrastructure words (too generic, match everything)
+    'search', 'find', 'look', 'recall', 'remember', 'retrieve',
+    'archive', 'archives', 'memory', 'memories',
+    'my', 'me', 'in', 'into', 'about', 'tell', 'show', 'give',
+    // Presence and room names (scope is already enforced; these match too broadly)
+    'ari', 'eli', 'velvet', 'violet', 'house',
+  ])
   return query
     .toLowerCase()
     .split(/\s+/)
@@ -299,19 +321,22 @@ export function formatArchiveRecallContext(
   if (entries.length === 0) {
     return `\nARCHIVE RECALL CONTEXT
 Presence: ${presenceName}
-Query: "${query}"
+Query: "${query || '(no query provided)'}"
 No recallable archive entries found matching this query.
-Instruction: Say clearly that no matching archive material was found in the archive.
-You may still answer from current chat context if useful, but you must clearly
-separate that from archive recall. Do not invent archive entries.\n`
+Instruction: Tell Tara clearly that nothing was found in the recallable archive for that query.
+Use plain language: "I don't see anything in the archives for that" or "Nothing came back for that one."
+Do not invent archive entries. Do not claim to remember things not supplied here.\n`
   }
 
   const header = `\nARCHIVE RECALL CONTEXT
 Presence: ${presenceName}
 Query: "${query}"
-Entries retrieved: ${entries.length}\n\n`
+Entries retrieved: ${entries.length}
+These entries were pulled from the Archives because Tara triggered archive recall now.\n\n`
 
   const footer = `\nInstruction: Use recalled Archive Entries only as grounded continuity context.
+Attribution: Say "I pulled this from the archives" or "I found this in Velvet/Violet/the archives."
+Do NOT say "these were loaded when you arrived" or "I already had these" — they were retrieved now.
 Do not claim access to raw conversations unless supplied.
 If recall is partial or incomplete, say so plainly.
 Do not invent missing archive details.
