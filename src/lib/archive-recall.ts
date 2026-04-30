@@ -1,13 +1,13 @@
-// Phase 28A — Manual Archive Recall
+// Phase 28A + 28B — Manual Archive Recall
 // Server-side helper. Used by ari-chat and eli-chat routes.
-// Enforces server-side access scope — never trust the client for scope decisions.
+// Phase 28B adds: event logging, feedback API hooks, rank_reason, match quality, updated scoring weights.
 //
 // Memory law:
 //   Past Conversations  → never recalled (archive_sources not queried)
 //   Extraction Drafts   → never recalled (archive_entry_drafts not queried)
 //   Archive Entries     → recalled if recallable (canonical or canonical_candidate, in scope)
 //
-// Search: text match on title + excerpt + category + source_document (Phase 28A)
+// Search: text match on title + excerpt + content + category + source_document
 // No embeddings, no vector search, no graph — those are Phase 29+
 
 import { createClient } from '@supabase/supabase-js'
@@ -36,7 +36,26 @@ export type RecallEntry = {
   sensitivity: string
   source_document: string | null
   source_date: string | null
+  // Phase 28B additions
+  rank_score: number
+  rank_reason: string
+  status_label: string
 }
+
+export type MatchQuality = 'strong' | 'medium' | 'weak' | 'none'
+
+// ─── Score weights (Phase 28B) ────────────────────────────────────────────────
+
+const SCORE_WEIGHTS = {
+  title_exact:   100,  // full normalised query found in title
+  title_token:    60,  // per term: found in title
+  excerpt:        40,  // per term: found in excerpt
+  content:        20,  // per term: found in raw_content[:3000]
+  category:       10,  // per term: found in category
+  source_doc:      5,  // per term: found in source_document
+  import_label:    2,  // per term: found in import_label
+  memory_bonus:    5,  // canonical status when textScore > 0
+} as const
 
 // ─── Trigger detection ────────────────────────────────────────────────────────
 
@@ -102,36 +121,35 @@ export function extractRecallQuery(message: string): string {
   return ''  // no meaningful query extracted
 }
 
-// ─── Scoring ──────────────────────────────────────────────────────────────────
+// ─── Stop words ───────────────────────────────────────────────────────────────
+
+const RECALL_STOPWORDS = new Set([
+  // English stop words
+  'the', 'and', 'for', 'from', 'with', 'that', 'this', 'what', 'your', 'our',
+  'its', 'are', 'was', 'have', 'has', 'had', 'not', 'but', 'can', 'all',
+  'been', 'will', 'just', 'did', 'get', 'got', 'let', 'now', 'one', 'out',
+  'you', 'they', 'them', 'she', 'her', 'him', 'his', 'who', 'how',
+  'why', 'when', 'where', 'which', 'any', 'some', 'more', 'very', 'also',
+  // Recall trigger / infrastructure words (too generic, match everything)
+  'search', 'find', 'look', 'recall', 'remember', 'retrieve',
+  'archive', 'archives', 'memory', 'memories', 'entry', 'entries', 'thread',
+  'my', 'me', 'in', 'into', 'about', 'tell', 'show', 'give',
+  // Presence and room names (scope is already enforced; these match too broadly)
+  'ari', 'eli', 'velvet', 'violet', 'house',
+])
 
 /**
- * Extract meaningful search terms (>2 chars, not a stop or recall-noise word).
- * Stop list includes:
- *   - Common English stop words
- *   - Recall trigger words that should never drive a search match
- *   - Presence names and archive room names (too broad — match everything in scope)
+ * Strip stop words and punctuation, return meaningful search tokens.
  */
-function extractTerms(query: string): string[] {
-  const STOP = new Set([
-    // English stop words
-    'the', 'and', 'for', 'from', 'with', 'that', 'this', 'what', 'your', 'our',
-    'its', 'are', 'was', 'have', 'has', 'had', 'not', 'but', 'can', 'all',
-    'been', 'will', 'just', 'did', 'get', 'got', 'let', 'now', 'one', 'out',
-    'you', 'they', 'them', 'she', 'her', 'him', 'his', 'its', 'who', 'how',
-    'why', 'when', 'where', 'which', 'any', 'some', 'more', 'very', 'also',
-    // Recall trigger / infrastructure words (too generic, match everything)
-    'search', 'find', 'look', 'recall', 'remember', 'retrieve',
-    'archive', 'archives', 'memory', 'memories',
-    'my', 'me', 'in', 'into', 'about', 'tell', 'show', 'give',
-    // Presence and room names (scope is already enforced; these match too broadly)
-    'ari', 'eli', 'velvet', 'violet', 'house',
-  ])
+function stripStopwords(query: string): string[] {
   return query
     .toLowerCase()
     .split(/\s+/)
     .map(t => t.replace(/[^a-z0-9]/g, ''))
-    .filter(t => t.length > 2 && !STOP.has(t))
+    .filter(t => t.length > 2 && !RECALL_STOPWORDS.has(t))
 }
+
+// ─── Raw item shape ───────────────────────────────────────────────────────────
 
 interface RawArchiveItem {
   id: string
@@ -151,49 +169,168 @@ interface RawArchiveItem {
   created_at: string
 }
 
+// ─── Scoring ──────────────────────────────────────────────────────────────────
+
 /**
- * Returns { textScore, totalScore } for an item against the query terms.
+ * Score an item against query tokens using Phase 28B weighted rules.
  *
- * textScore   — raw lexical match from title/excerpt/content/category/metadata.
- *               Must be > 0 for the entry to be eligible at all.
- * totalScore  — textScore + status bonus (applied only when textScore > 0).
+ * textScore   — raw lexical match. Must be > 0 for eligibility.
+ * totalScore  — textScore + memory_bonus (only when textScore > 0).
+ * rank_reason — '+'-joined list of match signals for transparency.
  *
- * Rules:
- * - If terms is empty, textScore = 0 (no match, not eligible).
- * - Canonical status bonus is added only after a positive text match —
- *   it may never be the sole reason an entry is returned.
+ * Status bonus is added ONLY after a positive text match — it may never
+ * be the sole reason an entry is returned.
  */
-function scoreItem(item: RawArchiveItem, terms: string[]): { textScore: number; totalScore: number } {
-  if (terms.length === 0) return { textScore: 0, totalScore: 0 }
+function scoreItem(
+  item: RawArchiveItem,
+  tokens: string[],
+  normalisedQuery: string
+): { textScore: number; totalScore: number; rank_reason: string } {
+  if (tokens.length === 0) return { textScore: 0, totalScore: 0, rank_reason: 'no_terms' }
 
   let textScore = 0
-  const title = item.title.toLowerCase()
-  const excerpt = (item.excerpt ?? '').toLowerCase()
-  const category = item.category.toLowerCase()
-  const sourceDoc = (item.source_document ?? '').toLowerCase()
-  const importLabel = (item.import_label ?? '').toLowerCase()
+  const reasonParts: string[] = []
+
+  const titleLow       = item.title.toLowerCase()
+  const excerptLow     = (item.excerpt ?? '').toLowerCase()
+  const categoryLow    = item.category.toLowerCase()
+  const sourceDocLow   = (item.source_document ?? '').toLowerCase()
+  const importLabelLow = (item.import_label ?? '').toLowerCase()
   // Only check first 3,000 chars of raw_content to keep scoring fast
   const rawSnippet = item.raw_content.slice(0, 3_000).toLowerCase()
 
-  for (const term of terms) {
-    if (title.includes(term)) textScore += 3
-    if (excerpt.includes(term)) textScore += 2
-    if (rawSnippet.includes(term)) textScore += 1
-    if (category.includes(term)) textScore += 1
-    if (sourceDoc.includes(term)) textScore += 1
-    if (importLabel.includes(term)) textScore += 0.5
+  // Title exact: full normalised query (lowercased, stripped of punctuation) found in title
+  const normQ = normalisedQuery.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+  if (normQ && titleLow.includes(normQ)) {
+    textScore += SCORE_WEIGHTS.title_exact
+    reasonParts.push('title_exact')
   }
 
-  // Status bonus applied ONLY when there is a real text match.
-  // Canonical status alone must never make an entry recallable.
-  const statusBonus = textScore > 0 && item.canonical_status === 'canonical' ? 0.5 : 0
+  // Per-token scoring — accumulate scores and track signal types
+  let titleTokenHit = false
+  let excerptHit    = false
+  let contentHit    = false
+  let categoryHit   = false
+  let sourceDocHit  = false
+  let importHit     = false
 
-  return { textScore, totalScore: textScore + statusBonus }
+  for (const token of tokens) {
+    if (titleLow.includes(token)) {
+      textScore += SCORE_WEIGHTS.title_token
+      titleTokenHit = true
+    }
+    if (excerptLow.includes(token)) {
+      textScore += SCORE_WEIGHTS.excerpt
+      excerptHit = true
+    }
+    if (rawSnippet.includes(token)) {
+      textScore += SCORE_WEIGHTS.content
+      contentHit = true
+    }
+    if (categoryLow.includes(token)) {
+      textScore += SCORE_WEIGHTS.category
+      categoryHit = true
+    }
+    if (sourceDocLow.includes(token)) {
+      textScore += SCORE_WEIGHTS.source_doc
+      sourceDocHit = true
+    }
+    if (importLabelLow.includes(token)) {
+      textScore += SCORE_WEIGHTS.import_label
+      importHit = true
+    }
+  }
+
+  // Build reason list — title_token only added if no title_exact already recorded
+  if (titleTokenHit && !reasonParts.includes('title_exact')) reasonParts.push('title_token')
+  if (excerptHit)   reasonParts.push('excerpt')
+  if (contentHit)   reasonParts.push('content')
+  if (categoryHit)  reasonParts.push('category')
+  if (sourceDocHit) reasonParts.push('source_doc')
+  if (importHit)    reasonParts.push('import_label')
+
+  // Memory bonus: only when there is a real text match
+  const memoryBonus =
+    textScore > 0 && item.canonical_status === 'canonical' ? SCORE_WEIGHTS.memory_bonus : 0
+  if (memoryBonus > 0) reasonParts.push('memory_bonus')
+
+  return {
+    textScore,
+    totalScore: textScore + memoryBonus,
+    rank_reason: reasonParts.join('+') || 'no_match',
+  }
 }
+
+// ─── Match quality ─────────────────────────────────────────────────────────────
+
+/**
+ * Derives a human-readable quality signal from the top score.
+ * Used for prompt injection and UI display.
+ */
+export function getMatchQuality(topScore: number, allScores: number[]): MatchQuality {
+  if (allScores.length === 0 || topScore === 0) return 'none'
+  if (topScore >= SCORE_WEIGHTS.title_exact) return 'strong'
+  if (topScore >= SCORE_WEIGHTS.title_token) return 'strong'
+  if (topScore >= SCORE_WEIGHTS.excerpt)     return 'medium'
+  return 'weak'
+}
+
+// ─── Event logging ─────────────────────────────────────────────────────────────
+
+export type LogRecallEventParams = {
+  presence_id: 'ari' | 'eli'
+  session_id: string | null
+  query: string
+  normalised_query: string
+  match_quality: MatchQuality
+  entries_returned: number
+  entry_ids: string[]
+}
+
+/**
+ * Inserts a recall event row. Returns the new event's UUID, or null on error.
+ * Non-throwing — errors are logged but do not bubble.
+ */
+export async function logRecallEvent(params: LogRecallEventParams): Promise<string | null> {
+  try {
+    const supabase = getSupabase()
+    const { data, error } = await supabase
+      .from('archive_recall_events')
+      .insert({
+        presence_id:      params.presence_id,
+        session_id:       params.session_id ?? null,
+        query:            params.query,
+        normalised_query: params.normalised_query,
+        match_quality:    params.match_quality,
+        entries_returned: params.entries_returned,
+        entry_ids:        params.entry_ids,
+      })
+      .select('id')
+      .single()
+
+    if (error || !data) {
+      console.error('[archive-recall] logRecallEvent error:', error?.message)
+      return null
+    }
+    return (data as { id: string }).id
+  } catch (err) {
+    console.error('[archive-recall] logRecallEvent threw:', err)
+    return null
+  }
+}
+
+// ─── Snippet helper ────────────────────────────────────────────────────────────
 
 function buildSnippet(item: RawArchiveItem, maxChars = 1_500): string {
   const source = item.excerpt?.trim() || item.raw_content.trim()
   return source.length > maxChars ? source.slice(0, maxChars) + '…' : source
+}
+
+// ─── Status label ──────────────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<string, string> = {
+  canonical:           'Memory',
+  canonical_candidate: 'Memory candidate',
 }
 
 // ─── Access scope guard ────────────────────────────────────────────────────────
@@ -202,13 +339,13 @@ function isInScope(item: RawArchiveItem, presenceId: 'ari' | 'eli'): boolean {
   if (presenceId === 'ari') {
     return (
       (item.archive_name === 'velvet' && ['ari_only', 'shared'].includes(item.visibility)) ||
-      (item.archive_name === 'house' && item.visibility === 'shared') ||
+      (item.archive_name === 'house'  && item.visibility === 'shared') ||
       (item.archive_name === 'violet' && item.visibility === 'shared')
     )
   } else {
     return (
       (item.archive_name === 'violet' && ['eli_only', 'shared'].includes(item.visibility)) ||
-      (item.archive_name === 'house' && item.visibility === 'shared') ||
+      (item.archive_name === 'house'  && item.visibility === 'shared') ||
       (item.archive_name === 'velvet' && item.visibility === 'shared')
     )
   }
@@ -229,7 +366,7 @@ export async function getRecallableArchiveEntries(
   const supabase = getSupabase()
   const safeLimit = Math.min(Math.max(1, limit), 10)
 
-  // Fetch all recallable candidates (small archive in Phase 28A)
+  // Fetch all recallable candidates (small archive in Phase 28A/B)
   // archive_items only — never archive_sources or archive_entry_drafts
   const { data: raw, error } = await supabase
     .from('archive_items')
@@ -250,17 +387,13 @@ export async function getRecallableArchiveEntries(
   // Apply server-side access scope guard
   const inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
 
-  // Score by query relevance.
-  // An entry is only eligible if it has a positive text match (textScore > 0).
-  // Memory/canonical status may boost ranking but cannot create eligibility alone.
-  const terms = extractTerms(query)
-
-  // No meaningful terms → no recall. Return empty immediately.
-  if (terms.length === 0) return []
+  // Strip stop words. No meaningful terms → no recall.
+  const tokens = stripStopwords(query)
+  if (tokens.length === 0) return []
 
   const candidates = inScope
-    .map(item => ({ item, ...scoreItem(item, terms) }))
-    .filter(({ textScore }) => textScore > 0)           // hard gate: text match required
+    .map(item => ({ item, ...scoreItem(item, tokens, query) }))
+    .filter(({ textScore }) => textScore > 0)            // hard gate: text match required
     .sort((a, b) => {
       if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
       // Tiebreak: canonical > candidate, then newer first
@@ -270,23 +403,25 @@ export async function getRecallableArchiveEntries(
       return new Date(b.item.created_at).getTime() - new Date(a.item.created_at).getTime()
     })
     .slice(0, safeLimit)
-    .map(({ item }) => item)
 
   // Build RecallEntry shape — never expose full raw_content
-  return candidates.map(item => ({
-    id: item.id,
-    title: item.title,
-    excerpt: item.excerpt,
-    content_snippet: buildSnippet(item),
-    archive_name: item.archive_name as RecallEntry['archive_name'],
-    owner_presence: item.owner_presence,
-    source_origin: item.source_origin,
-    visibility: item.visibility,
-    category: item.category,
+  return candidates.map(({ item, totalScore, rank_reason }) => ({
+    id:               item.id,
+    title:            item.title,
+    excerpt:          item.excerpt,
+    content_snippet:  buildSnippet(item),
+    archive_name:     item.archive_name as RecallEntry['archive_name'],
+    owner_presence:   item.owner_presence,
+    source_origin:    item.source_origin,
+    visibility:       item.visibility,
+    category:         item.category,
     canonical_status: item.canonical_status,
-    sensitivity: item.sensitivity,
-    source_document: item.source_document,
-    source_date: item.source_date,
+    sensitivity:      item.sensitivity,
+    source_document:  item.source_document,
+    source_date:      item.source_date,
+    rank_score:       totalScore,
+    rank_reason,
+    status_label:     STATUS_LABEL[item.canonical_status] ?? item.canonical_status,
   }))
 }
 
@@ -295,12 +430,7 @@ export async function getRecallableArchiveEntries(
 const ARCHIVE_DISPLAY: Record<string, string> = {
   velvet: 'Velvet',
   violet: 'Violet',
-  house: 'House',
-}
-
-const STATUS_DISPLAY: Record<string, string> = {
-  canonical: 'Memory',
-  canonical_candidate: 'Memory candidate',
+  house:  'House',
 }
 
 const CATEGORY_DISPLAY = CATEGORY_LABELS
@@ -310,11 +440,13 @@ const MAX_RECALL_CONTEXT_CHARS = 8_000
 /**
  * Formats retrieved entries into a bounded prompt context block.
  * Hard cap: 8,000 characters total injected context.
+ * Phase 28B: accepts optional matchQuality to inject quality guidance.
  */
 export function formatArchiveRecallContext(
   presenceId: 'ari' | 'eli',
   query: string,
-  entries: RecallEntry[]
+  entries: RecallEntry[],
+  matchQuality?: MatchQuality
 ): string {
   const presenceName = presenceId === 'ari' ? 'Ari' : 'Eli'
 
@@ -328,11 +460,18 @@ Use plain language: "I don't see anything in the archives for that" or "Nothing 
 Do not invent archive entries. Do not claim to remember things not supplied here.\n`
   }
 
+  const qualityNote =
+    matchQuality === 'weak'
+      ? '\nMatch quality: weak — entries may be loosely related. Represent them honestly; do not overstate relevance.\n'
+      : matchQuality === 'medium'
+      ? '\nMatch quality: medium — entries are relevant but partial.\n'
+      : ''
+
   const header = `\nARCHIVE RECALL CONTEXT
 Presence: ${presenceName}
 Query: "${query}"
 Entries retrieved: ${entries.length}
-These entries were pulled from the Archives because Tara triggered archive recall now.\n\n`
+These entries were pulled from the Archives because Tara triggered archive recall now.${qualityNote}\n\n`
 
   const footer = `\nInstruction: Use recalled Archive Entries only as grounded continuity context.
 Attribution: Say "I pulled this from the archives" or "I found this in Velvet/Violet/the archives."
@@ -348,17 +487,15 @@ Memory candidate items are not fully approved — represent them accurately.\n`
 
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]
-    const archiveLabel = ARCHIVE_DISPLAY[e.archive_name] ?? e.archive_name
-    const statusLabel = STATUS_DISPLAY[e.canonical_status] ?? e.canonical_status
+    const archiveLabel  = ARCHIVE_DISPLAY[e.archive_name] ?? e.archive_name
     const categoryLabel = CATEGORY_DISPLAY[e.category as keyof typeof CATEGORY_DISPLAY] ?? e.category
 
     const sourceStr = [e.source_document, e.source_date].filter(Boolean).join(' — ')
 
     const snippet = e.content_snippet
-    // Truncate snippet to fit remaining budget
     const entryHeader = `${i + 1}. Title: ${e.title}
    Archive: ${archiveLabel}
-   Status: ${statusLabel}
+   Status: ${e.status_label}
    Category: ${categoryLabel}
    Sensitivity: ${e.sensitivity}
 ${sourceStr ? `   Source: ${sourceStr}\n` : ''}   Content: `

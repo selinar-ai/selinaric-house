@@ -8,7 +8,7 @@ import EmojiPicker from '@/components/EmojiPicker'
 import VoiceButton from '@/components/VoiceButton'
 import RecallIndicator from '@/components/RecallIndicator'
 import { stopAllTTS } from '@/lib/tts'
-import type { RecallEntry } from '@/lib/archive-recall'
+import type { RecallEntry, MatchQuality } from '@/lib/archive-recall'
 
 const MAX_IMAGES = 4
 
@@ -40,8 +40,10 @@ export default function ChatInterface({
   // Phase 19: Emotional continuity state
   const [emotionalContinuityMessageIds, setEmotionalContinuityMessageIds] = useState<Set<string>>(new Set())
 
-  // Phase 28A: Archive recall state — map message id → recall entries
+  // Phase 28A + 28B: Archive recall state
   const [recallMessageMap, setRecallMessageMap] = useState<Map<string, RecallEntry[]>>(new Map())
+  const [recallEventIdMap, setRecallEventIdMap] = useState<Map<string, string>>(new Map())
+  const [recallMatchQualityMap, setRecallMatchQualityMap] = useState<Map<string, MatchQuality>>(new Map())
 
   // Phase 25A: Multi-image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([])
@@ -240,13 +242,28 @@ export default function ChatInterface({
         setEmotionalContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
       }
 
-      // Phase 28A: Track recall entries per message
+      // Phase 28A + 28B: Track recall entries, event ID, and match quality per message
       if (data.recallUsed && savedReply?.id && Array.isArray(data.recallEntries)) {
+        const msgId = savedReply.id!
         setRecallMessageMap(prev => {
           const next = new Map(prev)
-          next.set(savedReply.id!, data.recallEntries as RecallEntry[])
+          next.set(msgId, data.recallEntries as RecallEntry[])
           return next
         })
+        if (data.recallEventId) {
+          setRecallEventIdMap(prev => {
+            const next = new Map(prev)
+            next.set(msgId, data.recallEventId as string)
+            return next
+          })
+        }
+        if (data.matchQuality) {
+          setRecallMatchQualityMap(prev => {
+            const next = new Map(prev)
+            next.set(msgId, data.matchQuality as MatchQuality)
+            return next
+          })
+        }
       }
     } catch (err) {
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
@@ -283,6 +300,8 @@ export default function ChatInterface({
     setContinuityMessageIds(new Set())
     setEmotionalContinuityMessageIds(new Set())
     setRecallMessageMap(new Map())
+    setRecallEventIdMap(new Map())
+    setRecallMatchQualityMap(new Map())
   }
 
   async function handleFreshThread() {
@@ -292,6 +311,8 @@ export default function ChatInterface({
     setContinuityMessageIds(new Set())
     setEmotionalContinuityMessageIds(new Set())
     setRecallMessageMap(new Map())
+    setRecallEventIdMap(new Map())
+    setRecallMatchQualityMap(new Map())
   }
 
   if (loading) {
@@ -417,11 +438,13 @@ export default function ChatInterface({
                   </p>
                 )}
 
-                {/* Phase 28A: Recall indicator */}
+                {/* Phase 28A + 28B: Recall indicator with feedback */}
                 {message.role === 'assistant' && message.id && recallMessageMap.has(message.id) && (
                   <RecallIndicator
                     entries={recallMessageMap.get(message.id)!}
                     accentClass={accentClass}
+                    recallEventId={recallEventIdMap.get(message.id) ?? null}
+                    matchQuality={recallMatchQualityMap.get(message.id)}
                   />
                 )}
 

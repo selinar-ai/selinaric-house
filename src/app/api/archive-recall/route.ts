@@ -1,7 +1,8 @@
-// Phase 28A — Archive Recall API
-// POST { presenceId: 'ari' | 'eli', query: string, limit?: number }
+// Phase 28A + 28B — Archive Recall API
+// POST { presenceId: 'ari' | 'eli', query: string, limit?: number, sessionId?: string }
 // Server-side access scope is enforced. Never exposes raw_content.
 // Returns entries matching the query within the presence's recallable scope.
+// Phase 28B: logs recall event, returns recallEventId and matchQuality.
 //
 // This endpoint is available for direct use and testing.
 // The chat routes use getRecallableArchiveEntries() directly from the library.
@@ -10,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   getRecallableArchiveEntries,
   extractRecallQuery,
+  getMatchQuality,
+  logRecallEvent,
 } from '@/lib/archive-recall'
 
 export async function POST(request: NextRequest) {
@@ -20,7 +23,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { presenceId, query, limit } = body
+  const { presenceId, query, limit, sessionId } = body
 
   if (presenceId !== 'ari' && presenceId !== 'eli') {
     return NextResponse.json({ error: 'presenceId must be ari or eli' }, { status: 400 })
@@ -33,14 +36,31 @@ export async function POST(request: NextRequest) {
   const safeLimit = typeof limit === 'number' ? Math.min(Math.max(1, limit), 10) : 5
 
   // Normalise query through the same extractor used in chat routes
-  const normalised = extractRecallQuery(query.trim())
+  const normalisedQuery = extractRecallQuery(query.trim()) || query.trim()
 
-  const entries = await getRecallableArchiveEntries(presenceId, normalised, safeLimit)
+  const entries = await getRecallableArchiveEntries(presenceId, normalisedQuery, safeLimit)
+
+  const matchQuality = getMatchQuality(
+    entries[0]?.rank_score ?? 0,
+    entries.map(e => e.rank_score)
+  )
+
+  const recallEventId = await logRecallEvent({
+    presence_id:      presenceId,
+    session_id:       typeof sessionId === 'string' ? sessionId : null,
+    query:            query.trim(),
+    normalised_query: normalisedQuery,
+    match_quality:    matchQuality,
+    entries_returned: entries.length,
+    entry_ids:        entries.map(e => e.id),
+  })
 
   return NextResponse.json({
     entries,
-    query: normalised,
+    query: normalisedQuery,
     presenceId,
-    totalFound: entries.length,
+    totalFound:     entries.length,
+    matchQuality,
+    recallEventId,
   })
 }

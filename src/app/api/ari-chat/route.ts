@@ -41,7 +41,10 @@ import {
   extractRecallQuery,
   getRecallableArchiveEntries,
   formatArchiveRecallContext,
+  getMatchQuality,
+  logRecallEvent,
   type RecallEntry,
+  type MatchQuality,
 } from '@/lib/archive-recall'
 
 const ROOM_SLUG = 'ari'
@@ -136,9 +139,11 @@ export async function POST(request: NextRequest) {
       draftNotice = buildDraftNotice(draftResult)
     }
 
-    // Phase 28A: Archive recall — detect manual trigger, retrieve scoped entries
+    // Phase 28A + 28B: Archive recall — detect manual trigger, retrieve scoped entries, log event
     let recallEntries: RecallEntry[] = []
     let recallContext = ''
+    let recallEventId: string | null = null
+    let matchQuality: MatchQuality = 'none'
     const recallIntent = message ? detectArchiveRecallIntent(message) : false
     if (recallIntent && message) {
       const recallQuery = extractRecallQuery(message)
@@ -148,7 +153,21 @@ export async function POST(request: NextRequest) {
         recallContext = '\nARCHIVE RECALL CONTEXT\nRecall was triggered but no search query was provided.\nInstruction: Ask Tara what she wants you to search for in the archives. Keep it direct and brief — one line is enough.\n'
       } else {
         recallEntries = await getRecallableArchiveEntries('ari', recallQuery)
-        recallContext = formatArchiveRecallContext('ari', recallQuery, recallEntries)
+        matchQuality = getMatchQuality(
+          recallEntries[0]?.rank_score ?? 0,
+          recallEntries.map(e => e.rank_score)
+        )
+        recallContext = formatArchiveRecallContext('ari', recallQuery, recallEntries, matchQuality)
+        // Log event — awaited for ID, non-throwing on error
+        recallEventId = await logRecallEvent({
+          presence_id:      'ari',
+          session_id:       sessionId ?? null,
+          query:            message,
+          normalised_query: recallQuery,
+          match_quality:    matchQuality,
+          entries_returned: recallEntries.length,
+          entry_ids:        recallEntries.map(e => e.id),
+        })
       }
     }
 
@@ -402,7 +421,7 @@ If an image is present in this message:
       console.error('Memory update error:', err)
     )
 
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed: recallIntent, recallEntries })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed: recallIntent, recallEntries, recallEventId, matchQuality })
   } catch (error: unknown) {
     console.error('Ari chat error:', error)
 
