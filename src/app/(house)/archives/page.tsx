@@ -14,6 +14,7 @@ import { useArchiveDrafts } from '@/hooks/useArchiveDrafts'
 import ArchiveItemCard from '@/components/ArchiveItemCard'
 import ArchiveSourceCard from '@/components/ArchiveSourceCard'
 import ArchiveDraftCard from '@/components/ArchiveDraftCard'
+import ArchiveMarkdownImport from '@/components/ArchiveMarkdownImport'
 import {
   ALL_CATEGORIES,
   ALL_SENSITIVITIES,
@@ -496,6 +497,13 @@ export default function ArchivesPage() {
                 </form>
               )}
             </div>
+
+            {/* Markdown file import */}
+            <ArchiveMarkdownImport
+              activeTab={activeTab}
+              tabConfig={activeTabConfig}
+              onImported={refreshSources}
+            />
 
             {/* Source count */}
             {!sourcesLoading && !sourcesError && (
