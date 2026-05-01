@@ -58,6 +58,9 @@
 
 * {
   box-sizing: border-box;
+  /* Firefox scrollbar — applied globally so all scrollable areas inherit */
+  scrollbar-width: thin;
+  scrollbar-color: #5A4370 #1D1624;
 }
 
 html {
@@ -70,10 +73,13 @@ body {
   background-color: #141019;
 }
 
-::-webkit-scrollbar { width: 4px; }
+/* ── Scrollbars — visible, dark-themed ────────────────────────────────────── */
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #1D1624; }
-::-webkit-scrollbar-thumb { background: #3A2B46; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #4A3958; }
+::-webkit-scrollbar-thumb { background: #5A4370; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #7A5D9F; }
+::-webkit-scrollbar-corner { background: #1D1624; }
 
 ::selection {
   background: #8A5CCF40;

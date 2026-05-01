@@ -366,7 +366,7 @@ export default function ChatInterface({
         )}
       </div>
 
-      <div className="flex-1 border border-house-border bg-house-surface overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex-1 min-h-0 border border-house-border bg-house-surface overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-xs">
@@ -503,14 +503,14 @@ export default function ChatInterface({
       </div>
 
       {error && (
-        <div className="border border-red-900 border-t-0 bg-red-950/20 px-4 py-2">
+        <div className="shrink-0 border border-red-900 border-t-0 bg-red-950/20 px-4 py-2">
           <p className="font-body text-xs text-red-400">{error}</p>
         </div>
       )}
 
       {/* Multi-image previews strip */}
       {selectedImages.length > 0 && (
-        <div className="border border-house-border border-t-0 bg-house-bg px-3 py-2 md:px-4 flex gap-2 overflow-x-auto">
+        <div className="shrink-0 border border-house-border border-t-0 bg-house-bg px-3 py-2 md:px-4 flex gap-2 overflow-x-auto">
           {selectedImages.map((file, index) => (
             <div key={index} className="relative shrink-0">
               <img
@@ -540,7 +540,7 @@ export default function ChatInterface({
       )}
 
       {/* Input area */}
-      <div className="border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
+      <div className="shrink-0 border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
         <input
           ref={fileInputRef}
           type="file"

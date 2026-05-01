@@ -6,6 +6,7 @@
 // Eligibility toggles are disabled for non-canonical items — enforced here and in API.
 
 import { useState } from 'react'
+import VoiceButton from '@/components/VoiceButton'
 import {
   ARCHIVE_LABEL,
   ARCHIVE_COLOR,
@@ -43,6 +44,10 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
   const contentPreview = item.excerpt || item.raw_content.slice(0, 250)
   const contentFull = item.raw_content
   const hasMoreContent = item.raw_content.length > 250 && !item.excerpt
+  const voicePresenceId: 'ari' | 'eli' =
+    item.owner_presence === 'ari' || item.owner_presence === 'eli'
+      ? item.owner_presence
+      : 'eli'
 
   async function patch(updates: Record<string, unknown>) {
     setPatching(true)
@@ -146,7 +151,15 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
 
           {/* Content */}
           <section>
-            <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-2">Content</p>
+            <div className="flex items-center gap-2 mb-2">
+              <p className="font-body text-xs text-text-muted uppercase tracking-widest">Content</p>
+              {/* Voice icon — reads the full archive entry content. Detail view only, never in collapsed rows. */}
+              <VoiceButton
+                text={contentFull}
+                presenceId={voicePresenceId}
+                buttonClass="min-w-[28px] min-h-[28px] text-xs"
+              />
+            </div>
             <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
               {showFullContent ? contentFull : contentPreview}
               {hasMoreContent && !showFullContent && '…'}

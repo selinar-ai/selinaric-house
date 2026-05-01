@@ -68,7 +68,7 @@ export default function ReflectionShell() {
   const unreviewedCount = reflections.filter(r => r.review_status === 'unreviewed').length
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
 
       {/* Top bar */}
       <div className="shrink-0 border-b border-house-border bg-house-surface px-4 py-3 flex items-center gap-4">
