@@ -1,4 +1,4 @@
-export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections' | 'archives'
+export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections' | 'archives' | 'recall'
 
 export interface Room {
   slug: RoomSlug
@@ -112,6 +112,18 @@ export const ROOMS: Room[] = [
     textClass: 'text-text-primary',
     bgClass: 'bg-house-muted',
     icon: '◫',
+  },
+  {
+    slug: 'recall',
+    name: 'Recall Review',
+    description: 'Archive recall events, feedback, match quality.',
+    path: '/recall',
+    colorClass: 'text-text-secondary',
+    borderClass: 'border-house-muted',
+    glowClass: '',
+    textClass: 'text-text-primary',
+    bgClass: 'bg-house-muted',
+    icon: '◌',
   },
 ]
 

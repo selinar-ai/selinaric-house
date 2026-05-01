@@ -1,6 +1,22 @@
-// Phase 28B — Recall Events list (debug/admin)
-// GET ?presenceId=ari|eli&limit=20
-// Returns recent recall events in descending order, no feedback included.
+// Phase 28B + 28C — Recall Events list
+// GET /api/archive-recall/events
+//
+// Query params:
+//   presenceId?    'ari' | 'eli'
+//   matchQuality?  'strong' | 'medium' | 'weak' | 'none'
+//   hasFeedback?   'true' | 'false'
+//   needsAttention? 'true'  (events with any not_helpful feedback)
+//   q?             search string — matched against query + normalised_query
+//   limit?         default 50, max 100
+//   offset?        default 0
+//
+// Response includes feedback_summary per event.
+// "Needs attention" = any feedback with rating = not_helpful.
+//
+// Actual schema field names (from migration 025):
+//   archive_recall_events: id, presence_id, session_id, query, normalised_query,
+//                          match_quality, entries_returned, entry_ids, created_at
+//   archive_recall_feedback: id, recall_event_id, archive_item_id, rating, created_at, updated_at
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -14,28 +30,112 @@ function getSupabase() {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const presenceId = searchParams.get('presenceId')
-  const limitParam = searchParams.get('limit')
-  const limit = Math.min(Math.max(1, parseInt(limitParam ?? '20', 10) || 20), 100)
+
+  const presenceId    = searchParams.get('presenceId')
+  const matchQuality  = searchParams.get('matchQuality')
+  const hasFeedback   = searchParams.get('hasFeedback')
+  const needsAttention = searchParams.get('needsAttention')
+  const q             = searchParams.get('q')?.trim() || null
+
+  const safeLimit  = Math.min(Math.max(1, parseInt(searchParams.get('limit')  ?? '50', 10) || 50), 100)
+  const safeOffset = Math.max(0, parseInt(searchParams.get('offset') ?? '0', 10) || 0)
 
   const supabase = getSupabase()
 
-  let query = supabase
+  // ── Fetch events (up to 200 before post-filtering) ──────────────────────────
+  // eslint-disable-next-line prefer-const
+  let eventsQ = supabase
     .from('archive_recall_events')
     .select('id, presence_id, session_id, query, normalised_query, match_quality, entries_returned, entry_ids, created_at')
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .limit(200)
 
   if (presenceId === 'ari' || presenceId === 'eli') {
-    query = query.eq('presence_id', presenceId)
+    eventsQ = eventsQ.eq('presence_id', presenceId)
+  }
+  if (matchQuality && ['strong', 'medium', 'weak', 'none'].includes(matchQuality)) {
+    eventsQ = eventsQ.eq('match_quality', matchQuality)
+  }
+  if (q) {
+    eventsQ = eventsQ.or(`query.ilike.%${q}%,normalised_query.ilike.%${q}%`)
   }
 
-  const { data, error } = await query
+  const { data: rawEvents, error: eventsErr } = await eventsQ
 
-  if (error) {
-    console.error('[recall-events] fetch error:', error.message)
+  if (eventsErr) {
+    console.error('[recall-events] fetch error:', eventsErr.message)
     return NextResponse.json({ error: 'Failed to fetch events' }, { status: 500 })
   }
 
-  return NextResponse.json({ events: data ?? [], total: (data ?? []).length })
+  const events = rawEvents ?? []
+
+  // ── Fetch all feedback for these events ─────────────────────────────────────
+  type FeedbackRow = { id: string; recall_event_id: string; archive_item_id: string | null; rating: string; created_at: string }
+  let allFeedback: FeedbackRow[] = []
+
+  if (events.length > 0) {
+    const eventIds = events.map(e => (e as { id: string }).id)
+    const { data: fbData, error: fbErr } = await supabase
+      .from('archive_recall_feedback')
+      .select('id, recall_event_id, archive_item_id, rating, created_at')
+      .in('recall_event_id', eventIds)
+
+    if (fbErr) {
+      console.error('[recall-events] feedback fetch error:', fbErr.message)
+    } else {
+      allFeedback = (fbData ?? []) as FeedbackRow[]
+    }
+  }
+
+  // ── Compute per-event feedback summary ───────────────────────────────────────
+  type FeedbackSummary = { total: number; helpful: number; not_helpful: number; has_attention: boolean }
+  const summaryMap: Record<string, FeedbackSummary> = {}
+
+  for (const fb of allFeedback) {
+    if (!summaryMap[fb.recall_event_id]) {
+      summaryMap[fb.recall_event_id] = { total: 0, helpful: 0, not_helpful: 0, has_attention: false }
+    }
+    const s = summaryMap[fb.recall_event_id]
+    s.total++
+    if (fb.rating === 'helpful') s.helpful++
+    else if (fb.rating === 'not_helpful') { s.not_helpful++; s.has_attention = true }
+  }
+
+  const EMPTY_SUMMARY: FeedbackSummary = { total: 0, helpful: 0, not_helpful: 0, has_attention: false }
+
+  type EventRow = {
+    id: string
+    presence_id: string
+    session_id: string | null
+    query: string
+    normalised_query: string
+    match_quality: string
+    entries_returned: number
+    entry_ids: string[]
+    created_at: string
+    feedback_summary: FeedbackSummary
+  }
+
+  // ── Attach summary + post-filter ────────────────────────────────────────────
+  let withSummary: EventRow[] = (events as EventRow[]).map(e => ({
+    ...e,
+    feedback_summary: summaryMap[e.id] ?? EMPTY_SUMMARY,
+  }))
+
+  if (hasFeedback === 'true')    withSummary = withSummary.filter(e => e.feedback_summary.total > 0)
+  if (hasFeedback === 'false')   withSummary = withSummary.filter(e => e.feedback_summary.total === 0)
+  if (needsAttention === 'true') withSummary = withSummary.filter(e => e.feedback_summary.has_attention)
+
+  // ── Summary stats (pre-pagination, for top cards) ────────────────────────────
+  const stats = {
+    total:          withSummary.length,
+    strong:         withSummary.filter(e => e.match_quality === 'strong').length,
+    weak_or_none:   withSummary.filter(e => e.match_quality === 'weak' || e.match_quality === 'none').length,
+    has_attention:  withSummary.filter(e => e.feedback_summary.has_attention).length,
+  }
+
+  const total = withSummary.length
+  const page  = withSummary.slice(safeOffset, safeOffset + safeLimit)
+
+  return NextResponse.json({ events: page, total, stats })
 }
