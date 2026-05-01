@@ -1,9 +1,10 @@
-// Phase 28B + 28C — Recall Events list
+// Phase 28B + 28C + 28D — Recall Events list
 // GET /api/archive-recall/events
 //
 // Query params:
 //   presenceId?    'ari' | 'eli'
 //   matchQuality?  'strong' | 'medium' | 'weak' | 'none'
+//   mode?          'manual' | 'auto'  (Phase 28D)
 //   hasFeedback?   'true' | 'false'
 //   needsAttention? 'true'  (events with any not_helpful feedback)
 //   q?             search string — matched against query + normalised_query
@@ -13,9 +14,10 @@
 // Response includes feedback_summary per event.
 // "Needs attention" = any feedback with rating = not_helpful.
 //
-// Actual schema field names (from migration 025):
+// Actual schema field names (from migration 025 + 026):
 //   archive_recall_events: id, presence_id, session_id, query, normalised_query,
-//                          match_quality, entries_returned, entry_ids, created_at
+//                          match_quality, entries_returned, entry_ids, created_at,
+//                          recall_mode, auto_reason
 //   archive_recall_feedback: id, recall_event_id, archive_item_id, rating, created_at, updated_at
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -33,6 +35,7 @@ export async function GET(request: NextRequest) {
 
   const presenceId    = searchParams.get('presenceId')
   const matchQuality  = searchParams.get('matchQuality')
+  const mode          = searchParams.get('mode')
   const hasFeedback   = searchParams.get('hasFeedback')
   const needsAttention = searchParams.get('needsAttention')
   const q             = searchParams.get('q')?.trim() || null
@@ -46,7 +49,7 @@ export async function GET(request: NextRequest) {
   // eslint-disable-next-line prefer-const
   let eventsQ = supabase
     .from('archive_recall_events')
-    .select('id, presence_id, session_id, query, normalised_query, match_quality, entries_returned, entry_ids, created_at')
+    .select('id, presence_id, session_id, query, normalised_query, match_quality, recall_mode, auto_reason, entries_returned, entry_ids, created_at')
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -55,6 +58,9 @@ export async function GET(request: NextRequest) {
   }
   if (matchQuality && ['strong', 'medium', 'weak', 'none'].includes(matchQuality)) {
     eventsQ = eventsQ.eq('match_quality', matchQuality)
+  }
+  if (mode && (mode === 'manual' || mode === 'auto')) {
+    eventsQ = eventsQ.eq('recall_mode', mode)
   }
   if (q) {
     eventsQ = eventsQ.or(`query.ilike.%${q}%,normalised_query.ilike.%${q}%`)
@@ -110,6 +116,8 @@ export async function GET(request: NextRequest) {
     query: string
     normalised_query: string
     match_quality: string
+    recall_mode: string
+    auto_reason: string | null
     entries_returned: number
     entry_ids: string[]
     created_at: string

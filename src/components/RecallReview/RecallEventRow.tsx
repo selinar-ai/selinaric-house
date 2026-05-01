@@ -10,6 +10,7 @@ export interface RecallEventSummary {
   query: string
   normalised_query: string
   match_quality: MatchQuality
+  recall_mode: 'manual' | 'auto'
   entries_returned: number
   created_at: string
   feedback_summary: {
@@ -59,11 +60,16 @@ export default function RecallEventRow({ event, selected, onSelect }: Props) {
         <MatchQualityBadge quality={event.match_quality} />
       </div>
 
-      {/* Row 2: entries count · date · feedback */}
+      {/* Row 2: entries count · mode · date · feedback */}
       <div className="flex items-center gap-3 mt-1 flex-wrap">
         <span className="font-body text-[10px] text-text-muted">
           {event.entries_returned} {event.entries_returned === 1 ? 'entry' : 'entries'}
         </span>
+        {event.recall_mode === 'auto' && (
+          <span className="font-body text-[9px] uppercase tracking-widest text-blue-400/80 border border-blue-400/30 px-1">
+            auto
+          </span>
+        )}
         <span className="font-body text-[10px] text-text-muted">
           {dateStr}
         </span>

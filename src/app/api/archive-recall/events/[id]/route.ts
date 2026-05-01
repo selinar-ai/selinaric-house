@@ -51,7 +51,7 @@ export async function GET(
   // ── Fetch the event ──────────────────────────────────────────────────────────
   const { data: event, error: eventErr } = await supabase
     .from('archive_recall_events')
-    .select('id, presence_id, session_id, query, normalised_query, match_quality, entries_returned, entry_ids, created_at')
+    .select('id, presence_id, session_id, query, normalised_query, match_quality, recall_mode, auto_reason, entries_returned, entry_ids, created_at')
     .eq('id', id)
     .single()
 

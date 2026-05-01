@@ -1,13 +1,14 @@
 'use client'
 
-// Phase 28A + 28B — Recall transparency indicator.
+// Phase 28A + 28B + 28D — Recall transparency indicator.
 // Shown below an assistant message when archive recall was used.
 // Phase 28B adds: feedback controls (per-entry + overall), match quality display,
 // status_label from server, rank_reason in expanded view.
+// Phase 28D adds: mode prop — label changes for auto-recall.
 // No emojis. Minimal surface. Does not announce itself loudly.
 
 import { useState, useCallback } from 'react'
-import type { RecallEntry, MatchQuality } from '@/lib/archive-recall'
+import type { RecallEntry, MatchQuality, RecallMode } from '@/lib/archive-recall'
 
 const ARCHIVE_DISPLAY: Record<string, string> = {
   velvet: 'Velvet',
@@ -42,9 +43,10 @@ interface Props {
   accentClass: string
   recallEventId?: string | null
   matchQuality?: MatchQuality
+  mode?: RecallMode
 }
 
-export default function RecallIndicator({ entries, accentClass, recallEventId, matchQuality }: Props) {
+export default function RecallIndicator({ entries, accentClass, recallEventId, matchQuality, mode }: Props) {
   const [expanded, setExpanded] = useState(false)
   // Map of key → rating. Key is entry.id for per-entry, 'overall' for the session.
   const [ratings, setRatings] = useState<Record<string, FeedbackRating>>({})
@@ -80,6 +82,11 @@ export default function RecallIndicator({ entries, accentClass, recallEventId, m
       ? ` · ${matchQuality} match`
       : ''
 
+  const isAuto = mode === 'auto'
+  const recallLabel = isAuto
+    ? `Auto-recalled from Archives: ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}${qualityLabel}`
+    : `Recalled from Archives: ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}${qualityLabel}`
+
   return (
     <div className="mt-2">
       {/* Header row: expand toggle + quality label + overall feedback */}
@@ -89,7 +96,7 @@ export default function RecallIndicator({ entries, accentClass, recallEventId, m
           className="flex items-center gap-1.5 group"
         >
           <span className="font-body text-[10px] text-text-muted group-hover:text-text-secondary transition-colors">
-            Recalled from Archives: {entries.length} {entries.length === 1 ? 'entry' : 'entries'}{qualityLabel}
+            {recallLabel}
           </span>
           <span className="font-mono text-[9px] text-text-muted group-hover:text-text-secondary transition-colors">
             {expanded ? '▾' : '▸'}

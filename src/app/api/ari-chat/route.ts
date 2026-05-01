@@ -43,8 +43,14 @@ import {
   formatArchiveRecallContext,
   getMatchQuality,
   logRecallEvent,
+  detectAutoRecallIntent,
+  extractAutoRecallQuery,
+  getAutoRecallSettings,
+  shouldRunAutoRecall,
+  AUTO_RECALL_OPTIONS,
   type RecallEntry,
   type MatchQuality,
+  type RecallMode,
 } from '@/lib/archive-recall'
 
 const ROOM_SLUG = 'ari'
@@ -139,15 +145,19 @@ export async function POST(request: NextRequest) {
       draftNotice = buildDraftNotice(draftResult)
     }
 
-    // Phase 28A + 28B: Archive recall — detect manual trigger, retrieve scoped entries, log event
+    // Phase 28A + 28B + 28D: Archive recall
+    // Manual recall takes precedence. Auto-recall only runs when manual intent is absent.
     let recallEntries: RecallEntry[] = []
     let recallContext = ''
     let recallEventId: string | null = null
     let matchQuality: MatchQuality = 'none'
+    let recallMode: RecallMode = 'manual'
     const recallIntent = message ? detectArchiveRecallIntent(message) : false
+
     if (recallIntent && message) {
+      // ── Manual recall ──────────────────────────────────────────────────────────
       const recallQuery = extractRecallQuery(message)
-      console.log(`[ari-chat] archive recall triggered, query: "${recallQuery}"`)
+      console.log(`[ari-chat] archive recall triggered (manual), query: "${recallQuery}"`)
       if (!recallQuery) {
         // Trigger detected but no search query provided — ask what to look for
         recallContext = '\nARCHIVE RECALL CONTEXT\nRecall was triggered but no search query was provided.\nInstruction: Ask Tara what she wants you to search for in the archives. Keep it direct and brief — one line is enough.\n'
@@ -157,8 +167,8 @@ export async function POST(request: NextRequest) {
           recallEntries[0]?.rank_score ?? 0,
           recallEntries.map(e => e.rank_score)
         )
-        recallContext = formatArchiveRecallContext('ari', recallQuery, recallEntries, matchQuality)
-        // Log event — awaited for ID, non-throwing on error
+        recallContext = formatArchiveRecallContext('ari', recallQuery, recallEntries, matchQuality, 'manual')
+        recallMode = 'manual'
         recallEventId = await logRecallEvent({
           presence_id:      'ari',
           session_id:       sessionId ?? null,
@@ -167,7 +177,46 @@ export async function POST(request: NextRequest) {
           match_quality:    matchQuality,
           entries_returned: recallEntries.length,
           entry_ids:        recallEntries.map(e => e.id),
+          recall_mode:      'manual',
         })
+      }
+    } else if (message) {
+      // ── Auto-recall (Phase 28D) — only when manual intent is absent ────────────
+      const autoIntent = detectAutoRecallIntent(message)
+      if (autoIntent) {
+        const autoQuery = extractAutoRecallQuery(message)
+        const autoSettings = autoQuery ? await getAutoRecallSettings('ari') : null
+        const run = autoQuery
+          ? await shouldRunAutoRecall({ presenceId: 'ari', message, settings: autoSettings })
+          : false
+        if (run && autoQuery) {
+          console.log(`[ari-chat] archive recall triggered (auto), query: "${autoQuery}"`)
+          const autoEntries = await getRecallableArchiveEntries('ari', autoQuery, AUTO_RECALL_OPTIONS.limit, {
+            statuses: AUTO_RECALL_OPTIONS.statuses,
+            minMatchQuality: AUTO_RECALL_OPTIONS.minMatchQuality,
+          })
+          if (autoEntries.length > 0) {
+            matchQuality = getMatchQuality(
+              autoEntries[0]?.rank_score ?? 0,
+              autoEntries.map(e => e.rank_score)
+            )
+            recallEntries = autoEntries
+            recallContext = formatArchiveRecallContext('ari', autoQuery, autoEntries, matchQuality, 'auto', AUTO_RECALL_OPTIONS.contextCap)
+            recallMode = 'auto'
+            const autoReason = `auto-intent detected in message`
+            recallEventId = await logRecallEvent({
+              presence_id:      'ari',
+              session_id:       sessionId ?? null,
+              query:            message,
+              normalised_query: autoQuery,
+              match_quality:    matchQuality,
+              entries_returned: autoEntries.length,
+              entry_ids:        autoEntries.map(e => e.id),
+              recall_mode:      'auto',
+              auto_reason:      autoReason,
+            })
+          }
+        }
       }
     }
 
@@ -421,7 +470,8 @@ If an image is present in this message:
       console.error('Memory update error:', err)
     )
 
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed: recallIntent, recallEntries, recallEventId, matchQuality })
+    const recallUsed = recallIntent || (recallEntries.length > 0 && recallMode === 'auto')
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode })
   } catch (error: unknown) {
     console.error('Ari chat error:', error)
 

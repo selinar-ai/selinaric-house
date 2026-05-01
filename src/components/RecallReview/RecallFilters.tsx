@@ -8,6 +8,7 @@ import type { MatchQuality } from '@/lib/archive-recall'
 export interface RecallFilterState {
   presenceId: 'ari' | 'eli' | ''
   matchQuality: MatchQuality | ''
+  mode: 'manual' | 'auto' | ''
   hasFeedback: 'true' | 'false' | ''
   needsAttention: boolean
 }
@@ -54,6 +55,18 @@ export default function RecallFilters({ filters, onChange }: Props) {
         <option value="medium">Medium</option>
         <option value="weak">Weak</option>
         <option value="none">None</option>
+      </select>
+
+      {/* Mode */}
+      <select
+        value={filters.mode}
+        onChange={e => set('mode', e.target.value as RecallFilterState['mode'])}
+        className={SELECT_CLASS}
+        title="Filter by recall mode"
+      >
+        <option value="">All modes</option>
+        <option value="manual">Manual</option>
+        <option value="auto">Auto</option>
       </select>
 
       {/* Feedback */}

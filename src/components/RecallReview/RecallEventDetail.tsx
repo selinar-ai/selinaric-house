@@ -16,6 +16,8 @@ interface EventDetail {
   query: string
   normalised_query: string
   match_quality: MatchQuality
+  recall_mode: 'manual' | 'auto'
+  auto_reason: string | null
   entries_returned: number
   entry_ids: string[]
   session_id: string | null
@@ -125,6 +127,24 @@ export default function RecallEventDetail({ eventId }: Props) {
           <MetaRow label="Presence"      value={PRESENCE_LABEL[event.presence_id] ?? event.presence_id} />
           <MetaRow label="Time"          value={dateStr} />
           <MetaRow label="Match quality" value={<MatchQualityBadge quality={event.match_quality} size="sm" />} />
+          <MetaRow
+            label="Recall mode"
+            value={
+              event.recall_mode === 'auto'
+                ? <span className="font-body text-xs text-blue-400">Auto</span>
+                : <span className="font-body text-xs text-text-secondary">Manual</span>
+            }
+          />
+          {event.recall_mode === 'auto' && event.auto_reason && (
+            <MetaRow
+              label="Auto reason"
+              value={
+                <span className="font-body text-xs text-text-muted break-words">
+                  {event.auto_reason}
+                </span>
+              }
+            />
+          )}
           <MetaRow label="Entries"       value={`${event.entries_returned} returned`} />
           <MetaRow
             label="User message"

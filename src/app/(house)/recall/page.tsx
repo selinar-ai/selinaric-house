@@ -10,6 +10,7 @@ import RecallFilters, { type RecallFilterState } from '@/components/RecallReview
 import RecallSearch from '@/components/RecallReview/RecallSearch'
 import RecallEventList from '@/components/RecallReview/RecallEventList'
 import RecallEventDetail from '@/components/RecallReview/RecallEventDetail'
+import AutoRecallSettingsPanel from '@/components/RecallReview/AutoRecallSettings'
 import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRow'
 
 const PAGE_SIZE = 50
@@ -17,6 +18,7 @@ const PAGE_SIZE = 50
 const DEFAULT_FILTERS: RecallFilterState = {
   presenceId:     '',
   matchQuality:   '',
+  mode:           '',
   hasFeedback:    '',
   needsAttention: false,
 }
@@ -32,6 +34,7 @@ function buildUrl(filters: RecallFilterState, q: string, offset: number) {
   const params = new URLSearchParams()
   if (filters.presenceId)   params.set('presenceId',    filters.presenceId)
   if (filters.matchQuality) params.set('matchQuality',  filters.matchQuality)
+  if (filters.mode)         params.set('mode',          filters.mode)
   if (filters.hasFeedback)  params.set('hasFeedback',   filters.hasFeedback)
   if (filters.needsAttention) params.set('needsAttention', 'true')
   if (q.trim())             params.set('q', q.trim())
@@ -147,6 +150,14 @@ export default function RecallReviewPage() {
             ))}
           </div>
         )}
+
+        {/* ── Auto-Recall Settings (Phase 28D) ───────────────────── */}
+        <div className="mt-5 border-t border-house-border pt-4">
+          <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-2">
+            Auto-Recall Trial
+          </p>
+          <AutoRecallSettingsPanel />
+        </div>
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}
