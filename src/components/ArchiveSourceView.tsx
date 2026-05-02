@@ -23,6 +23,12 @@ export default function ArchiveSourceView({ source, onRefresh }: Props) {
   const [showFullContent, setShowFullContent] = useState(false)
   const [activeView, setActiveView] = useState<'extract' | 'drafts'>('extract')
 
+  // Remove / soft-delete state
+  const [removeStage, setRemoveStage]           = useState<'idle' | 'confirm'>('idle')
+  const [alsoDeleteDrafts, setAlsoDeleteDrafts] = useState(false)
+  const [removing, setRemoving]                 = useState(false)
+  const [removeError, setRemoveError]           = useState<string | null>(null)
+
   const {
     drafts,
     pendingDrafts,
@@ -40,6 +46,21 @@ export default function ArchiveSourceView({ source, onRefresh }: Props) {
     refreshDrafts()
     onRefresh()
     setActiveView('drafts')
+  }
+
+  async function handleRemoveConfirm() {
+    setRemoving(true)
+    setRemoveError(null)
+    try {
+      const url = `/api/archive-sources/${source.id}${alsoDeleteDrafts ? '?deleteDrafts=true' : ''}`
+      const res = await fetch(url, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      onRefresh()
+    } catch (err) {
+      setRemoveError(err instanceof Error ? err.message : 'Remove failed.')
+      setRemoving(false)
+    }
   }
 
   return (
@@ -158,6 +179,71 @@ export default function ArchiveSourceView({ source, onRefresh }: Props) {
           </div>
         )}
       </section>
+      {/* Remove conversation */}
+      <section className="pt-2 border-t border-house-border/40">
+        {removeStage === 'idle' && (
+          <button
+            onClick={() => setRemoveStage('confirm')}
+            className="font-body text-xs text-text-muted hover:text-red-400/60 transition-colors"
+          >
+            Remove conversation
+          </button>
+        )}
+
+        {removeStage === 'confirm' && (
+          <div className="space-y-3">
+            <p className="font-body text-xs text-text-secondary leading-relaxed">
+              Remove this source conversation from the archive?
+            </p>
+            <p className="font-body text-[10px] text-text-muted leading-relaxed">
+              This will hide it from Conversations and extraction. Existing approved Archive Entries will not be deleted.
+            </p>
+
+            {/* Pending drafts warning + optional checkbox */}
+            {pendingDrafts.length > 0 && (
+              <div className="border border-amber-400/20 bg-amber-400/5 px-3 py-2 space-y-2">
+                <p className="font-body text-[10px] text-amber-400 leading-relaxed">
+                  This source has {pendingDrafts.length} pending extraction draft{pendingDrafts.length !== 1 ? 's' : ''}.
+                  Removing the source will not automatically remove those drafts.
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={alsoDeleteDrafts}
+                    onChange={e => setAlsoDeleteDrafts(e.target.checked)}
+                    className="accent-amber-400"
+                  />
+                  <span className="font-body text-[10px] text-text-muted">
+                    Also remove pending drafts from this source
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {removeError && (
+              <p className="font-body text-xs text-red-400">{removeError}</p>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => { setRemoveStage('idle'); setAlsoDeleteDrafts(false); setRemoveError(null) }}
+                disabled={removing}
+                className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemoveConfirm}
+                disabled={removing}
+                className="font-body text-xs px-3 py-1 border border-red-400/30 text-red-400 hover:bg-red-400/10 transition-all disabled:opacity-40"
+              >
+                {removing ? 'Removing…' : 'Remove conversation'}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
     </div>
   )
 }

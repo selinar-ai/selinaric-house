@@ -107,17 +107,21 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   const supabase = getSupabase()
   const { id } = await context.params
+  const { searchParams } = new URL(request.url)
+  const deleteDrafts = searchParams.get('deleteDrafts') === 'true'
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
+  const now = new Date().toISOString()
+
   const { data, error } = await supabase
     .from('archive_sources')
-    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .update({ deleted_at: now, updated_at: now, updated_by: 'tara' })
     .eq('id', id)
     .is('deleted_at', null)
     .select('id')
@@ -126,5 +130,19 @@ export async function DELETE(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data) return NextResponse.json({ error: 'Source not found or already deleted' }, { status: 404 })
 
-  return NextResponse.json({ deleted: true, id })
+  // Optionally soft-delete pending drafts from this source
+  let draftsDeleted = 0
+  if (deleteDrafts) {
+    const { data: deletedDrafts } = await supabase
+      .from('archive_entry_drafts')
+      .update({ deleted_at: now, updated_at: now })
+      .eq('source_id', id)
+      .eq('draft_status', 'pending_review')
+      .is('deleted_at', null)
+      .select('id')
+
+    draftsDeleted = deletedDrafts?.length ?? 0
+  }
+
+  return NextResponse.json({ deleted: true, id, draftsDeleted })
 }
