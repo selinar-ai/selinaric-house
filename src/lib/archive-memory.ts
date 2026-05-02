@@ -45,7 +45,7 @@ export const MEMORY_ACTION_SOURCES: Record<MemoryBulkAction, CanonicalStatus[]> 
   confirm_memory:    ['canonical_candidate', 'staged', 'needs_review'],
   reject_memory:     ['canonical_candidate', 'canonical', 'staged', 'needs_review'],
   demote_memory:     ['canonical'],
-  restore_candidate: ['archive_only', 'excluded'],
+  restore_candidate: ['archive_only', 'excluded', 'needs_review'],
 }
 
 // Resulting canonical_status for each action
