@@ -26,11 +26,13 @@ import {
 } from '@/lib/archives'
 
 interface Props {
-  draft: ArchiveEntryDraft
-  onRefresh: () => void
+  draft:           ArchiveEntryDraft
+  onRefresh:       () => void
+  selected?:       boolean
+  onToggleSelect?: (id: string) => void
 }
 
-export default function ArchiveDraftCard({ draft, onRefresh }: Props) {
+export default function ArchiveDraftCard({ draft, onRefresh, selected = false, onToggleSelect }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [patching, setPatching] = useState(false)
   const [editingContent, setEditingContent] = useState(false)
@@ -110,13 +112,27 @@ export default function ArchiveDraftCard({ draft, onRefresh }: Props) {
   const presenceColor = draft.extracted_by === 'ari' ? 'text-ari-primary' : 'text-eli-primary'
 
   return (
-    <div className={`border-b border-house-border transition-colors duration-150 ${patching ? 'opacity-60' : ''}`}>
+    <div className={`border-b border-house-border transition-colors duration-150 ${patching ? 'opacity-60' : ''} ${selected ? 'bg-house-bg/60' : ''}`}>
+      <div className="flex items-stretch">
 
-      {/* Collapsed header */}
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full text-left px-4 py-3 hover:bg-house-bg/40 transition-colors group"
-      >
+        {/* Checkbox column */}
+        {onToggleSelect && (
+          <div className="flex items-start pt-3.5 pl-3 pr-1 shrink-0">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(draft.id)}
+              onClick={e => e.stopPropagation()}
+              className="accent-house-muted mt-0.5"
+            />
+          </div>
+        )}
+
+        {/* Collapsed header */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex-1 text-left px-4 py-3 hover:bg-house-bg/40 transition-colors group min-w-0"
+        >
         <div className="flex items-start gap-2 flex-wrap">
           <span className="font-body text-sm text-text-primary font-medium flex-1 min-w-0 leading-snug">
             {draft.proposed_title}
@@ -141,7 +157,8 @@ export default function ArchiveDraftCard({ draft, onRefresh }: Props) {
           <span className="text-text-muted text-[10px]">·</span>
           <span className="font-body text-xs text-text-muted">{SENSITIVITY_LABELS[draft.proposed_sensitivity]}</span>
         </div>
-      </button>
+        </button>
+      </div>
 
       {/* Expanded detail */}
       {expanded && (

@@ -29,11 +29,13 @@ import {
 } from '@/lib/archives'
 
 interface Props {
-  item: ArchiveItem
-  onRefresh: () => void
+  item:            ArchiveItem
+  onRefresh:       () => void
+  selected?:       boolean
+  onToggleSelect?: (id: string) => void
 }
 
-export default function ArchiveItemCard({ item, onRefresh }: Props) {
+export default function ArchiveItemCard({ item, onRefresh, selected = false, onToggleSelect }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [showFullContent, setShowFullContent] = useState(false)
   const [patching, setPatching] = useState(false)
@@ -94,13 +96,27 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
   const statusColor = STATUS_COLOR[item.canonical_status]
 
   return (
-    <div className={`border-b border-house-border transition-colors duration-150 ${patching ? 'opacity-60' : ''}`}>
+    <div className={`border-b border-house-border transition-colors duration-150 ${patching ? 'opacity-60' : ''} ${selected ? 'bg-house-bg/60' : ''}`}>
+      <div className="flex items-stretch">
 
-      {/* Collapsed header — always visible */}
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full text-left px-4 py-3.5 hover:bg-house-bg/40 transition-colors group"
-      >
+        {/* Checkbox column */}
+        {onToggleSelect && (
+          <div className="flex items-start pt-4 pl-3 pr-1 shrink-0">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(item.id)}
+              onClick={e => e.stopPropagation()}
+              className="accent-house-muted mt-0.5"
+            />
+          </div>
+        )}
+
+        {/* Collapsed header — always visible */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex-1 text-left px-4 py-3.5 hover:bg-house-bg/40 transition-colors group min-w-0"
+        >
         {/* Row 1: title + badges */}
         <div className="flex items-start gap-2 flex-wrap">
           <span className="font-body text-sm text-text-primary font-medium flex-1 min-w-0 leading-snug">
@@ -144,7 +160,8 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
             {VISIBILITY_LABELS[item.visibility]}
           </span>
         </div>
-      </button>
+        </button>
+      </div>
 
       {/* Expanded detail */}
       {expanded && (

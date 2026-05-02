@@ -1,14 +1,13 @@
 'use client'
 
-// Phase 27B — Hook for loading archive sources by tab.
-// Sources are the raw conversation material pasted by Tara for extraction.
-// Velvet: archive_name=velvet, Violet: archive_name=violet, House: archive_name=house
+// Phase 27B + 27D — Hook for loading archive sources by tab.
+// Phase 27D: returns SourceWithCounts (includes draft_count, pending_draft_count, entry_count)
 
 import { useState, useEffect, useCallback } from 'react'
-import type { ArchiveTab, ArchiveSource } from '@/lib/archives'
+import type { ArchiveTab, SourceWithCounts } from '@/lib/archives'
 
 export function useArchiveSources(tab: ArchiveTab) {
-  const [sources, setSources] = useState<ArchiveSource[]>([])
+  const [sources, setSources] = useState<SourceWithCounts[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 

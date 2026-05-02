@@ -1,11 +1,12 @@
 'use client'
 
-// Phase 27A + 27B — Dual Archive Rooms
+// Phase 27A + 27B + 27D — Dual Archive Rooms
 // Outer tabs: Velvet · Violet · House (archive room)
 // Inner tabs per room: Entries | Conversations | Drafts
 //   Entries       — curated archive_items (Phase 27A)
 //   Conversations — raw archive_sources pasted by Tara (Phase 27B)
 //   Drafts        — presence-proposed entries awaiting approval (Phase 27B)
+// Phase 27D: client-side filters per tab, selection + bulk actions
 
 import { useState, useEffect, useRef } from 'react'
 import { useArchives } from '@/hooks/useArchives'
@@ -15,14 +16,20 @@ import ArchiveItemCard from '@/components/ArchiveItemCard'
 import ArchiveSourceCard from '@/components/ArchiveSourceCard'
 import ArchiveDraftCard from '@/components/ArchiveDraftCard'
 import ArchiveMarkdownImport from '@/components/ArchiveMarkdownImport'
+import SourceFilters, { type SourceFilterState, BLANK_SOURCE_FILTERS } from '@/components/archive/SourceFilters'
+import DraftFilters,  { type DraftFilterState,  BLANK_DRAFT_FILTERS  } from '@/components/archive/DraftFilters'
+import EntryFilters,  { type EntryFilterState,  BLANK_ENTRY_FILTERS  } from '@/components/archive/EntryFilters'
 import {
   ALL_CATEGORIES,
   ALL_SENSITIVITIES,
+  ALL_STATUSES,
   CATEGORY_LABELS,
   SENSITIVITY_LABELS,
+  STATUS_LABELS,
   type ArchiveTab,
   type ArchiveCategory,
   type Sensitivity,
+  type CanonicalStatus,
 } from '@/lib/archives'
 
 // ─── Config ────────────────────────────────────────────────────────────────
@@ -108,12 +115,28 @@ export default function ArchivesPage() {
   // Data hooks
   const { items, loading: itemsLoading, error: itemsError, refresh: refreshItems } = useArchives(activeTab)
   const { sources, loading: sourcesLoading, error: sourcesError, refresh: refreshSources } = useArchiveSources(activeTab)
-  const { drafts: pendingDrafts, loading: draftsLoading, error: draftsError, refresh: refreshDrafts } = useArchiveDrafts({
+  // Phase 27D: load all statuses so DraftFilters can filter by any status.
+  // pendingDrafts is derived inside the hook for the tab badge.
+  const { drafts: allDrafts, pendingDrafts, loading: draftsLoading, error: draftsError, refresh: refreshDrafts } = useArchiveDrafts({
     tab: activeTab,
-    draftStatus: 'pending_review',
+    allStatuses: true,
   })
 
-  // Reset forms and inner tab when switching archive rooms
+  // Phase 27D — filter state
+  const [sourceFilters, setSourceFilters] = useState<SourceFilterState>({ ...BLANK_SOURCE_FILTERS })
+  const [draftFilters,  setDraftFilters]  = useState<DraftFilterState>({ ...BLANK_DRAFT_FILTERS })
+  const [entryFilters,  setEntryFilters]  = useState<EntryFilterState>({ ...BLANK_ENTRY_FILTERS })
+
+  // Phase 27D — selection state
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
+  const [selectedDraftIds,  setSelectedDraftIds]  = useState<string[]>([])
+  const [selectedEntryIds,  setSelectedEntryIds]  = useState<string[]>([])
+
+  // Phase 27D — bulk action state
+  const [bulking,   setBulking]   = useState(false)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+
+  // Reset forms, filters, and selections when switching archive rooms
   useEffect(() => {
     setEntryForm({ ...BLANK_ENTRY_FORM })
     setSourceForm({ ...BLANK_SOURCE_FORM })
@@ -121,7 +144,22 @@ export default function ArchivesPage() {
     setSourceImportOpen(false)
     setEntrySubmitError(null)
     setSourceSubmitError(null)
+    setSourceFilters({ ...BLANK_SOURCE_FILTERS })
+    setDraftFilters({ ...BLANK_DRAFT_FILTERS })
+    setEntryFilters({ ...BLANK_ENTRY_FILTERS })
+    setSelectedSourceIds([])
+    setSelectedDraftIds([])
+    setSelectedEntryIds([])
+    setBulkError(null)
   }, [activeTab])
+
+  // Clear selections when switching inner tabs
+  useEffect(() => {
+    setSelectedSourceIds([])
+    setSelectedDraftIds([])
+    setSelectedEntryIds([])
+    setBulkError(null)
+  }, [innerTab])
 
   // Phase 28E — read deep-link URL params on first mount only
   useEffect(() => {
@@ -145,6 +183,134 @@ export default function ArchivesPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTabConfig = ARCHIVE_TABS.find(t => t.id === activeTab)!
+
+  // ─── Phase 27D: client-side filtered lists ─────────────────────────────
+
+  const filteredSources = sources.filter(s => {
+    const q = sourceFilters.search.toLowerCase()
+    if (q && !s.title.toLowerCase().includes(q) && !(s.source_document ?? '').toLowerCase().includes(q)) return false
+    if (sourceFilters.review_status && s.review_status !== sourceFilters.review_status) return false
+    if (sourceFilters.source_origin && s.source_origin !== sourceFilters.source_origin) return false
+    return true
+  })
+
+  const filteredDrafts = allDrafts.filter(d => {
+    const q = draftFilters.search.toLowerCase()
+    if (q && !d.proposed_title.toLowerCase().includes(q)) return false
+    if (draftFilters.draft_status && d.draft_status !== draftFilters.draft_status) return false
+    if (draftFilters.extracted_by && d.extracted_by !== draftFilters.extracted_by) return false
+    if (draftFilters.suggested_memory_status && d.suggested_memory_status !== draftFilters.suggested_memory_status) return false
+    if (draftFilters.category && d.proposed_category !== draftFilters.category) return false
+    return true
+  })
+
+  const filteredItems = items.filter(i => {
+    const q = entryFilters.search.toLowerCase()
+    if (q && !i.title.toLowerCase().includes(q) && !i.raw_content.toLowerCase().includes(q)) return false
+    if (entryFilters.canonical_status && i.canonical_status !== entryFilters.canonical_status) return false
+    if (entryFilters.category && i.category !== entryFilters.category) return false
+    if (entryFilters.has_linked_source === 'yes' && !i.source_id) return false
+    if (entryFilters.has_linked_source === 'no' && i.source_id) return false
+    return true
+  })
+
+  // ─── Phase 27D: selection toggle helpers ───────────────────────────────
+
+  function toggleSourceSelect(id: string) {
+    setSelectedSourceIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  function toggleAllSources() {
+    setSelectedSourceIds(prev =>
+      prev.length === filteredSources.length ? [] : filteredSources.map(s => s.id)
+    )
+  }
+
+  function toggleDraftSelect(id: string) {
+    setSelectedDraftIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  function toggleAllDrafts() {
+    const pending = filteredDrafts.filter(d => d.draft_status === 'pending_review')
+    setSelectedDraftIds(prev =>
+      prev.length === pending.length ? [] : pending.map(d => d.id)
+    )
+  }
+
+  function toggleEntrySelect(id: string) {
+    setSelectedEntryIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  function toggleAllEntries() {
+    setSelectedEntryIds(prev =>
+      prev.length === filteredItems.length ? [] : filteredItems.map(i => i.id)
+    )
+  }
+
+  // ─── Phase 27D: bulk action handlers ───────────────────────────────────
+
+  async function handleSourceBulk(action: 'mark_reviewed' | 'mark_skipped' | 'remove') {
+    if (action === 'remove' && !window.confirm(
+      `Soft-delete ${selectedSourceIds.length} conversation${selectedSourceIds.length === 1 ? '' : 's'}? This cannot be undone from the UI.`
+    )) return
+    setBulking(true)
+    setBulkError(null)
+    try {
+      const res = await fetch('/api/archive-sources/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ids: selectedSourceIds }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Bulk action failed')
+      setSelectedSourceIds([])
+      await refreshSources()
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Bulk action failed')
+    } finally {
+      setBulking(false)
+    }
+  }
+
+  async function handleDraftBulk(action: 'reject' | 'archive_only') {
+    setBulking(true)
+    setBulkError(null)
+    try {
+      const res = await fetch('/api/archive-drafts/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ids: selectedDraftIds }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Bulk action failed')
+      setSelectedDraftIds([])
+      await refreshDrafts()
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Bulk action failed')
+    } finally {
+      setBulking(false)
+    }
+  }
+
+  async function handleEntryBulk(action: 'set_status' | 'set_category' | 'set_sensitivity', value: string) {
+    if (action === 'set_status' && value === 'canonical' && !window.confirm(
+      `Mark ${selectedEntryIds.length} entr${selectedEntryIds.length === 1 ? 'y' : 'ies'} as Memory (canonical)? They will become eligible for recall.`
+    )) return
+    setBulking(true)
+    setBulkError(null)
+    try {
+      const res = await fetch('/api/archives/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ids: selectedEntryIds, value }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Bulk action failed')
+      setSelectedEntryIds([])
+      await refreshItems()
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Bulk action failed')
+    } finally {
+      setBulking(false)
+    }
+  }
 
   // ─── Entry import handler ───────────────────────────────────────────────
 
@@ -383,11 +549,76 @@ export default function ArchivesPage() {
               )}
             </div>
 
-            {/* Entry count */}
+            {/* Entry filters */}
+            {!itemsLoading && !itemsError && items.length > 0 && (
+              <EntryFilters value={entryFilters} onChange={setEntryFilters} />
+            )}
+
+            {/* Entry bulk action bar */}
+            {selectedEntryIds.length > 0 && (
+              <div className="sticky top-0 z-10 px-4 py-2 bg-house-surface border-b border-house-border flex flex-wrap items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedEntryIds.length === filteredItems.length}
+                  ref={el => { if (el) el.indeterminate = selectedEntryIds.length > 0 && selectedEntryIds.length < filteredItems.length }}
+                  onChange={toggleAllEntries}
+                  className="accent-house-muted"
+                />
+                <span className="font-body text-xs text-text-muted">{selectedEntryIds.length} selected</span>
+                <select
+                  defaultValue=""
+                  onChange={e => { if (e.target.value) { handleEntryBulk('set_status', e.target.value); e.target.value = '' } }}
+                  disabled={bulking}
+                  className="font-body text-xs bg-house-surface border border-house-border text-text-secondary px-2 py-1 outline-none focus:border-house-muted disabled:opacity-40"
+                >
+                  <option value="">Set status…</option>
+                  {ALL_STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                </select>
+                <select
+                  defaultValue=""
+                  onChange={e => { if (e.target.value) { handleEntryBulk('set_category', e.target.value); e.target.value = '' } }}
+                  disabled={bulking}
+                  className="font-body text-xs bg-house-surface border border-house-border text-text-secondary px-2 py-1 outline-none focus:border-house-muted disabled:opacity-40"
+                >
+                  <option value="">Set category…</option>
+                  {ALL_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+                </select>
+                <select
+                  defaultValue=""
+                  onChange={e => { if (e.target.value) { handleEntryBulk('set_sensitivity', e.target.value); e.target.value = '' } }}
+                  disabled={bulking}
+                  className="font-body text-xs bg-house-surface border border-house-border text-text-secondary px-2 py-1 outline-none focus:border-house-muted disabled:opacity-40"
+                >
+                  <option value="">Set sensitivity…</option>
+                  {ALL_SENSITIVITIES.map(s => <option key={s} value={s}>{SENSITIVITY_LABELS[s]}</option>)}
+                </select>
+                <button
+                  onClick={() => setSelectedEntryIds([])}
+                  className="ml-auto font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  Clear
+                </button>
+                {bulkError && <p className="font-body text-xs text-red-400 w-full">{bulkError}</p>}
+              </div>
+            )}
+
+            {/* Entry count + select-all */}
             {!itemsLoading && !itemsError && (
-              <div className="px-4 py-2 border-b border-house-border/40">
+              <div className="px-4 py-2 border-b border-house-border/40 flex items-center gap-3">
+                {filteredItems.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedEntryIds.length === filteredItems.length && filteredItems.length > 0}
+                    ref={el => { if (el) el.indeterminate = selectedEntryIds.length > 0 && selectedEntryIds.length < filteredItems.length }}
+                    onChange={toggleAllEntries}
+                    className="accent-house-muted"
+                  />
+                )}
                 <span className="font-body text-xs text-text-muted">
-                  {items.length === 0 ? 'No entries' : `${items.length} entr${items.length === 1 ? 'y' : 'ies'}`}
+                  {filteredItems.length === 0
+                    ? 'No entries'
+                    : `${filteredItems.length} entr${filteredItems.length === 1 ? 'y' : 'ies'}`}
+                  {items.length !== filteredItems.length && ` of ${items.length}`}
                 </span>
               </div>
             )}
@@ -405,10 +636,22 @@ export default function ArchivesPage() {
               </div>
             )}
 
-            {!itemsLoading && !itemsError && items.length > 0 && (
+            {!itemsLoading && !itemsError && filteredItems.length === 0 && items.length > 0 && (
+              <div className="px-4 py-8 text-center">
+                <p className="font-body text-sm text-text-muted">No entries match the current filters.</p>
+              </div>
+            )}
+
+            {!itemsLoading && !itemsError && filteredItems.length > 0 && (
               <div>
-                {items.map(item => (
-                  <ArchiveItemCard key={item.id} item={item} onRefresh={refreshItems} />
+                {filteredItems.map(item => (
+                  <ArchiveItemCard
+                    key={item.id}
+                    item={item}
+                    onRefresh={refreshItems}
+                    selected={selectedEntryIds.includes(item.id)}
+                    onToggleSelect={toggleEntrySelect}
+                  />
                 ))}
               </div>
             )}
@@ -529,11 +772,70 @@ export default function ArchivesPage() {
               onImported={refreshSources}
             />
 
-            {/* Source count */}
+            {/* Source filters */}
+            {!sourcesLoading && !sourcesError && sources.length > 0 && (
+              <SourceFilters value={sourceFilters} onChange={setSourceFilters} />
+            )}
+
+            {/* Source bulk action bar */}
+            {selectedSourceIds.length > 0 && (
+              <div className="sticky top-0 z-10 px-4 py-2 bg-house-surface border-b border-house-border flex flex-wrap items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedSourceIds.length === filteredSources.length}
+                  ref={el => { if (el) el.indeterminate = selectedSourceIds.length > 0 && selectedSourceIds.length < filteredSources.length }}
+                  onChange={toggleAllSources}
+                  className="accent-house-muted"
+                />
+                <span className="font-body text-xs text-text-muted">{selectedSourceIds.length} selected</span>
+                <button
+                  onClick={() => handleSourceBulk('mark_reviewed')}
+                  disabled={bulking}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Mark reviewed
+                </button>
+                <button
+                  onClick={() => handleSourceBulk('mark_skipped')}
+                  disabled={bulking}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={() => handleSourceBulk('remove')}
+                  disabled={bulking}
+                  className="font-body text-xs px-3 py-1 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+                >
+                  Remove
+                </button>
+                <button
+                  onClick={() => setSelectedSourceIds([])}
+                  className="ml-auto font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  Clear
+                </button>
+                {bulkError && <p className="font-body text-xs text-red-400 w-full">{bulkError}</p>}
+              </div>
+            )}
+
+            {/* Source count + select-all */}
             {!sourcesLoading && !sourcesError && (
-              <div className="px-4 py-2 border-b border-house-border/40">
+              <div className="px-4 py-2 border-b border-house-border/40 flex items-center gap-3">
+                {filteredSources.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedSourceIds.length === filteredSources.length && filteredSources.length > 0}
+                    ref={el => { if (el) el.indeterminate = selectedSourceIds.length > 0 && selectedSourceIds.length < filteredSources.length }}
+                    onChange={toggleAllSources}
+                    className="accent-house-muted"
+                  />
+                )}
                 <span className="font-body text-xs text-text-muted">
-                  {sources.length === 0 ? 'No conversations' : `${sources.length} conversation${sources.length === 1 ? '' : 's'}`}
+                  {filteredSources.length === 0
+                    ? 'No conversations'
+                    : `${filteredSources.length} conversation${filteredSources.length === 1 ? '' : 's'}`}
+                  {sources.length !== filteredSources.length && ` of ${sources.length}`}
                 </span>
               </div>
             )}
@@ -549,7 +851,13 @@ export default function ArchivesPage() {
               </div>
             )}
 
-            {!sourcesLoading && !sourcesError && sources.length > 0 && (
+            {!sourcesLoading && !sourcesError && filteredSources.length === 0 && sources.length > 0 && (
+              <div className="px-4 py-8 text-center">
+                <p className="font-body text-sm text-text-muted">No conversations match the current filters.</p>
+              </div>
+            )}
+
+            {!sourcesLoading && !sourcesError && filteredSources.length > 0 && (
               <div>
                 {/* Phase 28E — show notice if deep-linked source isn't found in this archive */}
                 {highlightSourceId && !sources.some(s => s.id === highlightSourceId) && (
@@ -559,12 +867,14 @@ export default function ArchivesPage() {
                     </p>
                   </div>
                 )}
-                {sources.map(source => (
+                {filteredSources.map(source => (
                   <ArchiveSourceCard
                     key={source.id}
                     source={source}
                     onRefresh={refreshSources}
                     defaultExpanded={source.id === highlightSourceId}
+                    selected={selectedSourceIds.includes(source.id)}
+                    onToggleSelect={toggleSourceSelect}
                   />
                 ))}
               </div>
@@ -576,11 +886,9 @@ export default function ArchivesPage() {
         {innerTab === 'drafts' && (
           <>
             <div className="px-4 py-3 border-b border-house-border/40 flex items-center justify-between">
-              <div>
-                <p className="font-body text-xs text-text-muted">
-                  Presence-proposed entries awaiting your approval.
-                </p>
-              </div>
+              <p className="font-body text-xs text-text-muted">
+                Presence-proposed entries awaiting your approval.
+              </p>
               {pendingDrafts.length > 0 && (
                 <span className="font-body text-xs text-amber-400">
                   {pendingDrafts.length} pending
@@ -588,9 +896,78 @@ export default function ArchivesPage() {
               )}
             </div>
 
+            {/* Draft filters */}
+            {!draftsLoading && !draftsError && allDrafts.length > 0 && (
+              <DraftFilters value={draftFilters} onChange={setDraftFilters} />
+            )}
+
+            {/* Draft bulk action bar */}
+            {selectedDraftIds.length > 0 && (
+              <div className="sticky top-0 z-10 px-4 py-2 bg-house-surface border-b border-house-border flex flex-wrap items-center gap-2">
+                {(() => {
+                  const pendingFiltered = filteredDrafts.filter(d => d.draft_status === 'pending_review')
+                  return (
+                    <input
+                      type="checkbox"
+                      checked={selectedDraftIds.length === pendingFiltered.length}
+                      ref={el => { if (el) el.indeterminate = selectedDraftIds.length > 0 && selectedDraftIds.length < pendingFiltered.length }}
+                      onChange={toggleAllDrafts}
+                      className="accent-house-muted"
+                    />
+                  )
+                })()}
+                <span className="font-body text-xs text-text-muted">{selectedDraftIds.length} selected</span>
+                <button
+                  onClick={() => handleDraftBulk('reject')}
+                  disabled={bulking}
+                  className="font-body text-xs px-3 py-1 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+                >
+                  Reject
+                </button>
+                <button
+                  onClick={() => handleDraftBulk('archive_only')}
+                  disabled={bulking}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Archive only
+                </button>
+                <button
+                  onClick={() => setSelectedDraftIds([])}
+                  className="ml-auto font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  Clear
+                </button>
+                {bulkError && <p className="font-body text-xs text-red-400 w-full">{bulkError}</p>}
+              </div>
+            )}
+
+            {/* Draft count + select-all */}
+            {!draftsLoading && !draftsError && (
+              <div className="px-4 py-2 border-b border-house-border/40 flex items-center gap-3">
+                {(() => {
+                  const pendingFiltered = filteredDrafts.filter(d => d.draft_status === 'pending_review')
+                  return pendingFiltered.length > 0 ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedDraftIds.length === pendingFiltered.length && pendingFiltered.length > 0}
+                      ref={el => { if (el) el.indeterminate = selectedDraftIds.length > 0 && selectedDraftIds.length < pendingFiltered.length }}
+                      onChange={toggleAllDrafts}
+                      className="accent-house-muted"
+                    />
+                  ) : null
+                })()}
+                <span className="font-body text-xs text-text-muted">
+                  {filteredDrafts.length === 0
+                    ? 'No drafts'
+                    : `${filteredDrafts.length} draft${filteredDrafts.length === 1 ? '' : 's'}`}
+                  {allDrafts.length !== filteredDrafts.length && ` of ${allDrafts.length}`}
+                </span>
+              </div>
+            )}
+
             <LoadingState loading={draftsLoading} error={draftsError} />
 
-            {!draftsLoading && !draftsError && pendingDrafts.length === 0 && (
+            {!draftsLoading && !draftsError && allDrafts.length === 0 && (
               <div className="px-4 py-12 text-center">
                 <p className="font-body text-sm text-text-muted">No pending drafts.</p>
                 <p className="font-body text-xs text-text-muted mt-1">
@@ -599,13 +976,21 @@ export default function ArchivesPage() {
               </div>
             )}
 
-            {!draftsLoading && !draftsError && pendingDrafts.length > 0 && (
+            {!draftsLoading && !draftsError && filteredDrafts.length === 0 && allDrafts.length > 0 && (
+              <div className="px-4 py-8 text-center">
+                <p className="font-body text-sm text-text-muted">No drafts match the current filters.</p>
+              </div>
+            )}
+
+            {!draftsLoading && !draftsError && filteredDrafts.length > 0 && (
               <div>
-                {pendingDrafts.map(draft => (
+                {filteredDrafts.map(draft => (
                   <ArchiveDraftCard
                     key={draft.id}
                     draft={draft}
                     onRefresh={refreshDrafts}
+                    selected={selectedDraftIds.includes(draft.id)}
+                    onToggleSelect={draft.draft_status === 'pending_review' ? toggleDraftSelect : undefined}
                   />
                 ))}
               </div>

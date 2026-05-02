@@ -215,7 +215,7 @@ export const ALL_VISIBILITIES: ArchiveVisibility[] = [
 
 // ─── Phase 27B: Sources & Drafts ────────────────────────────────────────────
 
-export type ReviewStatus = 'pending' | 'reviewed' | 'extracted'
+export type ReviewStatus = 'pending' | 'reviewed' | 'extracted' | 'skipped'
 export type DraftStatus = 'pending_review' | 'approved' | 'rejected' | 'merged' | 'archive_only'
 export type SuggestedMemoryStatus = 'yes' | 'no' | 'maybe'
 
@@ -327,16 +327,20 @@ export function getSourceDefaults(tab: ArchiveTab) {
 // --- Display labels for new types ---
 
 export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
-  pending: 'Pending review',
-  reviewed: 'Reviewed',
+  pending:   'Pending review',
+  reviewed:  'Reviewed',
   extracted: 'Extracted',
+  skipped:   'Skipped',
 }
 
 export const REVIEW_STATUS_COLOR: Record<ReviewStatus, string> = {
-  pending: 'text-text-muted',
-  reviewed: 'text-amber-400',
+  pending:   'text-text-muted',
+  reviewed:  'text-amber-400',
   extracted: 'text-green-400',
+  skipped:   'text-text-muted opacity-50',
 }
+
+export const ALL_REVIEW_STATUSES: ReviewStatus[] = ['pending', 'reviewed', 'extracted', 'skipped']
 
 export const DRAFT_STATUS_LABELS: Record<DraftStatus, string> = {
   pending_review: 'Pending',
@@ -371,3 +375,10 @@ export const ALL_DRAFT_STATUSES: DraftStatus[] = [
 ]
 
 export const ALL_SUGGESTED_MEMORY_STATUSES: SuggestedMemoryStatus[] = ['yes', 'maybe', 'no']
+
+// Phase 27D — source with computed curation counts
+export interface SourceWithCounts extends ArchiveSource {
+  draft_count: number
+  pending_draft_count: number
+  entry_count: number
+}
