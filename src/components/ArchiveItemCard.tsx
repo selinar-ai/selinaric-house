@@ -1,9 +1,10 @@
 'use client'
 
-// Phase 27A — Archive item card.
+// Phase 27A + 29A — Archive item card.
 // Collapsed: title, badges, metadata summary.
-// Expanded: full content, all metadata, all curation actions.
+// Expanded: full content, all metadata, Memory actions (Phase 29A), curation actions.
 // Eligibility toggles are disabled for non-canonical items — enforced here and in API.
+// Phase 29A: individual Memory promotion actions in expanded view, keyed on canonical_status.
 
 import { useState } from 'react'
 import VoiceButton from '@/components/VoiceButton'
@@ -27,6 +28,7 @@ import {
   type ArchiveVisibility,
   type Sensitivity,
 } from '@/lib/archives'
+import { isMemory, isMemoryCandidate, type MemoryBulkAction } from '@/lib/archive-memory'
 
 interface Props {
   item:            ArchiveItem
@@ -42,6 +44,8 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState(item.review_notes ?? '')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [memoryActioning, setMemoryActioning] = useState(false)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
 
   const eligible = canToggleEligibility(item)
   const contentPreview = item.excerpt || item.raw_content.slice(0, 250)
@@ -90,6 +94,47 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
   async function handleNotesSave() {
     await patch({ review_notes: notesValue || null })
     setEditingNotes(false)
+  }
+
+  // Phase 29A — individual Memory action via bulk route with one ID
+  async function handleMemoryAction(action: MemoryBulkAction, confirmedRisk = false) {
+    // Confirm demote
+    if (action === 'demote_memory' && !confirmedRisk) {
+      if (!window.confirm('Remove this entry from Memory?\n\nIt will remain in the archive but will no longer be recall-eligible.')) return
+      confirmedRisk = true
+    }
+    // Confirm promote
+    if (action === 'confirm_memory' && !confirmedRisk) {
+      if (!window.confirm('Mark this entry as Memory?\n\nIt may become available to manual recall and safe auto-recall.')) return
+      confirmedRisk = true
+    }
+
+    setMemoryActioning(true)
+    setMemoryError(null)
+    try {
+      const res = await fetch('/api/archive-memory/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ids: [item.id], confirmedRisk }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        // Sensitive confirmation required — retry with confirmedRisk
+        if (data.requiresConfirmation) {
+          if (window.confirm(`⚠ ${data.warning}\n\nProceed anyway?`)) {
+            setMemoryActioning(false)
+            await handleMemoryAction(action, true)
+          }
+          return
+        }
+        throw new Error(data.error ?? 'Memory action failed')
+      }
+      onRefresh()
+    } catch (err) {
+      setMemoryError(err instanceof Error ? err.message : 'Memory action failed')
+    } finally {
+      setMemoryActioning(false)
+    }
   }
 
   const archiveChipColor = ARCHIVE_COLOR[item.archive_name]
@@ -289,6 +334,83 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
               archiveName={item.archive_name}
               sourceDocument={item.source_document}
             />
+          </section>
+
+          {/* Memory promotion — Phase 29A — keyed on canonical_status */}
+          <section className="space-y-2">
+            <p className="font-body text-xs text-text-muted uppercase tracking-widest">Memory</p>
+            <div className="flex gap-2 flex-wrap">
+              {/* Not yet in Memory workflow — show candidate + direct confirm */}
+              {!isMemory(item.canonical_status) && !isMemoryCandidate(item.canonical_status) && item.canonical_status !== 'archive_only' && (
+                <>
+                  <button
+                    onClick={() => handleMemoryAction('mark_candidate')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                  >
+                    Mark candidate
+                  </button>
+                  <button
+                    onClick={() => handleMemoryAction('confirm_memory')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
+                  >
+                    Confirm Memory
+                  </button>
+                </>
+              )}
+              {/* canonical_candidate — Memory candidate */}
+              {isMemoryCandidate(item.canonical_status) && (
+                <>
+                  <button
+                    onClick={() => handleMemoryAction('confirm_memory')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
+                  >
+                    Confirm Memory
+                  </button>
+                  <button
+                    onClick={() => handleMemoryAction('reject_memory')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+                  >
+                    Reject Memory
+                  </button>
+                </>
+              )}
+              {/* canonical — Memory, can demote */}
+              {isMemory(item.canonical_status) && (
+                <>
+                  <button
+                    onClick={() => handleMemoryAction('demote_memory')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                  >
+                    Demote Memory
+                  </button>
+                  <button
+                    onClick={() => handleMemoryAction('reject_memory')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+                  >
+                    Reject Memory
+                  </button>
+                </>
+              )}
+              {/* archive_only — rejected/archive-only, can restore to candidate */}
+              {item.canonical_status === 'archive_only' && (
+                <button
+                  onClick={() => handleMemoryAction('restore_candidate')}
+                  disabled={memoryActioning}
+                  className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Restore candidate
+                </button>
+              )}
+            </div>
+            {memoryError && (
+              <p className="font-body text-xs text-red-400">{memoryError}</p>
+            )}
           </section>
 
           {/* Curation actions */}

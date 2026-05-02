@@ -5,10 +5,13 @@
 // Phase 28B: Event logging, feedback, rank_reason, match quality, score weights.
 // Phase 28D: Auto-recall trial, intent detection, per-presence settings, RecallMode/Options.
 //
-// Memory law:
+// Memory law (canonical_status is the authoritative Memory field):
 //   Manual recall — canonical + canonical_candidate in scope
 //   Auto recall   — canonical (Memory) only; strong matches only; defaults off
 //   Past Conversations / Extraction Drafts — never recalled
+//
+// Phase 29A adds audit events but does NOT change the recall gate.
+// canonical_status remains the single Memory authority.
 //
 // No embeddings, no vector search, no graph — Phase 29+
 
@@ -493,6 +496,7 @@ export async function getRecallableArchiveEntries(
   const supabase = getSupabase()
   const safeLimit = Math.min(Math.max(1, limit), 10)
 
+  // canonical_status is the authoritative Memory field.
   // Statuses: auto-recall uses ['canonical'] only; manual uses both
   const statuses = options?.statuses ?? ['canonical', 'canonical_candidate']
 

@@ -1,12 +1,14 @@
 'use client'
 
-// Phase 27A + 27B + 27D — Dual Archive Rooms
+// Phase 27A + 27B + 27D + 29A — Dual Archive Rooms
 // Outer tabs: Velvet · Violet · House (archive room)
-// Inner tabs per room: Entries | Conversations | Drafts
+// Inner tabs per room: Entries | Conversations | Drafts | Memory Review
 //   Entries       — curated archive_items (Phase 27A)
 //   Conversations — raw archive_sources pasted by Tara (Phase 27B)
 //   Drafts        — presence-proposed entries awaiting approval (Phase 27B)
+//   Memory Review — Memory promotion queue (Phase 29A)
 // Phase 27D: client-side filters per tab, selection + bulk actions
+// Phase 29A: Memory bulk actions, Memory Review tab, audit cards — keyed on canonical_status
 
 import { useState, useEffect, useRef } from 'react'
 import { useArchives } from '@/hooks/useArchives'
@@ -19,6 +21,7 @@ import ArchiveMarkdownImport from '@/components/ArchiveMarkdownImport'
 import SourceFilters, { type SourceFilterState, BLANK_SOURCE_FILTERS } from '@/components/archive/SourceFilters'
 import DraftFilters,  { type DraftFilterState,  BLANK_DRAFT_FILTERS  } from '@/components/archive/DraftFilters'
 import EntryFilters,  { type EntryFilterState,  BLANK_ENTRY_FILTERS  } from '@/components/archive/EntryFilters'
+import MemoryAuditCards from '@/components/archive/MemoryAuditCards'
 import {
   ALL_CATEGORIES,
   ALL_SENSITIVITIES,
@@ -31,6 +34,7 @@ import {
   type Sensitivity,
   type CanonicalStatus,
 } from '@/lib/archives'
+import type { MemoryBulkAction } from '@/lib/archive-memory'
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -61,12 +65,13 @@ const ARCHIVE_TABS: { id: ArchiveTab; label: string; sub: string; accent: string
   },
 ]
 
-type InnerTab = 'entries' | 'conversations' | 'drafts'
+type InnerTab = 'entries' | 'conversations' | 'drafts' | 'memory'
 
 const INNER_TABS: { id: InnerTab; label: string }[] = [
-  { id: 'entries', label: 'Entries' },
+  { id: 'entries',       label: 'Entries' },
   { id: 'conversations', label: 'Conversations' },
-  { id: 'drafts', label: 'Drafts' },
+  { id: 'drafts',        label: 'Drafts' },
+  { id: 'memory',        label: 'Memory Review' },
 ]
 
 // ─── Entry import form ─────────────────────────────────────────────────────
@@ -126,6 +131,11 @@ export default function ArchivesPage() {
   const [sourceFilters, setSourceFilters] = useState<SourceFilterState>({ ...BLANK_SOURCE_FILTERS })
   const [draftFilters,  setDraftFilters]  = useState<DraftFilterState>({ ...BLANK_DRAFT_FILTERS })
   const [entryFilters,  setEntryFilters]  = useState<EntryFilterState>({ ...BLANK_ENTRY_FILTERS })
+  // Phase 29A — Memory Review filter (preset to canonical_candidate by default)
+  const [memoryFilters, setMemoryFilters] = useState<EntryFilterState>({
+    ...BLANK_ENTRY_FILTERS,
+    canonical_status: 'canonical_candidate',
+  })
 
   // Phase 27D — selection state
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
@@ -135,6 +145,11 @@ export default function ArchivesPage() {
   // Phase 27D — bulk action state
   const [bulking,   setBulking]   = useState(false)
   const [bulkError, setBulkError] = useState<string | null>(null)
+
+  // Phase 29A — Memory Review selection
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([])
+  const [memoryBulking,     setMemoryBulking]     = useState(false)
+  const [memoryBulkError,   setMemoryBulkError]   = useState<string | null>(null)
 
   // Reset forms, filters, and selections when switching archive rooms
   useEffect(() => {
@@ -147,10 +162,13 @@ export default function ArchivesPage() {
     setSourceFilters({ ...BLANK_SOURCE_FILTERS })
     setDraftFilters({ ...BLANK_DRAFT_FILTERS })
     setEntryFilters({ ...BLANK_ENTRY_FILTERS })
+    setMemoryFilters({ ...BLANK_ENTRY_FILTERS, canonical_status: 'canonical_candidate' })
     setSelectedSourceIds([])
     setSelectedDraftIds([])
     setSelectedEntryIds([])
+    setSelectedMemoryIds([])
     setBulkError(null)
+    setMemoryBulkError(null)
   }, [activeTab])
 
   // Clear selections when switching inner tabs
@@ -158,7 +176,9 @@ export default function ArchivesPage() {
     setSelectedSourceIds([])
     setSelectedDraftIds([])
     setSelectedEntryIds([])
+    setSelectedMemoryIds([])
     setBulkError(null)
+    setMemoryBulkError(null)
   }, [innerTab])
 
   // Phase 28E — read deep-link URL params on first mount only
@@ -204,15 +224,20 @@ export default function ArchivesPage() {
     return true
   })
 
-  const filteredItems = items.filter(i => {
-    const q = entryFilters.search.toLowerCase()
-    if (q && !i.title.toLowerCase().includes(q) && !i.raw_content.toLowerCase().includes(q)) return false
-    if (entryFilters.canonical_status && i.canonical_status !== entryFilters.canonical_status) return false
-    if (entryFilters.category && i.category !== entryFilters.category) return false
-    if (entryFilters.has_linked_source === 'yes' && !i.source_id) return false
-    if (entryFilters.has_linked_source === 'no' && i.source_id) return false
-    return true
-  })
+  function applyEntryFilter(filterState: EntryFilterState) {
+    return items.filter(i => {
+      const q = filterState.search.toLowerCase()
+      if (q && !i.title.toLowerCase().includes(q) && !i.raw_content.toLowerCase().includes(q)) return false
+      if (filterState.canonical_status && i.canonical_status !== filterState.canonical_status) return false
+      if (filterState.category && i.category !== filterState.category) return false
+      if (filterState.has_linked_source === 'yes' && !i.source_id) return false
+      if (filterState.has_linked_source === 'no' && i.source_id) return false
+      return true
+    })
+  }
+
+  const filteredItems  = applyEntryFilter(entryFilters)
+  const filteredMemory = applyEntryFilter(memoryFilters)
 
   // ─── Phase 27D: selection toggle helpers ───────────────────────────────
 
@@ -241,6 +266,15 @@ export default function ArchivesPage() {
   function toggleAllEntries() {
     setSelectedEntryIds(prev =>
       prev.length === filteredItems.length ? [] : filteredItems.map(i => i.id)
+    )
+  }
+
+  function toggleMemorySelect(id: string) {
+    setSelectedMemoryIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  function toggleAllMemory() {
+    setSelectedMemoryIds(prev =>
+      prev.length === filteredMemory.length ? [] : filteredMemory.map(i => i.id)
     )
   }
 
@@ -290,9 +324,6 @@ export default function ArchivesPage() {
   }
 
   async function handleEntryBulk(action: 'set_status' | 'set_category' | 'set_sensitivity', value: string) {
-    if (action === 'set_status' && value === 'canonical' && !window.confirm(
-      `Mark ${selectedEntryIds.length} entr${selectedEntryIds.length === 1 ? 'y' : 'ies'} as Memory (canonical)? They will become eligible for recall.`
-    )) return
     setBulking(true)
     setBulkError(null)
     try {
@@ -309,6 +340,59 @@ export default function ArchivesPage() {
       setBulkError(err instanceof Error ? err.message : 'Bulk action failed')
     } finally {
       setBulking(false)
+    }
+  }
+
+  // Phase 29A — Memory bulk handler (used by both Entries and Memory Review tabs)
+  async function handleMemoryBulk(
+    action: MemoryBulkAction,
+    sourceIds: string[],
+    setIds: (ids: string[]) => void,
+    confirmedRisk = false
+  ) {
+    // Confirm promote
+    if (action === 'confirm_memory' && !confirmedRisk) {
+      if (!window.confirm(
+        `You are about to mark ${sourceIds.length} archive entr${sourceIds.length === 1 ? 'y' : 'ies'} as Memory.\n\n` +
+        `Memory entries may become available to manual recall and safe auto-recall.\n\nContinue?`
+      )) return
+      confirmedRisk = true
+    }
+    // Confirm demote
+    if (action === 'demote_memory' && !confirmedRisk) {
+      if (!window.confirm(
+        `You are about to remove ${sourceIds.length} archive entr${sourceIds.length === 1 ? 'y' : 'ies'} from Memory.\n\n` +
+        `They will remain in the archive but should no longer be recall-eligible.\n\nContinue?`
+      )) return
+      confirmedRisk = true
+    }
+
+    setMemoryBulking(true)
+    setMemoryBulkError(null)
+    try {
+      const res = await fetch('/api/archive-memory/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ids: sourceIds, confirmedRisk }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        // Server requires extra confirmation for sensitive entries
+        if (data.requiresConfirmation) {
+          if (window.confirm(`⚠ ${data.warning}\n\nProceed anyway?`)) {
+            setMemoryBulking(false)
+            await handleMemoryBulk(action, sourceIds, setIds, true)
+          }
+          return
+        }
+        throw new Error(data.error ?? 'Memory bulk action failed')
+      }
+      setIds([])
+      await refreshItems()
+    } catch (err) {
+      setMemoryBulkError(err instanceof Error ? err.message : 'Memory action failed')
+    } finally {
+      setMemoryBulking(false)
     }
   }
 
@@ -419,6 +503,14 @@ export default function ArchivesPage() {
                 {pendingDrafts.length}
               </span>
             )}
+            {tab.id === 'memory' && (() => {
+              const candidateCount = items.filter(i => i.canonical_status === 'canonical_candidate').length
+              return candidateCount > 0 ? (
+                <span className="ml-1.5 font-body text-[10px] text-amber-400">
+                  {candidateCount}
+                </span>
+              ) : null
+            })()}
           </button>
         ))}
       </div>
@@ -592,13 +684,38 @@ export default function ArchivesPage() {
                   <option value="">Set sensitivity…</option>
                   {ALL_SENSITIVITIES.map(s => <option key={s} value={s}>{SENSITIVITY_LABELS[s]}</option>)}
                 </select>
+                {/* Phase 29A — Memory actions in entry bulk bar */}
+                <span className="text-text-muted text-[10px]">·</span>
+                <button
+                  onClick={() => handleMemoryBulk('mark_candidate', selectedEntryIds, setSelectedEntryIds)}
+                  disabled={bulking || memoryBulking}
+                  className="font-body text-xs px-2 py-1 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Candidate
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('confirm_memory', selectedEntryIds, setSelectedEntryIds)}
+                  disabled={bulking || memoryBulking}
+                  className="font-body text-xs px-2 py-1 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
+                >
+                  Confirm Memory
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('reject_memory', selectedEntryIds, setSelectedEntryIds)}
+                  disabled={bulking || memoryBulking}
+                  className="font-body text-xs px-2 py-1 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+                >
+                  Reject Memory
+                </button>
                 <button
                   onClick={() => setSelectedEntryIds([])}
                   className="ml-auto font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
                 >
                   Clear
                 </button>
-                {bulkError && <p className="font-body text-xs text-red-400 w-full">{bulkError}</p>}
+                {(bulkError || memoryBulkError) && (
+                  <p className="font-body text-xs text-red-400 w-full">{bulkError ?? memoryBulkError}</p>
+                )}
               </div>
             )}
 
@@ -991,6 +1108,149 @@ export default function ArchivesPage() {
                     onRefresh={refreshDrafts}
                     selected={selectedDraftIds.includes(draft.id)}
                     onToggleSelect={draft.draft_status === 'pending_review' ? toggleDraftSelect : undefined}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Memory Review tab ────────────────────────────────────────── */}
+        {innerTab === 'memory' && (
+          <>
+            <div className="px-4 py-3 border-b border-house-border/40">
+              <p className="font-body text-xs text-text-muted">
+                Memory promotion queue. Confirm candidates as Memory or reject them.
+                Only confirmed Memory entries are recall-eligible.
+              </p>
+            </div>
+
+            {/* Audit summary cards */}
+            {!itemsLoading && !itemsError && items.length > 0 && (
+              <MemoryAuditCards items={items} />
+            )}
+
+            {/* Memory Review filters */}
+            {!itemsLoading && !itemsError && items.length > 0 && (
+              <EntryFilters value={memoryFilters} onChange={setMemoryFilters} />
+            )}
+
+            {/* Memory Review bulk action bar */}
+            {selectedMemoryIds.length > 0 && (
+              <div className="sticky top-0 z-10 px-4 py-2 bg-house-surface border-b border-house-border flex flex-wrap items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedMemoryIds.length === filteredMemory.length}
+                  ref={el => { if (el) el.indeterminate = selectedMemoryIds.length > 0 && selectedMemoryIds.length < filteredMemory.length }}
+                  onChange={toggleAllMemory}
+                  className="accent-house-muted"
+                />
+                <span className="font-body text-xs text-text-muted">{selectedMemoryIds.length} selected</span>
+                <button
+                  onClick={() => handleMemoryBulk('mark_candidate', selectedMemoryIds, setSelectedMemoryIds)}
+                  disabled={memoryBulking}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Candidate
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('confirm_memory', selectedMemoryIds, setSelectedMemoryIds)}
+                  disabled={memoryBulking}
+                  className="font-body text-xs px-3 py-1 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
+                >
+                  Confirm Memory
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('reject_memory', selectedMemoryIds, setSelectedMemoryIds)}
+                  disabled={memoryBulking}
+                  className="font-body text-xs px-3 py-1 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+                >
+                  Reject Memory
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('demote_memory', selectedMemoryIds, setSelectedMemoryIds)}
+                  disabled={memoryBulking}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary transition-all disabled:opacity-40"
+                >
+                  Demote
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('restore_candidate', selectedMemoryIds, setSelectedMemoryIds)}
+                  disabled={memoryBulking}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary transition-all disabled:opacity-40"
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => setSelectedMemoryIds([])}
+                  className="ml-auto font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  Clear
+                </button>
+                {memoryBulkError && <p className="font-body text-xs text-red-400 w-full">{memoryBulkError}</p>}
+              </div>
+            )}
+
+            {/* Count + select-all */}
+            {!itemsLoading && !itemsError && (
+              <div className="px-4 py-2 border-b border-house-border/40 flex items-center gap-3">
+                {filteredMemory.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedMemoryIds.length === filteredMemory.length && filteredMemory.length > 0}
+                    ref={el => { if (el) el.indeterminate = selectedMemoryIds.length > 0 && selectedMemoryIds.length < filteredMemory.length }}
+                    onChange={toggleAllMemory}
+                    className="accent-house-muted"
+                  />
+                )}
+                <span className="font-body text-xs text-text-muted">
+                  {filteredMemory.length === 0
+                    ? 'No entries'
+                    : `${filteredMemory.length} entr${filteredMemory.length === 1 ? 'y' : 'ies'}`}
+                  {items.length !== filteredMemory.length && ` of ${items.length}`}
+                </span>
+              </div>
+            )}
+
+            <LoadingState loading={itemsLoading} error={itemsError} />
+
+            {/* Empty states */}
+            {!itemsLoading && !itemsError && items.length === 0 && (
+              <div className="px-4 py-12 text-center">
+                <p className="font-body text-sm text-text-muted">No entries in {activeTabConfig.label} Archives yet.</p>
+              </div>
+            )}
+            {!itemsLoading && !itemsError && filteredMemory.length === 0 && items.length > 0 && (
+              <div className="px-4 py-10 text-center space-y-1">
+                {memoryFilters.canonical_status === 'canonical_candidate' && (
+                  <>
+                    <p className="font-body text-sm text-text-muted">No Memory candidates yet.</p>
+                    <p className="font-body text-xs text-text-muted">
+                      Archive Entries can be marked as candidates from the Entries tab.
+                    </p>
+                  </>
+                )}
+                {memoryFilters.canonical_status === 'canonical' && (
+                  <p className="font-body text-sm text-text-muted">No confirmed Memory entries match these filters.</p>
+                )}
+                {memoryFilters.canonical_status === 'archive_only' && (
+                  <p className="font-body text-sm text-text-muted">No entries have been rejected for Memory.</p>
+                )}
+                {!memoryFilters.canonical_status && (
+                  <p className="font-body text-sm text-text-muted">No entries match the current filters.</p>
+                )}
+              </div>
+            )}
+
+            {!itemsLoading && !itemsError && filteredMemory.length > 0 && (
+              <div>
+                {filteredMemory.map(item => (
+                  <ArchiveItemCard
+                    key={item.id}
+                    item={item}
+                    onRefresh={refreshItems}
+                    selected={selectedMemoryIds.includes(item.id)}
+                    onToggleSelect={toggleMemorySelect}
                   />
                 ))}
               </div>

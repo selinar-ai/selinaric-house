@@ -1,0 +1,90 @@
+// Phase 29A — Memory promotion helpers
+//
+// canonical_status is the single Memory authority. This file provides:
+//   - workflow action definitions
+//   - canonical_status mappings for each action
+//   - human-readable labels for the Memory workflow view
+//   - elevated sensitivity definition (for extra confirmation)
+//
+// Memory workflow:
+//   mark_candidate    → canonical_status = 'canonical_candidate'
+//   confirm_memory    → canonical_status = 'canonical'
+//   reject_memory     → canonical_status = 'archive_only'
+//   demote_memory     → canonical_status = 'needs_review'
+//   restore_candidate → canonical_status = 'canonical_candidate'
+//
+// Recall law (unchanged):
+//   Manual recall = canonical + canonical_candidate
+//   Auto-recall   = canonical only
+//
+// Sensitivity values (schema-confirmed — migration 019):
+//   'ordinary' | 'private' | 'sacred' | 'sensitive' | 'technical'
+//   Default: 'private'
+//   Elevated (requires extra confirmation): 'sacred' | 'sensitive' | 'technical'
+
+import type { CanonicalStatus } from '@/lib/archives'
+
+export type MemoryBulkAction =
+  | 'mark_candidate'
+  | 'confirm_memory'
+  | 'reject_memory'
+  | 'demote_memory'
+  | 'restore_candidate'
+
+export const MEMORY_BULK_ACTIONS: MemoryBulkAction[] = [
+  'mark_candidate',
+  'confirm_memory',
+  'reject_memory',
+  'demote_memory',
+  'restore_candidate',
+]
+
+// Allowed from-states (canonical_status values) for each action
+export const MEMORY_ACTION_SOURCES: Record<MemoryBulkAction, CanonicalStatus[]> = {
+  mark_candidate:    ['staged', 'needs_review', 'duplicate', 'superseded', 'archive_only', 'excluded'],
+  confirm_memory:    ['canonical_candidate', 'staged', 'needs_review'],
+  reject_memory:     ['canonical_candidate', 'canonical', 'staged', 'needs_review'],
+  demote_memory:     ['canonical'],
+  restore_candidate: ['archive_only', 'excluded'],
+}
+
+// Resulting canonical_status for each action
+export const MEMORY_ACTION_TARGET: Record<MemoryBulkAction, CanonicalStatus> = {
+  mark_candidate:    'canonical_candidate',
+  confirm_memory:    'canonical',
+  reject_memory:     'archive_only',
+  demote_memory:     'needs_review',
+  restore_candidate: 'canonical_candidate',
+}
+
+// Sensitivities that require extra confirmation before Memory promotion.
+// Confirmed values (migration 019): ordinary | private | sacred | sensitive | technical
+// Default: 'private'. Elevated = beyond ordinary/private.
+export const ELEVATED_SENSITIVITIES: string[] = ['sacred', 'sensitive', 'technical']
+
+// ─── Helpers ────────────────────────────────────────────────────────────────��─
+
+export function isMemory(canonicalStatus: string | null | undefined): boolean {
+  return canonicalStatus === 'canonical'
+}
+
+export function isMemoryCandidate(canonicalStatus: string | null | undefined): boolean {
+  return canonicalStatus === 'canonical_candidate'
+}
+
+export function isRejectedForMemory(canonicalStatus: string | null | undefined): boolean {
+  return canonicalStatus === 'archive_only'
+}
+
+/**
+ * Human-readable Memory workflow label for a canonical_status value.
+ * Only covers the Memory-relevant states; falls back to the value itself.
+ */
+export function memoryWorkflowLabel(canonicalStatus: string | null | undefined): string {
+  switch (canonicalStatus) {
+    case 'canonical':          return 'Memory'
+    case 'canonical_candidate':return 'Memory candidate'
+    case 'archive_only':       return 'Rejected for Memory / archive only'
+    default:                   return 'Not Memory'
+  }
+}

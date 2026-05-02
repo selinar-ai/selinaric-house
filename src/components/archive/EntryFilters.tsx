@@ -1,6 +1,7 @@
 'use client'
 
 // Phase 27D — Filter bar for Archive Entries tab.
+// Phase 29A — memory_status removed; canonical_status covers Memory filtering.
 
 import {
   STATUS_LABELS,
@@ -12,9 +13,9 @@ import {
 } from '@/lib/archives'
 
 export interface EntryFilterState {
-  search:           string
-  canonical_status: CanonicalStatus | ''
-  category:         ArchiveCategory | ''
+  search:            string
+  canonical_status:  CanonicalStatus | ''
+  category:          ArchiveCategory | ''
   has_linked_source: 'yes' | 'no' | ''
 }
 
