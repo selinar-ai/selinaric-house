@@ -340,8 +340,28 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
           <section className="space-y-2">
             <p className="font-body text-xs text-text-muted uppercase tracking-widest">Memory</p>
             <div className="flex gap-2 flex-wrap">
-              {/* Not yet in Memory workflow — show candidate + direct confirm */}
-              {!isMemory(item.canonical_status) && !isMemoryCandidate(item.canonical_status) && item.canonical_status !== 'archive_only' && (
+              {/* needs_review — previously demoted; restoration is distinct from first-time candidacy */}
+              {item.canonical_status === 'needs_review' && (
+                <>
+                  <button
+                    onClick={() => handleMemoryAction('restore_candidate')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                  >
+                    Restore candidate
+                  </button>
+                  <button
+                    onClick={() => handleMemoryAction('confirm_memory')}
+                    disabled={memoryActioning}
+                    className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
+                  >
+                    Confirm Memory
+                  </button>
+                </>
+              )}
+              {/* Not yet in Memory workflow — ordinary first-time candidacy (staged, duplicate, etc.) */}
+              {!isMemory(item.canonical_status) && !isMemoryCandidate(item.canonical_status) &&
+               item.canonical_status !== 'archive_only' && item.canonical_status !== 'needs_review' && (
                 <>
                   <button
                     onClick={() => handleMemoryAction('mark_candidate')}
