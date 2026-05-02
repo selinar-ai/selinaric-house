@@ -2,6 +2,7 @@
 // Shows resolved archive_item fields, rank info, and per-entry feedback.
 
 import { FeedbackSummaryFull, type FeedbackRow } from '@/components/RecallReview/RecallFeedbackSummary'
+import SourceLink from '@/components/SourceLink'
 
 const CATEGORY_DISPLAY: Record<string, string> = {
   relationship_philosophy: 'Relationship philosophy',
@@ -32,6 +33,8 @@ export interface ResolvedEntry {
   sensitivity?: string
   source_document?: string | null
   source_date?: string | null
+  source_id?: string | null
+  has_linked_source?: boolean
   excerpt?: string | null
   rank_score?: number | null
   rank_reason?: string | null
@@ -126,6 +129,15 @@ export default function RecallEntryCard({ entry, index }: Props) {
           />
         </div>
       )}
+
+      {/* Source traceability — Phase 28E */}
+      <div className="pl-6 pt-1">
+        <SourceLink
+          sourceId={entry.source_id}
+          archiveName={entry.archive_name}
+          sourceDocument={entry.source_document}
+        />
+      </div>
     </div>
   )
 }

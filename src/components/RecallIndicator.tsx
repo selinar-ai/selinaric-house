@@ -9,6 +9,7 @@
 
 import { useState, useCallback } from 'react'
 import type { RecallEntry, MatchQuality, RecallMode } from '@/lib/archive-recall'
+import SourceLink from '@/components/SourceLink'
 
 const ARCHIVE_DISPLAY: Record<string, string> = {
   velvet: 'Velvet',
@@ -190,6 +191,16 @@ export default function RecallIndicator({ entries, accentClass, recallEventId, m
                   <p className="font-body text-[9px] text-text-muted mt-0.5">
                     {[entry.source_document, entry.source_date].filter(Boolean).join(' — ')}
                   </p>
+                )}
+
+                {/* Source traceability — Phase 28E */}
+                {entry.source_id && (
+                  <SourceLink
+                    sourceId={entry.source_id}
+                    archiveName={entry.archive_name}
+                    sourceDocument={null}
+                    className="mt-0.5 block"
+                  />
                 )}
               </div>
             )

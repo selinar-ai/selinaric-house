@@ -92,6 +92,7 @@ export async function GET(
     sensitivity: string
     source_document: string | null
     source_date: string | null
+    source_id: string | null
     excerpt: string | null
   }
 
@@ -100,7 +101,7 @@ export async function GET(
   if (entryIds.length > 0) {
     const { data: items, error: itemsErr } = await supabase
       .from('archive_items')
-      .select('id, title, archive_name, owner_presence, visibility, source_origin, category, canonical_status, sensitivity, source_document, source_date, excerpt')
+      .select('id, title, archive_name, owner_presence, visibility, source_origin, category, canonical_status, sensitivity, source_document, source_date, source_id, excerpt')
       .in('id', entryIds)
       .is('deleted_at', null)
 
@@ -137,12 +138,14 @@ export async function GET(
       canonical_status: item.canonical_status,
       status_label:    STATUS_LABEL[item.canonical_status] ?? item.canonical_status,
       sensitivity:     item.sensitivity,
-      source_document: item.source_document,
-      source_date:     item.source_date,
-      excerpt:         item.excerpt,
-      rank_score:      null,   // not stored per-entry in Phase 28B events table
-      rank_reason:     null,   // not stored per-entry in Phase 28B events table
-      feedback:        feedbackByEntry[eid] ?? [],
+      source_document:    item.source_document,
+      source_date:        item.source_date,
+      source_id:          item.source_id ?? null,
+      has_linked_source:  !!item.source_id,
+      excerpt:            item.excerpt,
+      rank_score:         null,   // not stored per-entry in Phase 28B events table
+      rank_reason:        null,   // not stored per-entry in Phase 28B events table
+      feedback:           feedbackByEntry[eid] ?? [],
     }
   })
 

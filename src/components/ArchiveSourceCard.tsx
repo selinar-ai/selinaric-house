@@ -17,10 +17,11 @@ import {
 interface Props {
   source: ArchiveSource
   onRefresh: () => void
+  defaultExpanded?: boolean   // Phase 28E — auto-expand when deep-linked via sourceId URL param
 }
 
-export default function ArchiveSourceCard({ source, onRefresh }: Props) {
-  const [expanded, setExpanded] = useState(false)
+export default function ArchiveSourceCard({ source, onRefresh, defaultExpanded = false }: Props) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   const statusColor = REVIEW_STATUS_COLOR[source.review_status]
   const archiveChipColor = ARCHIVE_COLOR[source.archive_name]

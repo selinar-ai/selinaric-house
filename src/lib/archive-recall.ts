@@ -38,6 +38,7 @@ export type RecallEntry = {
   sensitivity: string
   source_document: string | null
   source_date: string | null
+  source_id: string | null          // Phase 28E — FK to archive_sources (null for older entries)
   rank_score: number
   rank_reason: string
   status_label: string
@@ -322,6 +323,7 @@ interface RawArchiveItem {
   owner_presence: string
   source_origin: string
   visibility: string
+  source_id: string | null
   category: string
   canonical_status: string
   sensitivity: string
@@ -499,7 +501,7 @@ export async function getRecallableArchiveEntries(
     .select(
       'id, title, excerpt, raw_content, archive_name, owner_presence, source_origin, ' +
       'visibility, category, canonical_status, sensitivity, source_document, source_date, ' +
-      'import_label, created_at'
+      'source_id, import_label, created_at'
     )
     .is('deleted_at', null)
     .in('canonical_status', statuses)
@@ -553,6 +555,7 @@ export async function getRecallableArchiveEntries(
     sensitivity:      item.sensitivity,
     source_document:  item.source_document,
     source_date:      item.source_date,
+    source_id:        item.source_id ?? null,
     rank_score:       totalScore,
     rank_reason,
     status_label:     STATUS_LABEL[item.canonical_status] ?? item.canonical_status,

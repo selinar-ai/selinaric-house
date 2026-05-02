@@ -68,6 +68,7 @@ async function createArchiveItemFromDraft(
       eligible_for_graph: false,
       import_label: `Extracted by ${draft.extracted_by}`,
       review_notes: draft.extraction_rationale ?? null,
+      source_id: draft.source_id ?? null,   // Phase 28E — preserve source traceability
       created_by: 'tara',
       updated_by: 'tara',
     })

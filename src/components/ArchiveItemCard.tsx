@@ -7,6 +7,7 @@
 
 import { useState } from 'react'
 import VoiceButton from '@/components/VoiceButton'
+import SourceLink from '@/components/SourceLink'
 import {
   ARCHIVE_LABEL,
   ARCHIVE_COLOR,
@@ -261,6 +262,16 @@ export default function ArchiveItemCard({ item, onRefresh }: Props) {
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* Source traceability — Phase 28E */}
+          <section>
+            <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-1.5">Source</p>
+            <SourceLink
+              sourceId={item.source_id}
+              archiveName={item.archive_name}
+              sourceDocument={item.source_document}
+            />
           </section>
 
           {/* Curation actions */}

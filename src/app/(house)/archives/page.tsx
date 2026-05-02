@@ -7,7 +7,7 @@
 //   Conversations — raw archive_sources pasted by Tara (Phase 27B)
 //   Drafts        — presence-proposed entries awaiting approval (Phase 27B)
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useArchives } from '@/hooks/useArchives'
 import { useArchiveSources } from '@/hooks/useArchiveSources'
 import { useArchiveDrafts } from '@/hooks/useArchiveDrafts'
@@ -89,6 +89,9 @@ const BLANK_SOURCE_FORM = {
 export default function ArchivesPage() {
   const [activeTab, setActiveTab] = useState<ArchiveTab>('velvet')
   const [innerTab, setInnerTab] = useState<InnerTab>('entries')
+  // Phase 28E — deep-link state from URL params (?archive=X&tab=conversations&sourceId=Y)
+  const [highlightSourceId, setHighlightSourceId] = useState<string | null>(null)
+  const deepLinkInitialised = useRef(false)
 
   // Entry import
   const [entryImportOpen, setEntryImportOpen] = useState(false)
@@ -119,6 +122,27 @@ export default function ArchivesPage() {
     setEntrySubmitError(null)
     setSourceSubmitError(null)
   }, [activeTab])
+
+  // Phase 28E — read deep-link URL params on first mount only
+  useEffect(() => {
+    if (deepLinkInitialised.current) return
+    deepLinkInitialised.current = true
+
+    const params = new URLSearchParams(window.location.search)
+    const archiveParam  = params.get('archive')
+    const tabParam      = params.get('tab')
+    const sourceIdParam = params.get('sourceId')
+
+    if (archiveParam && (archiveParam === 'velvet' || archiveParam === 'violet' || archiveParam === 'house')) {
+      setActiveTab(archiveParam)
+    }
+    if (tabParam === 'conversations' || tabParam === 'entries' || tabParam === 'drafts') {
+      setInnerTab(tabParam as InnerTab)
+    }
+    if (sourceIdParam) {
+      setHighlightSourceId(sourceIdParam)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTabConfig = ARCHIVE_TABS.find(t => t.id === activeTab)!
 
@@ -527,11 +551,20 @@ export default function ArchivesPage() {
 
             {!sourcesLoading && !sourcesError && sources.length > 0 && (
               <div>
+                {/* Phase 28E — show notice if deep-linked source isn't found in this archive */}
+                {highlightSourceId && !sources.some(s => s.id === highlightSourceId) && (
+                  <div className="px-4 py-2.5 border-b border-house-border/40">
+                    <p className="font-body text-xs text-text-muted italic">
+                      Linked source conversation not found — it may have been removed or belongs to a different archive.
+                    </p>
+                  </div>
+                )}
                 {sources.map(source => (
                   <ArchiveSourceCard
                     key={source.id}
                     source={source}
                     onRefresh={refreshSources}
+                    defaultExpanded={source.id === highlightSourceId}
                   />
                 ))}
               </div>

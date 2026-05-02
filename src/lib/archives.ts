@@ -52,6 +52,7 @@ export interface ArchiveItem {
   eligible_for_graph: boolean
   import_label: string | null
   import_batch_id: string | null
+  source_id: string | null          // Phase 28E — FK to archive_sources.id (null for older entries)
   source_document: string | null
   source_date: string | null
   created_by: string
