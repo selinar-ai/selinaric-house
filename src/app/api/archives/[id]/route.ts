@@ -2,10 +2,16 @@
 // PATCH — update status, visibility, category, eligibility, review_notes, updated_by
 //         Eligibility flags blocked if canonical_status !== 'canonical'
 // DELETE — soft delete only: sets deleted_at = now()
+//
+// Phase 27D audit patch: any canonical_status change that constitutes a Memory
+// workflow step (confirm_memory, reject_memory, demote_memory, mark_candidate,
+// restore_candidate) is logged to archive_memory_events after the update.
+// Audit failure is logged but never causes the PATCH to fail.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { canToggleEligibility, type ArchiveItem } from '@/lib/archives'
+import { canToggleEligibility, type ArchiveItem, type CanonicalStatus } from '@/lib/archives'
+import { deriveMemoryAuditAction } from '@/lib/archive-memory'
 
 function getSupabase() {
   return createClient(
@@ -107,6 +113,35 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // ─── Audit log: memory workflow step ────────────────────────────────────────
+  // Only fires when canonical_status changed AND the transition is a recognised
+  // Memory workflow step. Audit failure is non-fatal.
+  if (
+    patch.canonical_status &&
+    patch.canonical_status !== current.canonical_status
+  ) {
+    const auditAction = deriveMemoryAuditAction(
+      current.canonical_status as CanonicalStatus,
+      patch.canonical_status as CanonicalStatus
+    )
+    if (auditAction) {
+      const { error: auditError } = await supabase
+        .from('archive_memory_events')
+        .insert({
+          archive_item_id: id,
+          from_status:     current.canonical_status,
+          to_status:       patch.canonical_status as string,
+          action:          auditAction,
+          reason:          null,
+          created_by:      'tara',
+          created_at:      new Date().toISOString(),
+        })
+      if (auditError) {
+        console.error('[archives/id] audit insert failed:', auditError.message)
+      }
+    }
+  }
 
   return NextResponse.json({ item: data as ArchiveItem })
 }

@@ -11,10 +11,16 @@
 // set_sensitivity: updates sensitivity
 //
 // Soft delete not included in bulk — use individual remove from ArchiveItemCard.
+//
+// Phase 27D audit patch: for set_status targeting a memory-relevant canonical_status,
+// pre-fetches current statuses and inserts archive_memory_events rows (one per item
+// whose status actually changes and whose transition is a recognised memory step).
+// Audit failure is logged but never causes the bulk action to fail.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { CanonicalStatus, ArchiveCategory, Sensitivity } from '@/lib/archives'
+import { deriveMemoryAuditAction, MEMORY_AUDIT_TARGET_STATUSES } from '@/lib/archive-memory'
 
 function getSupabase() {
   return createClient(
@@ -65,6 +71,25 @@ export async function POST(request: NextRequest) {
     if (!VALID_STATUSES.includes(value as CanonicalStatus)) {
       return NextResponse.json({ error: `Invalid status: ${value}` }, { status: 400 })
     }
+
+    // ─── Pre-fetch current statuses for memory audit ─────────────────────────
+    // Only needed when the target status can appear in a memory audit event.
+    const toStatus = value as CanonicalStatus
+    const needsAudit = MEMORY_AUDIT_TARGET_STATUSES.has(toStatus)
+    const priorStatuses: Record<string, string> = {}
+
+    if (needsAudit) {
+      const { data: existing } = await supabase
+        .from('archive_items')
+        .select('id, canonical_status')
+        .in('id', ids as string[])
+        .is('deleted_at', null)
+      for (const row of existing ?? []) {
+        priorStatuses[row.id] = row.canonical_status
+      }
+    }
+
+    // ─── Update ───────────────────────────────────────────────────────────────
     const { data, error } = await supabase
       .from('archive_items')
       .update({ canonical_status: value, updated_at: now, updated_by: 'tara' })
@@ -73,6 +98,37 @@ export async function POST(request: NextRequest) {
       .select('id')
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // ─── Audit log ────────────────────────────────────────────────────────────
+    if (needsAudit && (data ?? []).length > 0) {
+      const auditRows = (data ?? [])
+        .map(row => {
+          const fromStatus = priorStatuses[row.id]
+          if (!fromStatus || fromStatus === value) return null
+          const auditAction = deriveMemoryAuditAction(fromStatus as CanonicalStatus, toStatus)
+          if (!auditAction) return null
+          return {
+            archive_item_id: row.id,
+            from_status:     fromStatus,
+            to_status:       value,
+            action:          auditAction,
+            reason:          null,
+            created_by:      'tara',
+            created_at:      now,
+          }
+        })
+        .filter(Boolean)
+
+      if (auditRows.length > 0) {
+        const { error: auditError } = await supabase
+          .from('archive_memory_events')
+          .insert(auditRows)
+        if (auditError) {
+          console.error('[archives/bulk] audit insert failed:', auditError.message)
+        }
+      }
+    }
+
     return NextResponse.json({ updated: (data ?? []).length, action, value })
   }
 

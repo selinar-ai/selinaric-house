@@ -77,6 +77,47 @@ export function isRejectedForMemory(canonicalStatus: string | null | undefined):
 }
 
 /**
+ * The set of canonical_status values that can appear as the *target* of a
+ * memory audit event. Used by routes to decide whether to fetch pre-update
+ * statuses before a bulk update.
+ */
+export const MEMORY_AUDIT_TARGET_STATUSES: ReadonlySet<CanonicalStatus> = new Set(
+  Object.values(MEMORY_ACTION_TARGET)
+)
+
+/**
+ * Derive the MemoryBulkAction that describes a canonical_status transition,
+ * or null if the transition is not a recognised memory workflow step.
+ *
+ * restore_candidate is checked before mark_candidate because both have
+ * canonical_candidate as their target but narrower vs. broader from-sets;
+ * we want the more-specific action name for archive_only / excluded sources.
+ */
+const AUDIT_ACTION_ORDER: MemoryBulkAction[] = [
+  'restore_candidate',
+  'confirm_memory',
+  'reject_memory',
+  'demote_memory',
+  'mark_candidate',
+]
+
+export function deriveMemoryAuditAction(
+  from: CanonicalStatus,
+  to: CanonicalStatus
+): MemoryBulkAction | null {
+  if (from === to) return null
+  for (const action of AUDIT_ACTION_ORDER) {
+    if (
+      MEMORY_ACTION_TARGET[action] === to &&
+      (MEMORY_ACTION_SOURCES[action] as readonly string[]).includes(from)
+    ) {
+      return action
+    }
+  }
+  return null
+}
+
+/**
  * Human-readable Memory workflow label for a canonical_status value.
  * Only covers the Memory-relevant states; falls back to the value itself.
  */
