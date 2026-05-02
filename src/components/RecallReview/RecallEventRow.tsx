@@ -11,6 +11,8 @@ export interface RecallEventSummary {
   normalised_query: string
   match_quality: MatchQuality
   recall_mode: 'manual' | 'auto'
+  retrieval_method: 'keyword' | 'semantic' | 'hybrid' | null
+  semantic_score: number | null
   entries_returned: number
   created_at: string
   feedback_summary: {
@@ -68,6 +70,16 @@ export default function RecallEventRow({ event, selected, onSelect }: Props) {
         {event.recall_mode === 'auto' && (
           <span className="font-body text-[9px] uppercase tracking-widest text-blue-400/80 border border-blue-400/30 px-1">
             auto
+          </span>
+        )}
+        {event.retrieval_method === 'semantic' && (
+          <span className="font-body text-[9px] uppercase tracking-widest text-emerald-400/80 border border-emerald-400/30 px-1">
+            sem
+          </span>
+        )}
+        {event.retrieval_method === 'hybrid' && (
+          <span className="font-body text-[9px] uppercase tracking-widest text-violet-400/80 border border-violet-400/30 px-1">
+            hybrid
           </span>
         )}
         <span className="font-body text-[10px] text-text-muted">

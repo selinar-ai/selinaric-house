@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   // eslint-disable-next-line prefer-const
   let eventsQ = supabase
     .from('archive_recall_events')
-    .select('id, presence_id, session_id, query, normalised_query, match_quality, recall_mode, auto_reason, entries_returned, entry_ids, created_at')
+    .select('id, presence_id, session_id, query, normalised_query, match_quality, recall_mode, auto_reason, entries_returned, entry_ids, retrieval_method, semantic_score, created_at')
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -118,6 +118,8 @@ export async function GET(request: NextRequest) {
     match_quality: string
     recall_mode: string
     auto_reason: string | null
+    retrieval_method: string | null
+    semantic_score: number | null
     entries_returned: number
     entry_ids: string[]
     created_at: string

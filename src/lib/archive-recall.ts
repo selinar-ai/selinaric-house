@@ -10,10 +10,9 @@
 //   Auto recall   — canonical (Memory) only; strong matches only; defaults off
 //   Past Conversations / Extraction Drafts — never recalled
 //
-// Phase 29A adds audit events but does NOT change the recall gate.
+// Phase 29A adds semantic recall (vector embeddings) and audit events.
 // canonical_status remains the single Memory authority.
-//
-// No embeddings, no vector search, no graph — Phase 29+
+// Semantic search lives in archive-semantic.ts; this file handles keyword recall + event logging.
 
 import { createClient } from '@supabase/supabase-js'
 import { CATEGORY_LABELS } from '@/lib/archives'
@@ -415,6 +414,9 @@ export type LogRecallEventParams = {
   // Phase 28D additions (optional — manual events omit these)
   recall_mode?:     RecallMode
   auto_reason?:     string | null
+  // Phase 29A additions
+  retrieval_method?: 'keyword' | 'semantic' | 'hybrid'
+  semantic_score?:   number | null
 }
 
 export async function logRecallEvent(params: LogRecallEventParams): Promise<string | null> {
@@ -432,6 +434,8 @@ export async function logRecallEvent(params: LogRecallEventParams): Promise<stri
         entry_ids:        params.entry_ids,
         recall_mode:      params.recall_mode ?? 'manual',
         auto_reason:      params.auto_reason ?? null,
+        retrieval_method: params.retrieval_method ?? null,
+        semantic_score:   params.semantic_score ?? null,
       })
       .select('id')
       .single()

@@ -11,6 +11,8 @@ import RecallSearch from '@/components/RecallReview/RecallSearch'
 import RecallEventList from '@/components/RecallReview/RecallEventList'
 import RecallEventDetail from '@/components/RecallReview/RecallEventDetail'
 import AutoRecallSettingsPanel from '@/components/RecallReview/AutoRecallSettings'
+import SemanticSearchPanel from '@/components/RecallReview/SemanticSearchPanel'
+import EmbedBackfillPanel from '@/components/RecallReview/EmbedBackfillPanel'
 import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRow'
 
 const PAGE_SIZE = 50
@@ -158,6 +160,12 @@ export default function RecallReviewPage() {
           </p>
           <AutoRecallSettingsPanel />
         </div>
+
+        {/* ── Semantic Search (Phase 29A) ──────────────────────── */}
+        <SemanticSearchPanel />
+
+        {/* ── Embedding Backfill (Phase 29A) ───────────────────── */}
+        <EmbedBackfillPanel />
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}
