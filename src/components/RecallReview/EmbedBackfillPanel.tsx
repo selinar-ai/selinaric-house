@@ -88,7 +88,7 @@ export default function EmbedBackfillPanel() {
       {open && (
         <div className="mt-3 space-y-3">
           <p className="font-body text-[10px] text-text-muted">
-            Generate text-embedding-3-small vectors for eligible archive items
+            Generate gte-small vectors for eligible archive items
             (Memory + Memory candidate). Idempotent — already-embedded items are skipped.
           </p>
 
@@ -128,6 +128,15 @@ export default function EmbedBackfillPanel() {
                 ))}
               </div>
 
+              {preview.elevated_sensitivity_count > 0 && (
+                <p className="font-body text-[10px] text-orange-300/80">
+                  {preview.elevated_sensitivity_count} item{preview.elevated_sensitivity_count !== 1 ? 's' : ''} have
+                  elevated sensitivity (sacred, sensitive, or technical) — you will be asked
+                  whether to include them. If skipped, only the remaining{' '}
+                  {preview.to_embed - preview.elevated_sensitivity_count} item{preview.to_embed - preview.elevated_sensitivity_count !== 1 ? 's' : ''} will be embedded this run.
+                </p>
+              )}
+
               {preview.to_embed === 0 ? (
                 <p className="font-body text-[10px] text-text-muted">
                   All eligible items are already embedded.
@@ -142,7 +151,10 @@ export default function EmbedBackfillPanel() {
                       hover:bg-house-bg transition-colors
                     "
                   >
-                    Execute ({preview.to_embed} items)
+                    {preview.elevated_sensitivity_count > 0
+                      ? `Review & execute (${preview.to_embed} items, ${preview.elevated_sensitivity_count} elevated)`
+                      : `Execute (${preview.to_embed} items)`
+                    }
                   </button>
                   <button
                     onClick={reset}
