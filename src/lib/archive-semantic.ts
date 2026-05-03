@@ -1,8 +1,11 @@
 // Phase 29A — Archive Semantic Recall helpers
 //
+// Provider: Supabase Edge Function + gte-small (384 dims)
+// Called server-side only. SUPABASE_SERVICE_ROLE_KEY required — never client-side.
+//
 // Provides:
 //   buildEmbedContent        — builds text to embed from an archive_item
-//   generateArchiveEmbedding — OpenAI text-embedding-3-small (1536 dims)
+//   generateArchiveEmbedding — calls embed-text Edge Function (gte-small, 384 dims)
 //   semanticSearch           — calls match_archive_embeddings RPC
 //   getEmbedBackfillPreview  — counts eligible items, already embedded, to embed,
 //                              elevated_sensitivity_count (sacred | sensitive | technical)
@@ -14,6 +17,11 @@
 //
 // Sensitivity: uses ELEVATED_SENSITIVITIES from archive-memory.ts
 //   ('sacred' | 'sensitive' | 'technical') — all three require confirmedSensitive=true
+//
+// Phase 29A laws:
+//   No canonical_status changes during embedding/backfill.
+//   No archive_memory_events writes during embedding/backfill.
+//   RAG retrieves. RAG does not decide.
 
 import { createClient } from '@supabase/supabase-js'
 import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
@@ -79,23 +87,40 @@ export function buildEmbedContent(item: {
 // ─── generateArchiveEmbedding ────────────────────────────────────────────────
 
 /**
- * Generates a 1536-dimensional embedding using text-embedding-3-small.
- * Dynamic import mirrors the pattern in memory-graph.ts.
+ * Generates a 384-dimensional embedding by calling the embed-text Supabase Edge Function.
+ * Provider: Supabase/gte-small. Server-side only — requires SUPABASE_SERVICE_ROLE_KEY.
+ * Never falls back to the anon key (service role must be present on Vercel).
  */
 export async function generateArchiveEmbedding(text: string): Promise<number[]> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not set')
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set')
 
-  const { default: OpenAI } = await import('openai')
-  const client = new OpenAI({ apiKey })
+  // Service role key required — never falls back to anon key for server-side embedding
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set — required for server-side embedding')
 
-  const response = await client.embeddings.create({
-    model:      'text-embedding-3-small',
-    input:      text,
-    dimensions: 1536,
+  const url = `${supabaseUrl}/functions/v1/embed-text`
+
+  const res = await fetch(url, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({ text }),
   })
 
-  return response.data[0].embedding
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText)
+    throw new Error(`embed-text function error ${res.status}: ${detail}`)
+  }
+
+  const data = await res.json() as { embedding?: unknown }
+  if (!Array.isArray(data.embedding)) {
+    throw new Error(`embed-text returned unexpected shape: ${JSON.stringify(data)}`)
+  }
+
+  return data.embedding as number[]
 }
 
 // ─── semanticSearch ───────────────────────────────────────────────────────────
@@ -243,8 +268,8 @@ export async function runEmbedBackfillLogic(
           {
             archive_item_id: item.id,
             embedding,
-            model:            'text-embedding-3-small',
-            dimensions:       1536,
+            model:            'gte-small',
+            dimensions:       384,
             canonical_status: item.canonical_status,
             updated_at:       new Date().toISOString(),
           },
