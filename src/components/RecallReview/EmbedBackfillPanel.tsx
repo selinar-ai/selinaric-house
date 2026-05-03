@@ -234,6 +234,11 @@ export default function EmbedBackfillPanel() {
                   </div>
                 ))}
               </div>
+              {result.errors > 0 && result.first_error && (
+                <p className="font-body text-[10px] text-red-400/80 break-words">
+                  First error: {result.first_error}
+                </p>
+              )}
               <button
                 onClick={reset}
                 className="

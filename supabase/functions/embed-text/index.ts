@@ -2,7 +2,18 @@
 //
 // Provider: Supabase/gte-small (384 dims, cosine-normalised)
 // Called by: Vercel server-side only (generateArchiveEmbedding in archive-semantic.ts)
-// Auth: Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>  (server-side only; never exposed to browser)
+//
+// Auth: custom shared secret — NOT Supabase JWT verification.
+//   "Verify JWT" must be DISABLED for this function in:
+//     Supabase Dashboard → Edge Functions → embed-text → Settings → Verify JWT: OFF
+//
+//   EMBED_TEXT_SECRET must be set as an Edge Function secret:
+//     Supabase Dashboard → Edge Functions → embed-text → Secrets → EMBED_TEXT_SECRET
+//   and as a server-side Vercel env var (not client-accessible):
+//     Vercel Dashboard → Settings → Environment Variables → EMBED_TEXT_SECRET (server only)
+//
+//   The function checks the header: x-embed-secret: <EMBED_TEXT_SECRET>
+//   Requests without the correct secret are rejected 401 before any model work.
 //
 // POST { text: string }
 // → { embedding: number[] }  (length 384)
@@ -22,6 +33,18 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 const session = new Supabase.ai.Session('gte-small')
 
 serve(async (req: Request) => {
+  // ── Custom secret auth ───────────────────────────────────────────────────────
+  // Verify JWT is disabled — we gate on a shared secret instead.
+  const embedSecret = Deno.env.get('EMBED_TEXT_SECRET')
+  const reqSecret   = req.headers.get('x-embed-secret')
+
+  if (!embedSecret || reqSecret !== embedSecret) {
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
   if (req.method !== 'POST') {
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),

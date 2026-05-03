@@ -1,7 +1,7 @@
 // Phase 29A — Archive Semantic Recall helpers
 //
 // Provider: Supabase Edge Function + gte-small (384 dims)
-// Called server-side only. SUPABASE_SERVICE_ROLE_KEY required — never client-side.
+// Called server-side only. EMBED_TEXT_SECRET required — never client-side.
 //
 // Provides:
 //   buildEmbedContent        — builds text to embed from an archive_item
@@ -10,6 +10,12 @@
 //   getEmbedBackfillPreview  — counts eligible items, already embedded, to embed,
 //                              elevated_sensitivity_count (sacred | sensitive | technical)
 //   runEmbedBackfillLogic    — shared backfill business logic (used by route + server action)
+//
+// Auth for embed-text edge function:
+//   Uses x-embed-secret header with EMBED_TEXT_SECRET (server-side env var only).
+//   Does NOT use Authorization: Bearer — new sb_secret_... keys are not JWTs and will
+//   fail Supabase's built-in Verify JWT middleware before the function body runs.
+//   Verify JWT must be DISABLED for embed-text in Supabase Dashboard.
 //
 // Eligibility (Option B): canonical_status IN ('canonical','canonical_candidate')
 //                         AND deleted_at IS NULL
@@ -59,9 +65,10 @@ export interface EmbedBackfillPreview {
 }
 
 export interface BackfillResult {
-  processed: number
-  skipped: number
-  errors: number
+  processed:   number
+  skipped:     number
+  errors:      number
+  first_error?: string   // first error message encountered, if any — surfaces in UI
 }
 
 // ─── buildEmbedContent ────────────────────────────────────────────────────────
@@ -88,24 +95,26 @@ export function buildEmbedContent(item: {
 
 /**
  * Generates a 384-dimensional embedding by calling the embed-text Supabase Edge Function.
- * Provider: Supabase/gte-small. Server-side only — requires SUPABASE_SERVICE_ROLE_KEY.
- * Never falls back to the anon key (service role must be present on Vercel).
+ * Provider: Supabase/gte-small. Server-side only.
+ *
+ * Auth: x-embed-secret header with EMBED_TEXT_SECRET (server-side env var).
+ * Does NOT use Authorization: Bearer — new sb_secret_... keys are not JWTs.
+ * embed-text must have Verify JWT DISABLED in Supabase Dashboard.
  */
 export async function generateArchiveEmbedding(text: string): Promise<number[]> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is not set')
 
-  // Service role key required — never falls back to anon key for server-side embedding
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set — required for server-side embedding')
+  const embedSecret = process.env.EMBED_TEXT_SECRET
+  if (!embedSecret) throw new Error('EMBED_TEXT_SECRET is not set — required for embed-text function calls')
 
   const url = `${supabaseUrl}/functions/v1/embed-text`
 
   const res = await fetch(url, {
     method:  'POST',
     headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type':   'application/json',
+      'x-embed-secret': embedSecret,
     },
     body: JSON.stringify({ text }),
   })
@@ -131,8 +140,8 @@ export async function generateArchiveEmbedding(text: string): Promise<number[]> 
  * Access-scope (velvet/violet/house visibility rules) must be applied by the caller.
  */
 export async function semanticSearch(params: {
-  queryEmbedding: number[]
-  limit?:         number
+  queryEmbedding:  number[]
+  limit?:          number
   matchThreshold?: number
 }): Promise<SemanticCandidate[]> {
   const supabase = getSupabase()
@@ -186,13 +195,13 @@ export async function getEmbedBackfillPreview(): Promise<EmbedBackfillPreview> {
   }
 
   const embeddedSet = new Set(((embedded ?? []) as { archive_item_id: string }[]).map(e => e.archive_item_id))
-  const toEmbed = eligible.filter(e => !embeddedSet.has(e.id))
+  const toEmbed     = eligible.filter(e => !embeddedSet.has(e.id))
   const elevatedCount = toEmbed.filter(e => ELEVATED_SENSITIVITIES.includes(e.sensitivity)).length
 
   return {
-    total_eligible:        eligible.length,
-    total_already_embedded: embeddedSet.size,
-    to_embed:              toEmbed.length,
+    total_eligible:             eligible.length,
+    total_already_embedded:     embeddedSet.size,
+    to_embed:                   toEmbed.length,
     elevated_sensitivity_count: elevatedCount,
   }
 }
@@ -205,6 +214,9 @@ export async function getEmbedBackfillPreview(): Promise<EmbedBackfillPreview> {
  *
  * confirmedSensitive: if false, elevated-sensitivity items are skipped.
  * If true, all eligible items (including elevated) are embedded.
+ *
+ * Returns { processed, skipped, errors, first_error? }.
+ * first_error is the first error message encountered — surfaced in the UI.
  */
 export async function runEmbedBackfillLogic(
   confirmedSensitive: boolean
@@ -241,12 +253,13 @@ export async function runEmbedBackfillLogic(
   // Skip elevated sensitivity items unless confirmed
   if (!confirmedSensitive) {
     const before = toEmbed.length
-    toEmbed = toEmbed.filter(e => !ELEVATED_SENSITIVITIES.includes(e.sensitivity))
-    skipped = before - toEmbed.length
+    toEmbed  = toEmbed.filter(e => !ELEVATED_SENSITIVITIES.includes(e.sensitivity))
+    skipped  = before - toEmbed.length
   }
 
-  let processed = 0
-  let errors    = 0
+  let processed  = 0
+  let errors     = 0
+  let firstError: string | undefined
 
   type EligibleItem = {
     id: string
@@ -277,16 +290,20 @@ export async function runEmbedBackfillLogic(
         )
 
       if (upsertErr) {
-        console.error(`[embed-backfill] upsert error for ${item.id}:`, upsertErr.message)
+        const msg = `upsert failed for ${item.id}: ${upsertErr.message}`
+        console.error('[embed-backfill]', msg)
+        if (!firstError) firstError = msg
         errors++
       } else {
         processed++
       }
     } catch (err) {
-      console.error(`[embed-backfill] embedding error for ${item.id}:`, err)
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[embed-backfill] embedding error for ${item.id} ("${item.title}"):`, msg)
+      if (!firstError) firstError = msg
       errors++
     }
   }
 
-  return { processed, skipped, errors }
+  return { processed, skipped, errors, first_error: firstError }
 }
