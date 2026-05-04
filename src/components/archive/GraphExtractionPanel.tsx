@@ -78,10 +78,6 @@ export default function GraphExtractionPanel({ archiveName, onDone }: Props) {
     setErrMsg(null)
   }
 
-  const nonElevatedToExtract = preview
-    ? Math.max(0, preview.to_extract - preview.elevated_sensitivity_count)
-    : 0
-
   return (
     <div className="mt-5 border-t border-house-border pt-4">
       <button
@@ -129,7 +125,7 @@ export default function GraphExtractionPanel({ archiveName, onDone }: Props) {
                 {[
                   { label: 'Eligible',             value: preview.total_eligible },
                   { label: 'Already extracted',    value: preview.already_extracted },
-                  { label: 'To extract',           value: preview.to_extract },
+                  { label: 'Non-elevated',         value: preview.non_elevated_count },
                   { label: 'Elevated sensitivity', value: preview.elevated_sensitivity_count },
                 ].map(card => (
                   <div key={card.label} className="border border-house-border bg-house-bg px-3 py-2 min-w-[70px]">
@@ -142,16 +138,42 @@ export default function GraphExtractionPanel({ archiveName, onDone }: Props) {
               {preview.elevated_sensitivity_count > 0 && (
                 <p className="font-body text-[10px] text-orange-300/80">
                   {preview.elevated_sensitivity_count} item{preview.elevated_sensitivity_count !== 1 ? 's' : ''} have
-                  elevated sensitivity (sacred, sensitive, or technical) — you will be asked
-                  whether to include them. If skipped, only the remaining{' '}
-                  {nonElevatedToExtract} item{nonElevatedToExtract !== 1 ? 's' : ''} will be extracted this run.
+                  elevated sensitivity (sacred, sensitive, or technical) — you will be asked whether to include them.
+                  Safe-mode run: {preview.to_extract} non-elevated item{preview.to_extract !== 1 ? 's' : ''}.
+                  If confirmed, up to {Math.min(preview.non_elevated_count + preview.elevated_sensitivity_count, MAX_ITEMS_PER_RUN)} items total.
                 </p>
               )}
 
-              {preview.to_extract === 0 ? (
+              {preview.to_extract === 0 && preview.elevated_sensitivity_count === 0 ? (
                 <p className="font-body text-[10px] text-text-muted">
                   All eligible items have already been extracted.
                 </p>
+              ) : preview.to_extract === 0 && preview.elevated_sensitivity_count > 0 ? (
+                <div className="space-y-2">
+                  <p className="font-body text-[10px] text-text-muted">
+                    No non-elevated items to extract. Confirm elevated items below to proceed.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleExecuteClick}
+                      className="
+                        h-8 px-3 font-body text-xs border border-orange-400/40
+                        text-orange-300 hover:bg-orange-400/10 transition-colors
+                      "
+                    >
+                      {`Review & extract (${preview.elevated_sensitivity_count} elevated)`}
+                    </button>
+                    <button
+                      onClick={reset}
+                      className="
+                        h-8 px-3 font-body text-xs border border-house-border
+                        text-text-muted hover:text-text-secondary transition-colors
+                      "
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div className="flex gap-2">
                   <button
@@ -163,7 +185,7 @@ export default function GraphExtractionPanel({ archiveName, onDone }: Props) {
                     "
                   >
                     {preview.elevated_sensitivity_count > 0
-                      ? `Review & extract (${preview.to_extract} items, ${preview.elevated_sensitivity_count} elevated)`
+                      ? `Extract (${preview.to_extract} safe) · review ${preview.elevated_sensitivity_count} elevated`
                       : `Extract (${preview.to_extract} items)`
                     }
                   </button>
@@ -189,7 +211,11 @@ export default function GraphExtractionPanel({ archiveName, onDone }: Props) {
                 elevated sensitivity (sacred, sensitive, or technical).
               </p>
               <p className="font-body text-[10px] text-text-muted">
-                Include them in this extraction run?
+                Include them in this extraction run?{' '}
+                {preview.to_extract > 0
+                  ? `If included: up to ${Math.min(preview.non_elevated_count + preview.elevated_sensitivity_count, MAX_ITEMS_PER_RUN)} items total. If skipped: ${preview.to_extract} non-elevated items only.`
+                  : `If included: up to ${Math.min(preview.elevated_sensitivity_count, MAX_ITEMS_PER_RUN)} items. If skipped: nothing to extract.`
+                }
               </p>
               <div className="flex gap-2 pt-1">
                 <button
@@ -203,12 +229,14 @@ export default function GraphExtractionPanel({ archiveName, onDone }: Props) {
                 </button>
                 <button
                   onClick={() => void execute(false)}
+                  disabled={preview.to_extract === 0}
                   className="
                     h-8 px-3 font-body text-xs border border-house-border
                     text-text-secondary hover:border-house-muted transition-colors
+                    disabled:opacity-40 disabled:cursor-not-allowed
                   "
                 >
-                  Skip elevated
+                  Skip elevated{preview.to_extract > 0 ? ` (${preview.to_extract} items)` : ''}
                 </button>
                 <button
                   onClick={() => setPhase('preview')}

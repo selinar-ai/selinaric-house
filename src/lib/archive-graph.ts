@@ -132,7 +132,11 @@ export function normalizeLabel(label: string): string {
  * Returns counts for the extraction preview panel.
  * already_extracted: eligible items whose IDs appear in source_item_ids of any
  *   existing archive_graph_node for this archive_name.
- * to_extract: unextracted items (before elevated gate), capped at MAX_ITEMS_PER_RUN.
+ * to_extract: NON-elevated unextracted items, capped at MAX_ITEMS_PER_RUN.
+ *   This is the safe-mode count — what will actually run when confirmedSensitive=false.
+ *   When confirmedSensitive=true the run uses all unextracted (still capped at 20).
+ * non_elevated_count: unextracted items with no elevated sensitivity.
+ * elevated_sensitivity_count: unextracted items with elevated sensitivity (sacred|sensitive|technical).
  */
 export async function getGraphExtractionPreview(
   archiveName: string
@@ -173,17 +177,19 @@ export async function getGraphExtractionPreview(
     for (const id of node.source_item_ids) extractedSet.add(id)
   }
 
-  const alreadyExtracted = eligible.filter(e => extractedSet.has(e.id)).length
-  const unextracted       = eligible.filter(e => !extractedSet.has(e.id))
-  const elevatedCount     = unextracted.filter(e => ELEVATED_SENSITIVITIES.includes(e.sensitivity)).length
-  const toExtract         = Math.min(unextracted.length, MAX_ITEMS_PER_RUN)
+  const alreadyExtracted    = eligible.filter(e => extractedSet.has(e.id)).length
+  const unextracted         = eligible.filter(e => !extractedSet.has(e.id))
+  const nonElevatedUnextracted = unextracted.filter(e => !ELEVATED_SENSITIVITIES.includes(e.sensitivity))
+  const elevatedUnextracted    = unextracted.filter(e =>  ELEVATED_SENSITIVITIES.includes(e.sensitivity))
 
   return {
     total_eligible:             eligible.length,
-    elevated_sensitivity_count: elevatedCount,
-    non_elevated_count:         eligible.length - elevatedCount - alreadyExtracted,
+    elevated_sensitivity_count: elevatedUnextracted.length,
+    non_elevated_count:         nonElevatedUnextracted.length,
     already_extracted:          alreadyExtracted,
-    to_extract:                 toExtract,
+    // Safe-mode count: non-elevated only, capped at run limit.
+    // This is what actually runs when confirmedSensitive=false.
+    to_extract:                 Math.min(nonElevatedUnextracted.length, MAX_ITEMS_PER_RUN),
   }
 }
 
