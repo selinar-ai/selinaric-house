@@ -1,9 +1,10 @@
 'use client'
 
-// Phase 28C — Recall Review Dashboard
+// Phase 28C + 29C — Recall Review Dashboard
 // House-level review surface. Read-only. Shows both Ari and Eli recall events.
 // Does not mutate archive_items, archive_sources, archive_entry_drafts, or any memory.
 // Does not feed data into presence chat prompts.
+// Phase 29C: HybridRecallPanel added — comparison only, no chat injection.
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import RecallFilters, { type RecallFilterState } from '@/components/RecallReview/RecallFilters'
@@ -13,6 +14,7 @@ import RecallEventDetail from '@/components/RecallReview/RecallEventDetail'
 import AutoRecallSettingsPanel from '@/components/RecallReview/AutoRecallSettings'
 import SemanticSearchPanel from '@/components/RecallReview/SemanticSearchPanel'
 import EmbedBackfillPanel from '@/components/RecallReview/EmbedBackfillPanel'
+import HybridRecallPanel from '@/components/RecallReview/HybridRecallPanel'
 import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRow'
 
 const PAGE_SIZE = 50
@@ -166,6 +168,9 @@ export default function RecallReviewPage() {
 
         {/* ── Embedding Backfill (Phase 29A) ───────────────────── */}
         <EmbedBackfillPanel />
+
+        {/* ── Hybrid Recall Lab (Phase 29C) ────────────────────── */}
+        <HybridRecallPanel />
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}
