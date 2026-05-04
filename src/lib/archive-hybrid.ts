@@ -113,8 +113,75 @@ function semanticInScope(candidate: SemanticCandidate, archiveName: string): boo
 
 // ─── Graph text search ───────────────────────────────────────────────────────
 
+// Stopwords excluded from graph token matching.
+// These words are too common to signal meaningful topic relevance.
+const GRAPH_STOPWORDS = new Set([
+  'a', 'an', 'the', 'in', 'on', 'of', 'off', 'to', 'for', 'and', 'or',
+  'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'about',
+  'what', 'do', 'you', 'remember', 'at', 'as', 'its', 'it', 'this',
+  'that', 'so', 'if', 'but', 'not', 'no', 'my', 'me', 'we', 'us',
+])
+
+/**
+ * Extracts meaningful tokens from a query for graph text matching.
+ * Removes stopwords and tokens shorter than 3 characters.
+ */
+function extractGraphTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && !GRAPH_STOPWORDS.has(t))
+}
+
+/**
+ * Returns true if a node's label or description matches the query under strict rules:
+ *   A. Full normalized query string appears anywhere in label or description, OR
+ *   B. ≥2 meaningful tokens match label or description, OR
+ *   C. 1 meaningful token matches the label only (not description-only) —
+ *      only when the token is ≥4 chars (avoids short common words slipping through).
+ *
+ * match_reason:
+ *   'label'       — match driven by node label
+ *   'description' — match driven by description only (requires ≥2 tokens)
+ *   null          — no match
+ */
+function matchGraphNode(
+  node: GraphNode,
+  lowerQuery: string,
+  meaningfulTokens: string[]
+): 'label' | 'description' | null {
+  if (meaningfulTokens.length === 0) return null
+
+  const nodeLabel = node.label.toLowerCase()
+  const nodeNorm  = node.normalized_label
+  const nodeDesc  = node.description?.toLowerCase() ?? ''
+
+  // Rule A: full query appears in label or description
+  if (nodeLabel.includes(lowerQuery) || nodeNorm.includes(lowerQuery)) return 'label'
+  if (nodeDesc.includes(lowerQuery)) return 'description'
+
+  // Count token hits in label and description separately
+  const labelHits = meaningfulTokens.filter(t => nodeLabel.includes(t) || nodeNorm.includes(t))
+  const descHits  = meaningfulTokens.filter(t => nodeDesc.includes(t))
+
+  // Rule B: ≥2 meaningful tokens match label
+  if (labelHits.length >= 2) return 'label'
+
+  // Rule B: ≥2 meaningful tokens match description
+  if (descHits.length >= 2) return 'description'
+
+  // Rule C: 1 meaningful token (≥4 chars) matches label only
+  const strongLabelHit = labelHits.find(t => t.length >= 4)
+  if (strongLabelHit) return 'label'
+
+  return null
+}
+
 /**
  * Text-matches approved graph nodes by label (then description) for the given archive.
+ * Uses stopword-filtered, length-gated tokens. Requires ≥2 meaningful token matches
+ * for description-only results. Single-token label matches require the token to be ≥4 chars.
  * Resolves source_item_ids back to live archive_items (deleted_at IS NULL).
  * Returns GraphRecallEntry[]:
  *   - provenance_ok: true  if ≥1 source entry resolved
@@ -152,26 +219,22 @@ async function runGraphTextSearch(
     .eq('archive_name', archiveName)
     .eq('approval_status', 'rejected')
 
-  // Text match: label first (stronger signal), then description
-  const lowerQuery = query.toLowerCase().trim()
-  const tokens = lowerQuery.split(/\s+/).filter(Boolean)
+  // Extract meaningful tokens (stopword-filtered, length-gated)
+  const lowerQuery       = query.toLowerCase().trim()
+  const meaningfulTokens = extractGraphTokens(query)
+
+  // If no meaningful tokens remain after filtering, return no graph results
+  if (meaningfulTokens.length === 0) {
+    return { entries: [], pendingCount: pendingCount ?? 0, rejectedCount: rejectedCount ?? 0 }
+  }
 
   const labelMatches: GraphNode[]       = []
   const descriptionMatches: GraphNode[] = []
 
   for (const node of approvedNodes as GraphNode[]) {
-    const labelMatch = tokens.some(t =>
-      node.label.toLowerCase().includes(t) ||
-      node.normalized_label.includes(t)
-    )
-    if (labelMatch) {
-      labelMatches.push(node)
-      continue
-    }
-    if (node.description) {
-      const descMatch = tokens.some(t => node.description!.toLowerCase().includes(t))
-      if (descMatch) descriptionMatches.push(node)
-    }
+    const reason = matchGraphNode(node, lowerQuery, meaningfulTokens)
+    if (reason === 'label') labelMatches.push(node)
+    else if (reason === 'description') descriptionMatches.push(node)
   }
 
   const matchedNodes: Array<{ node: GraphNode; match_reason: 'label' | 'description' }> = [
