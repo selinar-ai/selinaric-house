@@ -1,14 +1,16 @@
 'use client'
 
-// Phase 27A + 27B + 27D + 29A — Dual Archive Rooms
+// Phase 27A + 27B + 27D + 29A + 29B — Dual Archive Rooms
 // Outer tabs: Velvet · Violet · House (archive room)
-// Inner tabs per room: Entries | Conversations | Drafts | Memory Review
+// Inner tabs per room: Entries | Conversations | Drafts | Memory Review | Graph
 //   Entries       — curated archive_items (Phase 27A)
 //   Conversations — raw archive_sources pasted by Tara (Phase 27B)
 //   Drafts        — presence-proposed entries awaiting approval (Phase 27B)
 //   Memory Review — Memory promotion queue (Phase 29A)
+//   Graph         — concept graph extraction and candidate review (Phase 29B)
 // Phase 27D: client-side filters per tab, selection + bulk actions
 // Phase 29A: Memory bulk actions, Memory Review tab, audit cards — keyed on canonical_status
+// Phase 29B: Graph extraction panel + candidate review tab (nodes + edges)
 
 import { useState, useEffect, useRef } from 'react'
 import { useArchives } from '@/hooks/useArchives'
@@ -22,6 +24,8 @@ import SourceFilters, { type SourceFilterState, BLANK_SOURCE_FILTERS } from '@/c
 import DraftFilters,  { type DraftFilterState,  BLANK_DRAFT_FILTERS  } from '@/components/archive/DraftFilters'
 import EntryFilters,  { type EntryFilterState,  BLANK_ENTRY_FILTERS  } from '@/components/archive/EntryFilters'
 import MemoryAuditCards from '@/components/archive/MemoryAuditCards'
+import GraphExtractionPanel from '@/components/archive/GraphExtractionPanel'
+import GraphCandidatesTab from '@/components/archive/GraphCandidatesTab'
 import {
   ALL_CATEGORIES,
   ALL_SENSITIVITIES,
@@ -65,13 +69,14 @@ const ARCHIVE_TABS: { id: ArchiveTab; label: string; sub: string; accent: string
   },
 ]
 
-type InnerTab = 'entries' | 'conversations' | 'drafts' | 'memory'
+type InnerTab = 'entries' | 'conversations' | 'drafts' | 'memory' | 'graph'
 
 const INNER_TABS: { id: InnerTab; label: string }[] = [
   { id: 'entries',       label: 'Entries' },
   { id: 'conversations', label: 'Conversations' },
   { id: 'drafts',        label: 'Drafts' },
   { id: 'memory',        label: 'Memory Review' },
+  { id: 'graph',         label: 'Graph' },
 ]
 
 // ─── Entry import form ─────────────────────────────────────────────────────
@@ -151,6 +156,9 @@ export default function ArchivesPage() {
   const [memoryBulking,     setMemoryBulking]     = useState(false)
   const [memoryBulkError,   setMemoryBulkError]   = useState<string | null>(null)
 
+  // Phase 29B — Graph candidates refresh key (incremented after extraction to force reload)
+  const [graphRefreshKey, setGraphRefreshKey] = useState(0)
+
   // Reset forms, filters, and selections when switching archive rooms
   useEffect(() => {
     setEntryForm({ ...BLANK_ENTRY_FORM })
@@ -169,6 +177,7 @@ export default function ArchivesPage() {
     setSelectedMemoryIds([])
     setBulkError(null)
     setMemoryBulkError(null)
+    setGraphRefreshKey(0)
   }, [activeTab])
 
   // Clear selections when switching inner tabs
@@ -1257,6 +1266,32 @@ export default function ArchivesPage() {
             )}
           </>
         )}
+        {/* ── Graph tab ───────────────────────────────────────────────── */}
+        {innerTab === 'graph' && (
+          <>
+            <div className="px-4 py-3 border-b border-house-border/40">
+              <p className="font-body text-xs text-text-muted">
+                Concept graph extraction and candidate review.
+                Nodes and edges proposed by extraction require your approval before they enter the graph.
+              </p>
+            </div>
+
+            {/* Graph Extraction admin panel */}
+            <div className="px-4 py-3 border-b border-house-border/40">
+              <GraphExtractionPanel
+                archiveName={activeTab}
+                onDone={() => setGraphRefreshKey(k => k + 1)}
+              />
+            </div>
+
+            {/* Candidate review — key includes graphRefreshKey to reload after extraction */}
+            <GraphCandidatesTab
+              key={`${activeTab}-graph-${graphRefreshKey}`}
+              archiveName={activeTab}
+            />
+          </>
+        )}
+
       </div>
     </div>
   )
