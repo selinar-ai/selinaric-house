@@ -130,8 +130,11 @@ export function normalizeLabel(label: string): string {
 
 /**
  * Returns counts for the extraction preview panel.
- * already_extracted: eligible items whose IDs appear in source_item_ids of any
- *   existing archive_graph_node for this archive_name.
+ * already_extracted: eligible items whose IDs appear in:
+ *   (a) source_item_ids of any existing archive_graph_node for this archive_name, OR
+ *   (b) processed_archive_item_ids of any extraction event for this archive_name.
+ *   This union ensures items sent to Claude that produced zero candidates are
+ *   correctly counted as already processed (Phase 29D idempotency fix).
  * to_extract: NON-elevated unextracted items, capped at MAX_ITEMS_PER_RUN.
  *   This is the safe-mode count — what will actually run when confirmedSensitive=false.
  *   When confirmedSensitive=true the run uses all unextracted (still capped at 20).
@@ -172,9 +175,20 @@ export async function getGraphExtractionPreview(
         .eq('archive_name', archiveName)
     : { data: [] }
 
+  // Fetch processed_archive_item_ids from all extraction events for this archive
+  // (Phase 29D idempotency fix: items with zero candidates are tracked here)
+  const { data: existingEvents } = await supabase
+    .from('archive_graph_extraction_events')
+    .select('processed_archive_item_ids')
+    .eq('archive_name', archiveName)
+
+  // Union: node source_item_ids + event processed_archive_item_ids
   const extractedSet = new Set<string>()
   for (const node of (existingNodes ?? []) as { source_item_ids: string[] }[]) {
     for (const id of node.source_item_ids) extractedSet.add(id)
+  }
+  for (const event of (existingEvents ?? []) as { processed_archive_item_ids: string[] }[]) {
+    for (const id of (event.processed_archive_item_ids ?? [])) extractedSet.add(id)
   }
 
   const alreadyExtracted    = eligible.filter(e => extractedSet.has(e.id)).length
@@ -353,6 +367,9 @@ export async function runGraphExtractionLogic(
   }
 
   // ── 2. Determine already-extracted items ──────────────────────────────────
+  // Phase 29D idempotency fix: union node source_item_ids with event
+  // processed_archive_item_ids so items that produced zero candidates are
+  // correctly excluded from future runs.
   const eligibleIds = eligible.map(e => e.id)
 
   const { data: existingNodes } = eligibleIds.length > 0
@@ -362,9 +379,17 @@ export async function runGraphExtractionLogic(
         .eq('archive_name', archiveName)
     : { data: [] }
 
+  const { data: existingEvents } = await supabase
+    .from('archive_graph_extraction_events')
+    .select('processed_archive_item_ids')
+    .eq('archive_name', archiveName)
+
   const extractedSet = new Set<string>()
   for (const node of (existingNodes ?? []) as { source_item_ids: string[] }[]) {
     for (const id of node.source_item_ids) extractedSet.add(id)
+  }
+  for (const event of (existingEvents ?? []) as { processed_archive_item_ids: string[] }[]) {
+    for (const id of (event.processed_archive_item_ids ?? [])) extractedSet.add(id)
   }
 
   // ── 3. Filter and gate ────────────────────────────────────────────────────
@@ -414,6 +439,12 @@ export async function runGraphExtractionLogic(
   let totalErrors        = 0
   let firstError: string | undefined
 
+  // Phase 29D idempotency fix: track item IDs from batches where Claude
+  // responded and the response parsed successfully. Only these are written to
+  // processed_archive_item_ids. Batches that throw or fail to parse are NOT
+  // added — those items remain eligible for retry.
+  const processedItemIds: string[] = []
+
   // Split into batches
   const batches: typeof toExtract[] = []
   for (let i = 0; i < toExtract.length; i += MAX_ITEMS_PER_BATCH) {
@@ -443,7 +474,13 @@ export async function runGraphExtractionLogic(
         if (!firstError) firstError = msg
         totalErrors++
         continue
+        // Not added to processedItemIds — items remain eligible for retry
       }
+
+      // Claude responded and response parsed — mark these items as processed.
+      // Items that produce zero nodes/edges are still marked here so they are
+      // not reselected on future runs (Phase 29D idempotency fix).
+      processedItemIds.push(...batch.map(b => b.id))
 
       const batchItemIds = batch.map(b => b.id)
 
@@ -583,12 +620,13 @@ export async function runGraphExtractionLogic(
   await supabase
     .from('archive_graph_extraction_events')
     .update({
-      items_processed: toExtract.length,
-      nodes_proposed:  totalNodesProposed,
-      edges_proposed:  totalEdgesProposed,
-      errors:          totalErrors,
-      first_error:     firstError ?? null,
-      status:          totalErrors > 0 && totalNodesProposed === 0 ? 'error' : 'complete',
+      items_processed:            toExtract.length,
+      processed_archive_item_ids: processedItemIds,
+      nodes_proposed:             totalNodesProposed,
+      edges_proposed:             totalEdgesProposed,
+      errors:                     totalErrors,
+      first_error:                firstError ?? null,
+      status:                     totalErrors > 0 && totalNodesProposed === 0 ? 'error' : 'complete',
     })
     .eq('id', eventId)
 
