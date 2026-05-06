@@ -6,7 +6,7 @@
 // Eligibility toggles are disabled for non-canonical items — enforced here and in API.
 // Phase 29A: individual Memory promotion actions in expanded view, keyed on canonical_status.
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import VoiceButton from '@/components/VoiceButton'
 import SourceLink from '@/components/SourceLink'
 import {
@@ -28,7 +28,17 @@ import {
   type ArchiveVisibility,
   type Sensitivity,
 } from '@/lib/archives'
-import { isMemory, isMemoryCandidate, type MemoryBulkAction } from '@/lib/archive-memory'
+import { isMemory, isMemoryCandidate, memoryActionLabel, ELEVATED_SENSITIVITIES, type MemoryBulkAction } from '@/lib/archive-memory'
+
+interface AuditEvent {
+  id: string
+  from_status: string | null
+  to_status: string
+  action: string
+  reason: string | null
+  created_by: string
+  created_at: string
+}
 
 interface Props {
   item:            ArchiveItem
@@ -46,6 +56,24 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [memoryActioning, setMemoryActioning] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
+  const [reasonInput, setReasonInput] = useState('')
+  const [showReasonFor, setShowReasonFor] = useState<MemoryBulkAction | null>(null)
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+
+  const fetchAuditEvents = useCallback(async () => {
+    setAuditLoading(true)
+    try {
+      const res = await fetch(`/api/archive-memory/events?item_id=${item.id}`)
+      const data = await res.json()
+      if (res.ok && data.events) setAuditEvents(data.events)
+    } catch { /* non-fatal */ }
+    finally { setAuditLoading(false) }
+  }, [item.id])
+
+  useEffect(() => {
+    if (expanded) fetchAuditEvents()
+  }, [expanded, fetchAuditEvents])
 
   const eligible = canToggleEligibility(item)
   const contentPreview = item.excerpt || item.raw_content.slice(0, 250)
@@ -96,39 +124,47 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
     setEditingNotes(false)
   }
 
-  // Phase 29A — individual Memory action via bulk route with one ID
-  async function handleMemoryAction(action: MemoryBulkAction, confirmedRisk = false) {
-    // Confirm demote
-    if (action === 'demote_memory' && !confirmedRisk) {
+  // Phase 30 — Memory action with optional reason capture.
+  // For confirm/reject/hold, show reason input first. For mark_candidate/restore/demote, execute directly.
+  function requestMemoryAction(action: MemoryBulkAction) {
+    if (action === 'confirm_memory' || action === 'reject_memory' || action === 'hold_pending') {
+      setShowReasonFor(action)
+      setReasonInput('')
+      setMemoryError(null)
+      return
+    }
+    if (action === 'demote_memory') {
       if (!window.confirm('Remove this entry from Memory?\n\nIt will remain in the archive but will no longer be recall-eligible.')) return
-      confirmedRisk = true
     }
-    // Confirm promote
-    if (action === 'confirm_memory' && !confirmedRisk) {
-      if (!window.confirm('Mark this entry as Memory?\n\nIt may become available to manual recall and safe auto-recall.')) return
-      confirmedRisk = true
-    }
+    executeMemoryAction(action, false)
+  }
 
+  async function executeMemoryAction(action: MemoryBulkAction, confirmedRisk: boolean, reason?: string) {
     setMemoryActioning(true)
     setMemoryError(null)
     try {
       const res = await fetch('/api/archive-memory/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ids: [item.id], confirmedRisk }),
+        body: JSON.stringify({ action, ids: [item.id], confirmedRisk, reason: reason || undefined }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) {
-        // Sensitive confirmation required — retry with confirmedRisk
         if (data.requiresConfirmation) {
-          if (window.confirm(`⚠ ${data.warning}\n\nProceed anyway?`)) {
+          const isElevated = ELEVATED_SENSITIVITIES.includes(item.sensitivity)
+          const msg = isElevated
+            ? `⚠ This item has elevated sensitivity (${item.sensitivity}). Confirming memory may make it eligible for recall according to current memory law.\n\n${data.warning}\n\nProceed anyway?`
+            : `⚠ ${data.warning}\n\nProceed anyway?`
+          if (window.confirm(msg)) {
             setMemoryActioning(false)
-            await handleMemoryAction(action, true)
+            await executeMemoryAction(action, true, reason)
           }
           return
         }
         throw new Error(data.error ?? 'Memory action failed')
       }
+      setShowReasonFor(null)
+      setReasonInput('')
       onRefresh()
     } catch (err) {
       setMemoryError(err instanceof Error ? err.message : 'Memory action failed')
@@ -336,100 +372,127 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
             />
           </section>
 
-          {/* Memory promotion — Phase 29A — keyed on canonical_status */}
+          {/* Memory promotion — Phase 30 — keyed on canonical_status */}
           <section className="space-y-2">
             <p className="font-body text-xs text-text-muted uppercase tracking-widest">Memory</p>
             <div className="flex gap-2 flex-wrap">
-              {/* needs_review — previously demoted; restoration is distinct from first-time candidacy */}
+              {/* needs_review — previously demoted */}
               {item.canonical_status === 'needs_review' && (
                 <>
-                  <button
-                    onClick={() => handleMemoryAction('restore_candidate')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
-                  >
-                    Restore candidate
-                  </button>
-                  <button
-                    onClick={() => handleMemoryAction('confirm_memory')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
-                  >
-                    Confirm Memory
-                  </button>
+                  <button onClick={() => requestMemoryAction('restore_candidate')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40">Restore candidate</button>
+                  <button onClick={() => requestMemoryAction('confirm_memory')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40">Confirm Memory</button>
+                  <button onClick={() => requestMemoryAction('hold_pending')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-blue-400/20 text-blue-400/60 hover:bg-blue-400/10 transition-all disabled:opacity-40">Hold / Keep pending</button>
                 </>
               )}
-              {/* Not yet in Memory workflow — ordinary first-time candidacy (staged, duplicate, etc.) */}
+              {/* Not yet in Memory workflow — staged, duplicate, etc. */}
               {!isMemory(item.canonical_status) && !isMemoryCandidate(item.canonical_status) &&
                item.canonical_status !== 'archive_only' && item.canonical_status !== 'needs_review' && (
                 <>
-                  <button
-                    onClick={() => handleMemoryAction('mark_candidate')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
-                  >
-                    Mark candidate
-                  </button>
-                  <button
-                    onClick={() => handleMemoryAction('confirm_memory')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
-                  >
-                    Confirm Memory
-                  </button>
+                  <button onClick={() => requestMemoryAction('mark_candidate')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40">Mark candidate</button>
+                  <button onClick={() => requestMemoryAction('confirm_memory')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40">Confirm Memory</button>
                 </>
               )}
               {/* canonical_candidate — Memory candidate */}
               {isMemoryCandidate(item.canonical_status) && (
                 <>
-                  <button
-                    onClick={() => handleMemoryAction('confirm_memory')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
-                  >
-                    Confirm Memory
-                  </button>
-                  <button
-                    onClick={() => handleMemoryAction('reject_memory')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
-                  >
-                    Reject Memory
-                  </button>
+                  <button onClick={() => requestMemoryAction('confirm_memory')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40">Confirm Memory</button>
+                  <button onClick={() => requestMemoryAction('reject_memory')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40">Reject Memory</button>
+                  <button onClick={() => requestMemoryAction('hold_pending')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-blue-400/20 text-blue-400/60 hover:bg-blue-400/10 transition-all disabled:opacity-40">Hold / Keep pending</button>
                 </>
               )}
-              {/* canonical — Memory, can demote */}
+              {/* canonical — confirmed Memory */}
               {isMemory(item.canonical_status) && (
                 <>
-                  <button
-                    onClick={() => handleMemoryAction('demote_memory')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
-                  >
-                    Demote Memory
-                  </button>
-                  <button
-                    onClick={() => handleMemoryAction('reject_memory')}
-                    disabled={memoryActioning}
-                    className="font-body text-xs px-3 py-1.5 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
-                  >
-                    Reject Memory
-                  </button>
+                  <button onClick={() => requestMemoryAction('demote_memory')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40">Demote Memory</button>
+                  <button onClick={() => requestMemoryAction('reject_memory')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40">Reject Memory</button>
                 </>
               )}
-              {/* archive_only — rejected/archive-only, can restore to candidate */}
+              {/* archive_only — can restore to candidate */}
               {item.canonical_status === 'archive_only' && (
-                <button
-                  onClick={() => handleMemoryAction('restore_candidate')}
-                  disabled={memoryActioning}
-                  className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
-                >
-                  Restore candidate
-                </button>
+                <button onClick={() => requestMemoryAction('restore_candidate')} disabled={memoryActioning} className="font-body text-xs px-3 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40">Restore candidate</button>
               )}
             </div>
+
+            {/* Reason input panel — Phase 30 governance */}
+            {showReasonFor && (
+              <div className="mt-2 p-3 border border-house-border/60 bg-house-surface/50 space-y-2">
+                <p className="font-body text-xs text-text-secondary">
+                  {showReasonFor === 'confirm_memory' && 'Confirm this entry as Memory? It may become eligible for recall.'}
+                  {showReasonFor === 'reject_memory' && 'Reject this entry for Memory? It will remain in the archive.'}
+                  {showReasonFor === 'hold_pending' && 'Hold this entry for now? No status change will occur.'}
+                </p>
+                {showReasonFor === 'confirm_memory' && ELEVATED_SENSITIVITIES.includes(item.sensitivity) && (
+                  <p className="font-body text-[11px] text-amber-400">
+                    This item has elevated sensitivity ({item.sensitivity}). Confirming memory may make it eligible for recall according to current memory law.
+                  </p>
+                )}
+                <textarea
+                  value={reasonInput}
+                  onChange={e => setReasonInput(e.target.value)}
+                  rows={2}
+                  className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted resize-none"
+                  placeholder={showReasonFor === 'reject_memory' ? 'Reason for rejection (optional)…' : 'Note (optional)…'}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => executeMemoryAction(showReasonFor, false, reasonInput.trim() || undefined)}
+                    disabled={memoryActioning}
+                    className={`font-body text-xs px-3 py-1 border transition-all disabled:opacity-40 ${
+                      showReasonFor === 'confirm_memory'
+                        ? 'border-green-400/30 text-green-400 hover:bg-green-400/10'
+                        : showReasonFor === 'reject_memory'
+                        ? 'border-red-400/20 text-red-400/60 hover:bg-red-400/10'
+                        : 'border-blue-400/20 text-blue-400/60 hover:bg-blue-400/10'
+                    }`}
+                  >
+                    {showReasonFor === 'confirm_memory' && 'Confirm'}
+                    {showReasonFor === 'reject_memory' && 'Reject'}
+                    {showReasonFor === 'hold_pending' && 'Hold'}
+                  </button>
+                  <button
+                    onClick={() => { setShowReasonFor(null); setReasonInput('') }}
+                    className="font-body text-xs px-3 py-1 text-text-muted hover:text-text-secondary transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {memoryError && (
               <p className="font-body text-xs text-red-400">{memoryError}</p>
+            )}
+          </section>
+
+          {/* Audit trail — Phase 30 */}
+          <section>
+            <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-2">History</p>
+            {auditLoading && <p className="font-body text-xs text-text-muted">Loading…</p>}
+            {!auditLoading && auditEvents.length === 0 && (
+              <p className="font-body text-xs text-text-muted italic">No memory events recorded.</p>
+            )}
+            {!auditLoading && auditEvents.length > 0 && (
+              <div className="space-y-1.5">
+                {auditEvents.map(evt => (
+                  <div key={evt.id} className="font-body text-xs text-text-secondary flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-text-muted">{new Date(evt.created_at).toLocaleDateString('en-AU')}</span>
+                      <span>{memoryActionLabel(evt.action)}</span>
+                      {evt.from_status !== evt.to_status && (
+                        <span className="text-text-muted">
+                          {STATUS_LABELS[evt.from_status as CanonicalStatus] ?? evt.from_status} → {STATUS_LABELS[evt.to_status as CanonicalStatus] ?? evt.to_status}
+                        </span>
+                      )}
+                      {evt.from_status === evt.to_status && (
+                        <span className="text-text-muted">(no status change)</span>
+                      )}
+                    </div>
+                    {evt.reason && (
+                      <p className="text-text-muted pl-2 italic">{evt.reason}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </section>
 
@@ -506,7 +569,7 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
                 disabled={patching}
                 className="font-body text-xs px-4 py-1.5 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
               >
-                Mark as memory
+                Mark as Memory
               </button>
             )}
 

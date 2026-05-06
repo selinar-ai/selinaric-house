@@ -30,6 +30,7 @@ export type MemoryBulkAction =
   | 'reject_memory'
   | 'demote_memory'
   | 'restore_candidate'
+  | 'hold_pending'
 
 export const MEMORY_BULK_ACTIONS: MemoryBulkAction[] = [
   'mark_candidate',
@@ -37,6 +38,7 @@ export const MEMORY_BULK_ACTIONS: MemoryBulkAction[] = [
   'reject_memory',
   'demote_memory',
   'restore_candidate',
+  'hold_pending',
 ]
 
 // Allowed from-states (canonical_status values) for each action
@@ -46,15 +48,18 @@ export const MEMORY_ACTION_SOURCES: Record<MemoryBulkAction, CanonicalStatus[]> 
   reject_memory:     ['canonical_candidate', 'canonical', 'staged', 'needs_review'],
   demote_memory:     ['canonical'],
   restore_candidate: ['archive_only', 'excluded', 'needs_review'],
+  hold_pending:      ['canonical_candidate', 'staged', 'needs_review'],
 }
 
-// Resulting canonical_status for each action
-export const MEMORY_ACTION_TARGET: Record<MemoryBulkAction, CanonicalStatus> = {
+// Resulting canonical_status for each action.
+// hold_pending is null — it preserves the current status (no transition).
+export const MEMORY_ACTION_TARGET: Record<MemoryBulkAction, CanonicalStatus | null> = {
   mark_candidate:    'canonical_candidate',
   confirm_memory:    'canonical',
   reject_memory:     'archive_only',
   demote_memory:     'needs_review',
   restore_candidate: 'canonical_candidate',
+  hold_pending:      null,
 }
 
 // Sensitivities that require extra confirmation before Memory promotion.
@@ -82,7 +87,7 @@ export function isRejectedForMemory(canonicalStatus: string | null | undefined):
  * statuses before a bulk update.
  */
 export const MEMORY_AUDIT_TARGET_STATUSES: ReadonlySet<CanonicalStatus> = new Set(
-  Object.values(MEMORY_ACTION_TARGET)
+  Object.values(MEMORY_ACTION_TARGET).filter((v): v is CanonicalStatus => v !== null)
 )
 
 /**
@@ -123,9 +128,22 @@ export function deriveMemoryAuditAction(
  */
 export function memoryWorkflowLabel(canonicalStatus: string | null | undefined): string {
   switch (canonicalStatus) {
-    case 'canonical':          return 'Memory'
-    case 'canonical_candidate':return 'Memory candidate'
-    case 'archive_only':       return 'Rejected for Memory / archive only'
+    case 'canonical':          return 'Confirmed Memory'
+    case 'canonical_candidate':return 'Memory Candidate'
+    case 'archive_only':       return 'Archive Only'
     default:                   return 'Not Memory'
+  }
+}
+
+/** Human-readable label for a MemoryBulkAction. */
+export function memoryActionLabel(action: string): string {
+  switch (action) {
+    case 'confirm_memory':    return 'Confirmed as Memory'
+    case 'reject_memory':     return 'Rejected for Memory'
+    case 'mark_candidate':    return 'Marked as candidate'
+    case 'demote_memory':     return 'Demoted from Memory'
+    case 'restore_candidate': return 'Restored as candidate'
+    case 'hold_pending':      return 'Held / kept pending'
+    default:                  return action
   }
 }

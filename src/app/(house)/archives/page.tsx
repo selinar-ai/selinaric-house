@@ -352,45 +352,80 @@ export default function ArchivesPage() {
     }
   }
 
-  // Phase 29A — Memory bulk handler (used by both Entries and Memory Review tabs)
+  // Phase 30 — Memory bulk handler with reason prompt for confirm/reject/hold
   async function handleMemoryBulk(
     action: MemoryBulkAction,
     sourceIds: string[],
     setIds: (ids: string[]) => void,
     confirmedRisk = false
   ) {
-    // Confirm promote
+    const count = sourceIds.length
+    const plural = count === 1 ? 'y' : 'ies'
+
+    // Confirm promote — enhanced guardrail for batch
     if (action === 'confirm_memory' && !confirmedRisk) {
-      if (!window.confirm(
-        `You are about to mark ${sourceIds.length} archive entr${sourceIds.length === 1 ? 'y' : 'ies'} as Memory.\n\n` +
-        `Memory entries may become available to manual recall and safe auto-recall.\n\nContinue?`
-      )) return
+      const reason = window.prompt(
+        `You are about to mark ${count} archive entr${plural} as Confirmed Memory.\n\n` +
+        `Memory entries may become available to manual recall and safe auto-recall.\n\n` +
+        `Enter a reason (optional) or press OK to continue, Cancel to abort:`
+      )
+      if (reason === null) return // cancelled
       confirmedRisk = true
+      return handleMemoryBulkExecute(action, sourceIds, setIds, confirmedRisk, reason.trim() || undefined)
+    }
+    // Confirm reject
+    if (action === 'reject_memory' && !confirmedRisk) {
+      const reason = window.prompt(
+        `You are about to reject ${count} archive entr${plural} for Memory.\n\n` +
+        `They will remain in the archive as Archive Only.\n\n` +
+        `Enter a reason (optional) or press OK to continue, Cancel to abort:`
+      )
+      if (reason === null) return
+      confirmedRisk = true
+      return handleMemoryBulkExecute(action, sourceIds, setIds, confirmedRisk, reason.trim() || undefined)
+    }
+    // Hold pending
+    if (action === 'hold_pending') {
+      const reason = window.prompt(
+        `Hold ${count} entr${plural} as pending — no status change will occur.\n\n` +
+        `Enter a note (optional) or press OK to continue, Cancel to abort:`
+      )
+      if (reason === null) return
+      return handleMemoryBulkExecute(action, sourceIds, setIds, false, reason.trim() || undefined)
     }
     // Confirm demote
     if (action === 'demote_memory' && !confirmedRisk) {
       if (!window.confirm(
-        `You are about to remove ${sourceIds.length} archive entr${sourceIds.length === 1 ? 'y' : 'ies'} from Memory.\n\n` +
-        `They will remain in the archive but should no longer be recall-eligible.\n\nContinue?`
+        `You are about to remove ${count} archive entr${plural} from Memory.\n\n` +
+        `They will remain in the archive but will no longer be recall-eligible.\n\nContinue?`
       )) return
       confirmedRisk = true
     }
 
+    return handleMemoryBulkExecute(action, sourceIds, setIds, confirmedRisk)
+  }
+
+  async function handleMemoryBulkExecute(
+    action: MemoryBulkAction,
+    sourceIds: string[],
+    setIds: (ids: string[]) => void,
+    confirmedRisk: boolean,
+    reason?: string
+  ) {
     setMemoryBulking(true)
     setMemoryBulkError(null)
     try {
       const res = await fetch('/api/archive-memory/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ids: sourceIds, confirmedRisk }),
+        body: JSON.stringify({ action, ids: sourceIds, confirmedRisk, reason }),
       })
       const data = await res.json()
       if (!data.success) {
-        // Server requires extra confirmation for sensitive entries
         if (data.requiresConfirmation) {
           if (window.confirm(`⚠ ${data.warning}\n\nProceed anyway?`)) {
             setMemoryBulking(false)
-            await handleMemoryBulk(action, sourceIds, setIds, true)
+            await handleMemoryBulkExecute(action, sourceIds, setIds, true, reason)
           }
           return
         }
@@ -1127,10 +1162,10 @@ export default function ArchivesPage() {
         {/* ── Memory Review tab ────────────────────────────────────────── */}
         {innerTab === 'memory' && (
           <>
-            <div className="px-4 py-3 border-b border-house-border/40">
+            <div className="px-4 py-3 border-b border-house-border/40 space-y-1">
               <p className="font-body text-xs text-text-muted">
-                Memory promotion queue. Confirm candidates as Memory or reject them.
-                Only confirmed Memory entries are recall-eligible.
+                Memory promotion queue. Confirm candidates as Memory, reject them, or hold for later review.
+                Only Confirmed Memory entries are recall-eligible. Confirming Memory does not auto-approve graph nodes.
               </p>
             </div>
 
@@ -1182,6 +1217,13 @@ export default function ArchivesPage() {
                   className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary transition-all disabled:opacity-40"
                 >
                   Demote
+                </button>
+                <button
+                  onClick={() => handleMemoryBulk('hold_pending', selectedMemoryIds, setSelectedMemoryIds)}
+                  disabled={memoryBulking}
+                  className="font-body text-xs px-3 py-1 border border-blue-400/20 text-blue-400/60 hover:bg-blue-400/10 transition-all disabled:opacity-40"
+                >
+                  Hold / Keep pending
                 </button>
                 <button
                   onClick={() => handleMemoryBulk('restore_candidate', selectedMemoryIds, setSelectedMemoryIds)}
@@ -1240,10 +1282,10 @@ export default function ArchivesPage() {
                   </>
                 )}
                 {memoryFilters.canonical_status === 'canonical' && (
-                  <p className="font-body text-sm text-text-muted">No confirmed Memory entries match these filters.</p>
+                  <p className="font-body text-sm text-text-muted">No Confirmed Memory entries match these filters.</p>
                 )}
                 {memoryFilters.canonical_status === 'archive_only' && (
-                  <p className="font-body text-sm text-text-muted">No entries have been rejected for Memory.</p>
+                  <p className="font-body text-sm text-text-muted">No Archive Only entries match these filters.</p>
                 )}
                 {!memoryFilters.canonical_status && (
                   <p className="font-body text-sm text-text-muted">No entries match the current filters.</p>
@@ -1269,10 +1311,13 @@ export default function ArchivesPage() {
         {/* ── Graph tab ───────────────────────────────────────────────── */}
         {innerTab === 'graph' && (
           <>
-            <div className="px-4 py-3 border-b border-house-border/40">
+            <div className="px-4 py-3 border-b border-house-border/40 space-y-1">
               <p className="font-body text-xs text-text-muted">
                 Concept graph extraction and candidate review.
                 Nodes and edges proposed by extraction require your approval before they enter the graph.
+              </p>
+              <p className="font-body text-[11px] text-text-muted/60">
+                Approving a graph node allows it in graph recall. It does not promote the source archive item to Memory.
               </p>
             </div>
 

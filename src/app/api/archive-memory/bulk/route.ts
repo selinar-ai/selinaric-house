@@ -131,9 +131,38 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const toStatus  = MEMORY_ACTION_TARGET[typedAction]   // canonical_status value to set
+  const toStatus  = MEMORY_ACTION_TARGET[typedAction]   // canonical_status value to set, or null for hold_pending
   const now       = new Date().toISOString()
   const eligibleIds = eligible.map(e => e.id)
+
+  // ─── hold_pending: audit-only, no canonical_status change ──────────────────
+  if (typedAction === 'hold_pending') {
+    const auditRows = eligible.map(e => ({
+      archive_item_id: e.id,
+      from_status:     e.canonical_status as string,
+      to_status:       e.canonical_status as string,
+      action:          'hold_pending',
+      reason:          safeReason,
+      created_by:      'tara',
+      created_at:      now,
+    }))
+
+    const { error: auditError } = await supabase
+      .from('archive_memory_events')
+      .insert(auditRows)
+
+    if (auditError) {
+      console.error('[archive-memory/bulk] hold_pending audit insert failed:', auditError.message)
+    }
+
+    return NextResponse.json({
+      success:   true,
+      updated:   eligibleIds.length,
+      action:    typedAction,
+      to_status: null,
+      skipped:   existing.length - eligibleIds.length,
+    })
+  }
 
   // ─── Update canonical_status ───────────────────────────────────────────────
   const { error: updateError } = await supabase
