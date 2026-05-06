@@ -1,9 +1,12 @@
 'use client'
 
-// Phase 29A — Embedding Backfill admin panel
+// Phase 29A + 29D patch — Embedding Backfill admin panel
 //
-// GET /api/archive-recall/embed-backfill — preview (open, no auth)
+// GET /api/archive-recall/embed-backfill?archive=<name> — preview (open, no auth)
 // Execute button calls Server Action runEmbedBackfill (server-side only)
+//
+// Archive selector (Velvet / Violet / House) scopes both preview and execute.
+// No "All archives" option in v1 — one archive per run.
 //
 // If elevated_sensitivity_count > 0, a second confirmation step is required
 // before items with sensitivity in ('sacred','sensitive','technical') are included.
@@ -20,18 +23,36 @@ import type { EmbedBackfillPreview, BackfillResult } from '@/lib/archive-semanti
 
 type Phase = 'idle' | 'loading_preview' | 'preview' | 'confirming' | 'running' | 'done' | 'error'
 
+type ArchiveName = 'velvet' | 'violet' | 'house'
+
+const ARCHIVE_OPTIONS: { value: ArchiveName; label: string }[] = [
+  { value: 'velvet', label: 'Ari / Velvet' },
+  { value: 'violet', label: 'Eli / Violet' },
+  { value: 'house',  label: 'House'        },
+]
+
 export default function EmbedBackfillPanel() {
-  const [open,    setOpen]    = useState(false)
-  const [phase,   setPhase]   = useState<Phase>('idle')
-  const [preview, setPreview] = useState<EmbedBackfillPreview | null>(null)
-  const [result,  setResult]  = useState<BackfillResult | null>(null)
-  const [errMsg,  setErrMsg]  = useState<string | null>(null)
+  const [open,        setOpen]        = useState(false)
+  const [archiveName, setArchiveName] = useState<ArchiveName>('velvet')
+  const [phase,       setPhase]       = useState<Phase>('idle')
+  const [preview,     setPreview]     = useState<EmbedBackfillPreview | null>(null)
+  const [result,      setResult]      = useState<BackfillResult | null>(null)
+  const [errMsg,      setErrMsg]      = useState<string | null>(null)
+
+  function handleArchiveChange(value: ArchiveName) {
+    setArchiveName(value)
+    // Reset so stale preview for old archive is cleared
+    setPhase('idle')
+    setPreview(null)
+    setResult(null)
+    setErrMsg(null)
+  }
 
   async function loadPreview() {
     setPhase('loading_preview')
     setErrMsg(null)
     try {
-      const res  = await fetch('/api/archive-recall/embed-backfill')
+      const res  = await fetch(`/api/archive-recall/embed-backfill?archive=${archiveName}`)
       const data = await res.json()
       if (!res.ok) { setErrMsg(data.error ?? 'Preview failed'); setPhase('error'); return }
       setPreview(data as EmbedBackfillPreview)
@@ -46,7 +67,7 @@ export default function EmbedBackfillPanel() {
     setPhase('running')
     setErrMsg(null)
     try {
-      const res = await runEmbedBackfill(confirmedSensitive)
+      const res = await runEmbedBackfill(confirmedSensitive, archiveName)
       setResult(res)
       setPhase('done')
     } catch (err) {
@@ -91,6 +112,28 @@ export default function EmbedBackfillPanel() {
             Generate gte-small vectors for eligible archive items
             (Memory + Memory candidate). Idempotent — already-embedded items are skipped.
           </p>
+
+          {/* ── archive selector ───────────────────────────────────────────── */}
+          <div className="flex items-center gap-2">
+            <label className="font-body text-[10px] text-text-muted whitespace-nowrap">
+              Archive
+            </label>
+            <select
+              value={archiveName}
+              onChange={e => handleArchiveChange(e.target.value as ArchiveName)}
+              disabled={phase === 'running' || phase === 'loading_preview'}
+              className="
+                h-7 px-2 font-body text-[11px] text-text-secondary
+                border border-house-border bg-house-surface
+                hover:border-house-muted focus:outline-none
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            >
+              {ARCHIVE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
 
           {/* ── idle ───────────────────────────────────────────────────────── */}
           {phase === 'idle' && (

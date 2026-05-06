@@ -165,16 +165,23 @@ export async function semanticSearch(params: {
 
 /**
  * Returns counts for the backfill preview card.
+ * archiveName: when provided, counts are scoped to that archive only.
  * elevated_sensitivity_count: items in to_embed set with elevated sensitivity.
  */
-export async function getEmbedBackfillPreview(): Promise<EmbedBackfillPreview> {
+export async function getEmbedBackfillPreview(archiveName?: string): Promise<EmbedBackfillPreview> {
   const supabase = getSupabase()
 
-  const { data: eligible, error: eligibleErr } = await supabase
+  let query = supabase
     .from('archive_items')
     .select('id, sensitivity')
     .is('deleted_at', null)
     .in('canonical_status', ['canonical', 'canonical_candidate'])
+
+  if (archiveName) {
+    query = query.eq('archive_name', archiveName)
+  }
+
+  const { data: eligible, error: eligibleErr } = await query
 
   if (eligibleErr || !eligible) {
     console.error('[archive-semantic] preview eligible error:', eligibleErr?.message)
@@ -212,6 +219,7 @@ export async function getEmbedBackfillPreview(): Promise<EmbedBackfillPreview> {
  * Shared backfill logic used by both the API route (CRON_SECRET POST)
  * and the Server Action (UI execute button).
  *
+ * archiveName: when provided, only items from that archive are processed.
  * confirmedSensitive: if false, elevated-sensitivity items are skipped.
  * If true, all eligible items (including elevated) are embedded.
  *
@@ -219,16 +227,23 @@ export async function getEmbedBackfillPreview(): Promise<EmbedBackfillPreview> {
  * first_error is the first error message encountered — surfaced in the UI.
  */
 export async function runEmbedBackfillLogic(
-  confirmedSensitive: boolean
+  confirmedSensitive: boolean,
+  archiveName?: string
 ): Promise<BackfillResult> {
   const supabase = getSupabase()
 
   // Fetch eligible items with content for embedding
-  const { data: eligible, error: eligibleErr } = await supabase
+  let query = supabase
     .from('archive_items')
     .select('id, title, excerpt, raw_content, sensitivity, canonical_status')
     .is('deleted_at', null)
     .in('canonical_status', ['canonical', 'canonical_candidate'])
+
+  if (archiveName) {
+    query = query.eq('archive_name', archiveName)
+  }
+
+  const { data: eligible, error: eligibleErr } = await query
 
   if (eligibleErr || !eligible) {
     throw new Error(`Failed to fetch eligible items: ${eligibleErr?.message}`)
