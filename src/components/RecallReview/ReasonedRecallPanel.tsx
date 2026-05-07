@@ -16,36 +16,90 @@ import type { HybridRecallResult } from '@/lib/archive-hybrid'
 import type { ReasonedRecallOutput } from '@/app/api/archive-recall/reasoned/route'
 import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
 
-// ─── Client-side fallback parse (last-resort recovery) ─────────────────────
+// ─── Client-side fallback parse + normalisation (last-resort recovery) ──────
+
+const KNOWN_KEYS = ['evidence_summary', 'confirmed_memory', 'memory_candidate', 'graph_context', 'semantic_context', 'reasoned_inference', 'gaps_and_absence', 'gaps_absence', 'overlap_analysis']
+
+function asStr(v: unknown, fb = ''): string { return typeof v === 'string' ? v : v == null ? fb : String(v) }
+function asNum(v: unknown, fb = 0): number { const n = Number(v); return isNaN(n) ? fb : n }
+function asStrArr(v: unknown): string[] { if (Array.isArray(v)) return v.map(x => asStr(x)).filter(Boolean); if (typeof v === 'string' && v.trim()) return [v]; return [] }
+
+function asSecArr(v: unknown): ReasonedRecallOutput['confirmed_memory'] {
+  const arr = Array.isArray(v) ? v : (v && typeof v === 'object') ? [v] : []
+  return arr.filter(x => x && typeof x === 'object').map((x: Record<string, unknown>) => ({
+    title: asStr(x.title || x.label || x.name, 'Untitled'),
+    status: x.status != null ? asStr(x.status) : undefined,
+    sensitivity: x.sensitivity != null ? asStr(x.sensitivity) : undefined,
+    found_via: x.found_via != null ? asStr(x.found_via) : undefined,
+    relevance: x.relevance != null ? asStr(x.relevance) : undefined,
+    source: x.source != null ? asStr(x.source) : undefined,
+    caution: x.caution != null ? asStr(x.caution) : undefined,
+    similarity: x.similarity != null ? asStr(x.similarity) : undefined,
+    node_type: x.node_type != null ? asStr(x.node_type) : undefined,
+    relationship: x.relationship != null ? asStr(x.relationship) : undefined,
+    approval: x.approval != null ? asStr(x.approval) : undefined,
+  }))
+}
+
+function normaliseClientOutput(o: Record<string, unknown>): ReasonedRecallOutput {
+  const es = (o.evidence_summary ?? {}) as Record<string, unknown>
+  return {
+    evidence_summary: {
+      keyword_count: asNum(es.keyword_count),
+      semantic_count: asNum(es.semantic_count),
+      graph_count: asNum(es.graph_count),
+      strongest_keyword: es.strongest_keyword != null ? asStr(es.strongest_keyword) : null,
+      closest_semantic: (es.closest_semantic ?? es.strongest_semantic) != null ? asStr(es.closest_semantic ?? es.strongest_semantic) : null,
+      overlap_description: asStr(es.overlap_description),
+    },
+    confirmed_memory: asSecArr(o.confirmed_memory),
+    memory_candidate: asSecArr(o.memory_candidate ?? o.memory_candidates),
+    graph_context: asSecArr(o.graph_context),
+    semantic_context: asSecArr(o.semantic_context),
+    overlap_analysis: asStr(o.overlap_analysis ?? o.overlap),
+    gaps_and_absence: asStrArr(o.gaps_and_absence ?? o.gaps_absence ?? o.gaps),
+    reasoned_inference: (() => {
+      const ri = (o.reasoned_inference ?? {}) as Record<string, unknown>
+      return {
+        inference: asStr(ri.inference, 'No reasoned inference produced.'),
+        confidence: asStr(ri.confidence, 'no confirmed evidence') as ReasonedRecallOutput['reasoned_inference']['confidence'],
+        based_on: Array.isArray(ri.based_on) ? ri.based_on.map(x => asStr(x)).join('; ') : asStr(ri.based_on),
+      }
+    })(),
+    do_not_treat_as_memory: asStr(o.do_not_treat_as_memory, 'Any inference above is analysis, not Memory. Promotion requires Tara through Memory Review.'),
+  }
+}
 
 function tryParseFallback(text: string): ReasonedRecallOutput | null {
   try {
-    // Strip code fences, trailing commas
     let s = text.replace(/```(?:json)?\s*\n?/g, '').replace(/```/g, '').trim()
     s = s.replace(/,\s*([}\]])/g, '$1')
     s = s.replace(/\/\/[^\n]*/g, '')
 
-    // Try full parse
-    try {
-      const obj = JSON.parse(s)
-      if (obj && typeof obj === 'object' && 'evidence_summary' in obj) return obj as ReasonedRecallOutput
-    } catch { /* continue */ }
+    // Attempt full parse
+    let obj: unknown = null
+    try { obj = JSON.parse(s) } catch { /* continue */ }
 
-    // Brace-depth extract
-    const start = s.indexOf('{')
-    if (start === -1) return null
-    let depth = 0, end = -1
-    for (let i = start; i < s.length; i++) {
-      if (s[i] === '{') depth++
-      else if (s[i] === '}') { depth--; if (depth === 0) { end = i; break } }
+    // Brace-depth extract fallback
+    if (!obj || typeof obj !== 'object') {
+      const start = s.indexOf('{')
+      if (start === -1) return null
+      let depth = 0, end = -1
+      for (let i = start; i < s.length; i++) {
+        if (s[i] === '{') depth++
+        else if (s[i] === '}') { depth--; if (depth === 0) { end = i; break } }
+      }
+      if (end > start) {
+        const extracted = s.slice(start, end + 1).replace(/,\s*([}\]])/g, '$1')
+        try { obj = JSON.parse(extracted) } catch { return null }
+      }
     }
-    if (end > start) {
-      const extracted = s.slice(start, end + 1).replace(/,\s*([}\]])/g, '$1')
-      const obj = JSON.parse(extracted)
-      if (obj && typeof obj === 'object' && 'evidence_summary' in obj) return obj as ReasonedRecallOutput
-    }
-  } catch { /* genuine failure */ }
-  return null
+
+    if (!obj || typeof obj !== 'object') return null
+    const o = obj as Record<string, unknown>
+    if (!KNOWN_KEYS.some(k => k in o)) return null
+    return normaliseClientOutput(o)
+  } catch { return null }
 }
 
 // ─── Bounded payload builder ─────────────────────────────────────────────────

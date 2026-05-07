@@ -176,6 +176,107 @@ function safeParseModelJson<T>(raw: string): T | null {
   return null
 }
 
+// ─── Normalisation layer ────────────────────────────────────────────────────
+// Coerce any parsed object into canonical ReasonedRecallOutput shape.
+// Missing sections → empty defaults. Extra fields → ignored. Partial → safe.
+
+function asString(v: unknown, fallback = ''): string {
+  if (typeof v === 'string') return v
+  if (v == null) return fallback
+  return String(v)
+}
+
+function asNumber(v: unknown, fallback = 0): number {
+  if (typeof v === 'number' && !isNaN(v)) return v
+  if (typeof v === 'string') { const n = Number(v); if (!isNaN(n)) return n }
+  return fallback
+}
+
+function asStringArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(x => asString(x)).filter(Boolean)
+  if (typeof v === 'string' && v.trim()) return [v]
+  return []
+}
+
+function asSectionArray(v: unknown): ReasonedRecallSection[] {
+  if (!Array.isArray(v)) {
+    // Single object → wrap in array
+    if (v && typeof v === 'object') return [normaliseSectionItem(v as Record<string, unknown>)]
+    return []
+  }
+  return v
+    .filter(x => x && typeof x === 'object')
+    .map(x => normaliseSectionItem(x as Record<string, unknown>))
+}
+
+function normaliseSectionItem(o: Record<string, unknown>): ReasonedRecallSection {
+  return {
+    title: asString(o.title || o.label || o.name, 'Untitled'),
+    status: o.status != null ? asString(o.status) : undefined,
+    sensitivity: o.sensitivity != null ? asString(o.sensitivity) : undefined,
+    found_via: o.found_via != null ? asString(o.found_via) : undefined,
+    relevance: o.relevance != null ? asString(o.relevance) : undefined,
+    source: o.source != null ? asString(o.source) : undefined,
+    caution: o.caution != null ? asString(o.caution) : undefined,
+    similarity: o.similarity != null ? asString(o.similarity) : undefined,
+    node_type: o.node_type != null ? asString(o.node_type) : undefined,
+    relationship: o.relationship != null ? asString(o.relationship) : undefined,
+    approval: o.approval != null ? asString(o.approval) : undefined,
+  }
+}
+
+function normaliseReasonedOutput(raw: Record<string, unknown>): ReasonedRecallOutput {
+  const es = (raw.evidence_summary ?? {}) as Record<string, unknown>
+
+  return {
+    evidence_summary: {
+      keyword_count: asNumber(es.keyword_count),
+      semantic_count: asNumber(es.semantic_count),
+      graph_count: asNumber(es.graph_count),
+      strongest_keyword: es.strongest_keyword != null ? asString(es.strongest_keyword) : null,
+      closest_semantic: (es.closest_semantic ?? es.strongest_semantic) != null
+        ? asString(es.closest_semantic ?? es.strongest_semantic)
+        : null,
+      overlap_description: asString(es.overlap_description),
+    },
+    confirmed_memory: asSectionArray(raw.confirmed_memory),
+    memory_candidate: asSectionArray(raw.memory_candidate ?? raw.memory_candidates),
+    graph_context: asSectionArray(raw.graph_context),
+    semantic_context: asSectionArray(raw.semantic_context),
+    overlap_analysis: asString(raw.overlap_analysis ?? raw.overlap),
+    gaps_and_absence: asStringArray(raw.gaps_and_absence ?? raw.gaps_absence ?? raw.gaps),
+    reasoned_inference: normaliseInference(raw.reasoned_inference),
+    do_not_treat_as_memory: asString(
+      raw.do_not_treat_as_memory,
+      'Any inference above is analysis, not Memory. Promotion requires Tara through Memory Review.'
+    ),
+  }
+}
+
+function normaliseInference(v: unknown): ReasonedRecallOutput['reasoned_inference'] {
+  const DEFAULT_INFERENCE: ReasonedRecallOutput['reasoned_inference'] = {
+    inference: 'No reasoned inference produced.',
+    confidence: 'no confirmed evidence',
+    based_on: '',
+  }
+  if (!v || typeof v !== 'object') return DEFAULT_INFERENCE
+  const o = v as Record<string, unknown>
+  return {
+    inference: asString(o.inference, DEFAULT_INFERENCE.inference),
+    confidence: asString(o.confidence, DEFAULT_INFERENCE.confidence) as ReasonedRecallOutput['reasoned_inference']['confidence'],
+    based_on: Array.isArray(o.based_on) ? o.based_on.map(x => asString(x)).join('; ') : asString(o.based_on),
+  }
+}
+
+/** Returns true if the parsed object looks like a reasoned recall response (has at least one recognisable top-level field). */
+function looksLikeReasonedOutput(obj: unknown): obj is Record<string, unknown> {
+  if (!obj || typeof obj !== 'object') return false
+  const o = obj as Record<string, unknown>
+  // Accept if it has any of the expected top-level keys
+  const knownKeys = ['evidence_summary', 'confirmed_memory', 'memory_candidate', 'graph_context', 'semantic_context', 'reasoned_inference', 'gaps_and_absence', 'gaps_absence', 'overlap_analysis']
+  return knownKeys.some(k => k in o)
+}
+
 // ─── Bounded context builder ─────────────────────────────────────────────────
 
 function buildReasoningPrompt(req: ReasonedRecallRequest): string {
@@ -477,18 +578,27 @@ export async function POST(request: NextRequest) {
 
     const rawText = textBlock.text
     console.log('[reasoned-recall] raw response length:', rawText.length, 'starts with:', JSON.stringify(rawText.slice(0, 120)))
-    const parsed = safeParseModelJson<ReasonedRecallOutput>(rawText)
-    if (parsed && typeof parsed === 'object' && 'evidence_summary' in parsed) {
-      console.log('[reasoned-recall] structured parse OK, counts:', {
-        kw: parsed.evidence_summary?.keyword_count,
-        sem: parsed.evidence_summary?.semantic_count,
-        gr: parsed.evidence_summary?.graph_count,
+
+    // Try to parse JSON from model output
+    const parsed = safeParseModelJson<unknown>(rawText)
+
+    // If we got a parseable object that looks like a reasoned output, normalise it
+    if (looksLikeReasonedOutput(parsed)) {
+      const normalised = normaliseReasonedOutput(parsed)
+      console.log('[reasoned-recall] structured parse + normalise OK, counts:', {
+        kw: normalised.evidence_summary.keyword_count,
+        sem: normalised.evidence_summary.semantic_count,
+        gr: normalised.evidence_summary.graph_count,
+        confirmed: normalised.confirmed_memory.length,
+        candidates: normalised.memory_candidate.length,
+        graph: normalised.graph_context.length,
+        semantic: normalised.semantic_context.length,
       })
-      return NextResponse.json({ analysis: parsed })
+      return NextResponse.json({ analysis: normalised })
     }
 
-    // JSON parse failed — return plain-text fallback if usable text exists
-    console.error('[reasoned-recall] JSON parse failed or missing evidence_summary. Raw preview:', rawText.slice(0, 1000))
+    // JSON parse failed or object unrecognisable — return plain-text fallback if usable text exists
+    console.error('[reasoned-recall] JSON parse failed or unrecognised shape. Raw preview:', rawText.slice(0, 1000))
     if (rawText.trim().length > 20) {
       return NextResponse.json({
         analysis: null,
