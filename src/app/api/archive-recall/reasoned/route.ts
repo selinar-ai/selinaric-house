@@ -247,6 +247,9 @@ You receive bounded retrieved evidence from three retrieval methods (keyword, se
 
 You are NOT a presence. You have no relational voice. You produce careful, evidence-grounded analysis only.
 
+CRITICAL OUTPUT RULE:
+Return ONLY valid JSON. No markdown. No code fences. No commentary before or after the JSON object. Your entire response must be a single JSON object and nothing else.
+
 Core laws:
 - Recall retrieves evidence. Reasoning explains relationships.
 - canonical_status remains the single Memory authority.
@@ -264,72 +267,47 @@ Rules:
 - If no confirmed Memory is found, say so clearly. Do NOT imply absence means the Memory does not exist — it may be unembedded, pending approval, or outside the current scope.
 - "No result returned" is NOT the same as "no Memory exists."
 
-Confidence labels (use exactly one):
-- "strong evidence" — ≥1 confirmed Memory with high keyword or semantic match
-- "moderate evidence" — confirmed Memory with weaker match, or multiple candidates agreeing
-- "weak / adjacent evidence" — candidate-only, low-similarity semantic, or single weak keyword hit
-- "no confirmed evidence" — zero canonical entries found
-- "conflict / unresolved" — sources disagree or point in different directions
+Confidence labels (use exactly one of these strings):
+- "strong evidence"
+- "moderate evidence"
+- "weak / adjacent evidence"
+- "no confirmed evidence"
+- "conflict / unresolved"
 
-Output must be valid JSON matching this schema:
+Your JSON response must match this exact structure:
+
 {
   "evidence_summary": {
-    "keyword_count": number,
-    "semantic_count": number,
-    "graph_count": number,
-    "strongest_keyword": string | null,
-    "closest_semantic": string | null,
-    "overlap_description": string
+    "keyword_count": 0,
+    "semantic_count": 0,
+    "graph_count": 0,
+    "strongest_keyword": null,
+    "closest_semantic": null,
+    "overlap_description": ""
   },
-  "confirmed_memory": [
-    {
-      "title": string,
-      "found_via": string,
-      "relevance": string,
-      "sensitivity": string,
-      "source": string,
-      "caution": string  // empty if not elevated; include caution text if elevated
-    }
-  ],
-  "memory_candidate": [
-    {
-      "title": string,
-      "found_via": string,
-      "status": "Memory Candidate — not confirmed",
-      "caution": "This material is provisional."
-    }
-  ],
-  "graph_context": [
-    {
-      "title": string,
-      "node_type": string,
-      "relationship": string,
-      "source": string,
-      "approval": "approved",
-      "caution": "Graph relationships connect concepts. They do not confirm Memory."
-    }
-  ],
-  "semantic_context": [
-    {
-      "title": string,
-      "similarity": string,
-      "relevance": string,
-      "caution": "Similarity indicates textual closeness, not confirmation."
-    }
-  ],
-  "overlap_analysis": string,
-  "gaps_and_absence": [string],
+  "confirmed_memory": [],
+  "memory_candidate": [],
+  "graph_context": [],
+  "semantic_context": [],
+  "overlap_analysis": "",
+  "gaps_and_absence": [],
   "reasoned_inference": {
-    "inference": string,
-    "confidence": string,
-    "based_on": string
+    "inference": "",
+    "confidence": "no confirmed evidence",
+    "based_on": ""
   },
-  "do_not_treat_as_memory": string
+  "do_not_treat_as_memory": "Any inference above is analysis, not Memory. Promotion requires Tara."
 }
 
-Always include the do_not_treat_as_memory field with a clear statement that inference is not Memory and promotion requires Tara.
+Each confirmed_memory item: {"title":"","found_via":"","relevance":"","sensitivity":"","source":"","caution":""}
+Each memory_candidate item: {"title":"","found_via":"","status":"Memory Candidate - not confirmed","caution":"This material is provisional."}
+Each graph_context item: {"title":"","node_type":"","relationship":"","source":"","approval":"approved","caution":"Graph relationships connect concepts. They do not confirm Memory."}
+Each semantic_context item: {"title":"","similarity":"","relevance":"","caution":"Similarity indicates textual closeness, not confirmation."}
+Each gaps_and_absence item is a plain string.
 
-If no evidence was retrieved at all, still produce the full JSON structure with empty arrays and appropriate absence notes.`
+Always include the do_not_treat_as_memory field. If no evidence was retrieved, use empty arrays and appropriate absence notes.
+
+Remember: return ONLY the JSON object. No other text.`
 
 // ─── Route handler ───────────────────────────────────────────────────────────
 
@@ -460,13 +438,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No text response from reasoning model' }, { status: 502 })
     }
 
-    const parsed = safeParseModelJson<ReasonedRecallOutput>(textBlock.text)
-    if (!parsed) {
-      console.error('[reasoned-recall] JSON parse failed. Raw:', textBlock.text.slice(0, 500))
-      return NextResponse.json({ error: 'Reasoning output could not be parsed' }, { status: 502 })
+    const rawText = textBlock.text
+    const parsed = safeParseModelJson<ReasonedRecallOutput>(rawText)
+    if (parsed) {
+      return NextResponse.json({ analysis: parsed })
     }
 
-    return NextResponse.json({ analysis: parsed })
+    // JSON parse failed — return plain-text fallback if usable text exists
+    console.error('[reasoned-recall] JSON parse failed. Raw preview:', rawText.slice(0, 1000))
+    if (rawText.trim().length > 20) {
+      // Build a minimal structured fallback from the raw text
+      const fallback: ReasonedRecallOutput = {
+        evidence_summary: {
+          keyword_count: 0,
+          semantic_count: 0,
+          graph_count: 0,
+          strongest_keyword: null,
+          closest_semantic: null,
+          overlap_description: '',
+        },
+        confirmed_memory: [],
+        memory_candidate: [],
+        graph_context: [],
+        semantic_context: [],
+        overlap_analysis: '',
+        gaps_and_absence: [],
+        reasoned_inference: {
+          inference: rawText.trim().slice(0, 2000),
+          confidence: 'no confirmed evidence',
+          based_on: 'Plain-text model output (structured parse failed)',
+        },
+        do_not_treat_as_memory: 'Any inference above is analysis, not Memory. Promotion requires Tara.',
+      }
+      return NextResponse.json({ analysis: fallback, parseWarning: 'Model returned non-JSON output; rendered as plain text fallback.' })
+    }
+
+    return NextResponse.json({ error: 'Reasoning output could not be parsed' }, { status: 502 })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : undefined
