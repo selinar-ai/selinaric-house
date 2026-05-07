@@ -47,6 +47,7 @@ import {
   extractAutoRecallQuery,
   getAutoRecallSettings,
   shouldRunAutoRecall,
+  MANUAL_RECALL_OPTIONS,
   AUTO_RECALL_OPTIONS,
   type RecallEntry,
   type MatchQuality,
@@ -162,7 +163,10 @@ export async function POST(request: NextRequest) {
         // Trigger detected but no search query provided — ask what to look for
         recallContext = '\nARCHIVE RECALL CONTEXT\nRecall was triggered but no search query was provided.\nInstruction: Ask Tara what she wants you to search for in the archives. Keep it direct and brief — one line is enough.\n'
       } else {
-        recallEntries = await getRecallableArchiveEntries('eli', recallQuery)
+        recallEntries = await getRecallableArchiveEntries('eli', recallQuery, MANUAL_RECALL_OPTIONS.limit, {
+          statuses: MANUAL_RECALL_OPTIONS.statuses,
+          excludeElevatedSensitivity: false,
+        })
         matchQuality = getMatchQuality(
           recallEntries[0]?.rank_score ?? 0,
           recallEntries.map(e => e.rank_score)
