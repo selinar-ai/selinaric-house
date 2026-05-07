@@ -1,14 +1,16 @@
 'use client'
 
-// Phase 29C — Hybrid Recall Lab panel
+// Phase 29C + Phase 32 — Hybrid Recall Lab panel
 //
 // Collapsible admin panel. Renders on the Recall Review page.
 // Runs three independent retrieval passes for a given query:
 //   Keyword · Semantic · Graph
 // Shows overlap, disagreement, and absence explanations.
+// Phase 32: Reasoned Recall analysis (manual trigger, ephemeral).
 //
 // Laws:
 //   Hybrid recall compares. Hybrid recall does not decide.
+//   Reasoned Recall may explain. It may not create Memory.
 //   Graph results: approved nodes only. Pending informational. Rejected excluded.
 //   Graph provenance required: source Archive Entry title(s) shown per node.
 //   If provenance_ok=false, graph result is marked "provenance unavailable".
@@ -18,6 +20,8 @@ import { useState } from 'react'
 import type { HybridRecallResult, GraphRecallEntry } from '@/lib/archive-hybrid'
 import type { RecallEntry } from '@/lib/archive-recall'
 import type { SemanticCandidate } from '@/lib/archive-semantic'
+import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
+import ReasonedRecallPanel from '@/components/RecallReview/ReasonedRecallPanel'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -55,6 +59,18 @@ function MethodBadge({ method }: { method: 'keyword' | 'semantic' | 'graph' }) {
   )
 }
 
+// ─── Sensitivity badge (Phase 32) ────────────────────────────────────────────
+
+function SensitivityTag({ sensitivity }: { sensitivity: string }) {
+  const isElevated = ELEVATED_SENSITIVITIES.includes(sensitivity)
+  if (!isElevated) return null
+  return (
+    <span className="font-body text-[9px] text-amber-400 border border-amber-400/30 px-1.5 py-0.5">
+      {sensitivity}
+    </span>
+  )
+}
+
 // ─── Keyword result row ───────────────────────────────────────────────────────
 
 function KeywordRow({ entry, isOverlap }: { entry: RecallEntry; isOverlap: boolean }) {
@@ -63,6 +79,7 @@ function KeywordRow({ entry, isOverlap }: { entry: RecallEntry; isOverlap: boole
       <div className="flex items-start gap-1.5 flex-wrap">
         <span className="font-body text-xs text-text-primary">{entry.title}</span>
         <StatusBadge status={entry.canonical_status} />
+        <SensitivityTag sensitivity={entry.sensitivity} />
         {isOverlap && (
           <span className="font-body text-[9px] text-text-muted/60 border border-house-border/40 px-1.5 py-0.5">overlap</span>
         )}
@@ -89,6 +106,7 @@ function SemanticRow({ candidate, isOverlap }: { candidate: SemanticCandidate; i
       <div className="flex items-start gap-1.5 flex-wrap">
         <span className="font-body text-xs text-text-primary">{candidate.title}</span>
         <StatusBadge status={candidate.canonical_status} />
+        <SensitivityTag sensitivity={candidate.sensitivity} />
         {isOverlap && (
           <span className="font-body text-[9px] text-text-muted/60 border border-house-border/40 px-1.5 py-0.5">overlap</span>
         )}
@@ -138,6 +156,7 @@ function GraphRow({ entry, overlapIds }: { entry: GraphRecallEntry; overlapIds: 
             <div key={src.id} className="flex items-center gap-1.5 flex-wrap">
               <span className="font-body text-[10px] text-text-muted">↳ {src.title}</span>
               <StatusBadge status={src.canonical_status} />
+              <SensitivityTag sensitivity={src.sensitivity} />
             </div>
           ))}
         </div>
@@ -545,6 +564,9 @@ export default function HybridRecallPanel() {
 
               {/* Overlap / disagreement / absences */}
               <OverlapSummary result={result} overlapIds={overlapIds} />
+
+              {/* Phase 32: Reasoned Recall analysis (manual trigger) */}
+              <ReasonedRecallPanel result={result} />
 
             </div>
           )}
