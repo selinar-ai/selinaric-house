@@ -339,6 +339,11 @@ interface RawArchiveItem {
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
+/** Collapse punctuation, dashes, and special characters to plain alphanumeric + spaces. */
+function normaliseText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 function scoreItem(
   item: RawArchiveItem,
   tokens: string[],
@@ -349,16 +354,18 @@ function scoreItem(
   let textScore = 0
   const reasonParts: string[] = []
 
-  const titleLow       = item.title.toLowerCase()
-  const excerptLow     = (item.excerpt ?? '').toLowerCase()
-  const categoryLow    = item.category.toLowerCase()
-  const sourceDocLow   = (item.source_document ?? '').toLowerCase()
-  const importLabelLow = (item.import_label ?? '').toLowerCase()
-  const rawSnippet     = item.raw_content.slice(0, 3_000).toLowerCase()
+  // Normalise all searchable fields the same way tokens are normalised,
+  // so em dashes, hyphens, and other punctuation never block matching.
+  const titleNorm       = normaliseText(item.title)
+  const excerptNorm     = normaliseText(item.excerpt ?? '')
+  const categoryNorm    = normaliseText(item.category)
+  const sourceDocNorm   = normaliseText(item.source_document ?? '')
+  const importLabelNorm = normaliseText(item.import_label ?? '')
+  const rawSnippetNorm  = normaliseText(item.raw_content.slice(0, 3_000))
 
-  // Title exact: full normalised query in title
-  const normQ = normalisedQuery.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
-  if (normQ && titleLow.includes(normQ)) {
+  // Title exact: full normalised query in normalised title
+  const normQ = normaliseText(normalisedQuery)
+  if (normQ && titleNorm.includes(normQ)) {
     textScore += SCORE_WEIGHTS.title_exact
     reasonParts.push('title_exact')
   }
@@ -367,12 +374,12 @@ function scoreItem(
   let categoryHit   = false, sourceDocHit = false, importHit = false
 
   for (const token of tokens) {
-    if (titleLow.includes(token))       { textScore += SCORE_WEIGHTS.title_token;   titleTokenHit = true }
-    if (excerptLow.includes(token))     { textScore += SCORE_WEIGHTS.excerpt;        excerptHit    = true }
-    if (rawSnippet.includes(token))     { textScore += SCORE_WEIGHTS.content;        contentHit    = true }
-    if (categoryLow.includes(token))    { textScore += SCORE_WEIGHTS.category;       categoryHit   = true }
-    if (sourceDocLow.includes(token))   { textScore += SCORE_WEIGHTS.source_doc;     sourceDocHit  = true }
-    if (importLabelLow.includes(token)) { textScore += SCORE_WEIGHTS.import_label;   importHit     = true }
+    if (titleNorm.includes(token))       { textScore += SCORE_WEIGHTS.title_token;   titleTokenHit = true }
+    if (excerptNorm.includes(token))     { textScore += SCORE_WEIGHTS.excerpt;        excerptHit    = true }
+    if (rawSnippetNorm.includes(token))  { textScore += SCORE_WEIGHTS.content;        contentHit    = true }
+    if (categoryNorm.includes(token))    { textScore += SCORE_WEIGHTS.category;       categoryHit   = true }
+    if (sourceDocNorm.includes(token))   { textScore += SCORE_WEIGHTS.source_doc;     sourceDocHit  = true }
+    if (importLabelNorm.includes(token)) { textScore += SCORE_WEIGHTS.import_label;   importHit     = true }
   }
 
   if (titleTokenHit && !reasonParts.includes('title_exact')) reasonParts.push('title_token')
@@ -645,7 +652,10 @@ Rules:
 - Confirmed Memory may be used as governed continuity.
 - Memory Candidate entries are provisional and must not be presented as settled truth.
 - If you reason beyond the recalled text, separate that clearly as inference.
-- If recall is weak or absent, do not fabricate continuity.\n`
+- If recall is weak or absent, do not fabricate continuity.
+- Only say an entry surfaced if it is actually present in the recalled entries above.
+- Do not infer that a named archive item was retrieved from the user's query alone.
+- If the query names an item but recall returned adjacent entries instead, say the exact item did not return and list what did.\n`
 
   const footer = isAuto
     ? `\nInstruction: Use this only if it genuinely helps answer Tara's latest message.
