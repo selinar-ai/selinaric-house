@@ -122,6 +122,8 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
 
 export default function ReasonedRecallPanel({ result }: { result: HybridRecallResult }) {
   const [analysis, setAnalysis] = useState<ReasonedRecallOutput | null>(null)
+  const [fallbackText, setFallbackText] = useState<string | null>(null)
+  const [parseWarning, setParseWarning] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -129,6 +131,8 @@ export default function ReasonedRecallPanel({ result }: { result: HybridRecallRe
     setLoading(true)
     setError(null)
     setAnalysis(null)
+    setFallbackText(null)
+    setParseWarning(null)
     try {
       const payload = buildRequestPayload(result)
       const res = await fetch('/api/archive-recall/reasoned', {
@@ -141,7 +145,14 @@ export default function ReasonedRecallPanel({ result }: { result: HybridRecallRe
         setError(data.error ?? 'Reasoned analysis unavailable')
         return
       }
-      setAnalysis(data.analysis as ReasonedRecallOutput)
+      if (data.analysis) {
+        setAnalysis(data.analysis as ReasonedRecallOutput)
+      } else if (data.fallbackText) {
+        setFallbackText(data.fallbackText as string)
+        setParseWarning(data.parseWarning as string ?? null)
+      } else {
+        setError('Reasoned analysis returned no usable output.')
+      }
     } catch {
       setError('Reasoned analysis unavailable. Retrieved results are still shown above.')
     } finally {
@@ -162,7 +173,7 @@ export default function ReasonedRecallPanel({ result }: { result: HybridRecallRe
         <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
           Reasoned Analysis
         </p>
-        {!analysis && !loading && (
+        {!analysis && !fallbackText && !loading && (
           <button
             onClick={() => void runAnalysis()}
             disabled={loading}
@@ -187,6 +198,39 @@ export default function ReasonedRecallPanel({ result }: { result: HybridRecallRe
 
       {error && (
         <p className="font-body text-xs text-red-400 mt-2">{error}</p>
+      )}
+
+      {/* Fallback: unstructured model output */}
+      {fallbackText && !analysis && (
+        <div className="mt-3 border border-amber-400/30 bg-house-bg p-3 max-h-[420px] overflow-y-auto">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-body text-[9px] text-amber-400 border border-amber-400/30 px-1.5 py-0.5 uppercase tracking-wider">
+              Unstructured Output
+            </span>
+            {parseWarning && (
+              <span className="font-body text-[9px] text-text-muted/60">{parseWarning}</span>
+            )}
+          </div>
+          <p className="font-body text-[10px] text-text-secondary whitespace-pre-wrap leading-relaxed">
+            {fallbackText}
+          </p>
+          <div className="mt-3 pt-2 border-t border-house-border/40">
+            <p className="font-body text-[9px] text-text-muted/60 italic">
+              The model did not return structured JSON. The text above is its raw reasoning output. It is not Memory.
+            </p>
+            <button
+              onClick={() => void runAnalysis()}
+              disabled={loading}
+              className="
+                mt-2 h-6 px-3 font-body text-[10px] border border-house-border
+                text-text-muted hover:text-text-secondary hover:border-house-muted
+                transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+              "
+            >
+              {loading ? 'Analysing…' : 'Re-analyse'}
+            </button>
+          </div>
+        </div>
       )}
 
       {analysis && (

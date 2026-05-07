@@ -412,6 +412,15 @@ export async function POST(request: NextRequest) {
   // Build bounded prompt from sanitized input
   const evidenceContext = buildReasoningPrompt(reqData)
 
+  // Diagnostic logging — payload counts
+  console.log('[reasoned-recall] payload counts:', {
+    keyword: keyword.length,
+    semantic: semantic.length,
+    graph: graph.length,
+    overlap: `ks=${overlap.keyword_and_semantic} kg=${overlap.keyword_and_graph} sg=${overlap.semantic_and_graph} all=${overlap.all_three}`,
+    query: reqData.query.slice(0, 80),
+  })
+
   // Call Claude
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
@@ -447,30 +456,12 @@ export async function POST(request: NextRequest) {
     // JSON parse failed — return plain-text fallback if usable text exists
     console.error('[reasoned-recall] JSON parse failed. Raw preview:', rawText.slice(0, 1000))
     if (rawText.trim().length > 20) {
-      // Build a minimal structured fallback from the raw text
-      const fallback: ReasonedRecallOutput = {
-        evidence_summary: {
-          keyword_count: 0,
-          semantic_count: 0,
-          graph_count: 0,
-          strongest_keyword: null,
-          closest_semantic: null,
-          overlap_description: '',
-        },
-        confirmed_memory: [],
-        memory_candidate: [],
-        graph_context: [],
-        semantic_context: [],
-        overlap_analysis: '',
-        gaps_and_absence: [],
-        reasoned_inference: {
-          inference: rawText.trim().slice(0, 2000),
-          confidence: 'no confirmed evidence',
-          based_on: 'Plain-text model output (structured parse failed)',
-        },
-        do_not_treat_as_memory: 'Any inference above is analysis, not Memory. Promotion requires Tara.',
-      }
-      return NextResponse.json({ analysis: fallback, parseWarning: 'Model returned non-JSON output; rendered as plain text fallback.' })
+      return NextResponse.json({
+        analysis: null,
+        fallbackText: rawText.trim().slice(0, 3000),
+        parseWarning: 'Model returned non-JSON output; rendered as plain text fallback.',
+        inputCounts: { keyword: keyword.length, semantic: semantic.length, graph: graph.length },
+      })
     }
 
     return NextResponse.json({ error: 'Reasoning output could not be parsed' }, { status: 502 })
