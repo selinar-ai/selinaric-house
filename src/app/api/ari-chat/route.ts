@@ -194,6 +194,7 @@ export async function POST(request: NextRequest) {
           const autoEntries = await getRecallableArchiveEntries('ari', autoQuery, AUTO_RECALL_OPTIONS.limit, {
             statuses: AUTO_RECALL_OPTIONS.statuses,
             minMatchQuality: AUTO_RECALL_OPTIONS.minMatchQuality,
+            excludeElevatedSensitivity: autoSettings?.exclude_elevated_sensitivity ?? true,
           })
           if (autoEntries.length > 0) {
             matchQuality = getMatchQuality(

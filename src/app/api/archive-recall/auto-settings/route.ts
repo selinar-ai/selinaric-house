@@ -24,7 +24,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('archive_auto_recall_settings')
-    .select('presence_id, mode, max_entries, min_match_quality, context_cap, updated_by, created_at, updated_at')
+    .select('presence_id, mode, max_entries, min_match_quality, context_cap, exclude_elevated_sensitivity, updated_by, created_at, updated_at')
     .order('presence_id')
 
   if (error) {
@@ -75,14 +75,21 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  // exclude_elevated_sensitivity — boolean toggle (Phase 31)
+  const excludeElevated = b.excludeElevatedSensitivity
+  if (excludeElevated !== undefined && typeof excludeElevated !== 'boolean') {
+    return NextResponse.json({ error: 'excludeElevatedSensitivity must be a boolean' }, { status: 400 })
+  }
+
   // Build update object — minMatchQuality is always 'strong' in Phase 28D, never user-settable
   const updates: Record<string, unknown> = {
     min_match_quality: 'strong',
     updated_at: new Date().toISOString(),
   }
-  if (mode !== undefined)       updates.mode        = mode
-  if (maxEntries !== undefined) updates.max_entries = Number(maxEntries)
-  if (contextCap !== undefined) updates.context_cap = Number(contextCap)
+  if (mode !== undefined)            updates.mode        = mode
+  if (maxEntries !== undefined)      updates.max_entries = Number(maxEntries)
+  if (contextCap !== undefined)      updates.context_cap = Number(contextCap)
+  if (excludeElevated !== undefined) updates.exclude_elevated_sensitivity = excludeElevated
 
   const supabase = getSupabase()
 
@@ -90,7 +97,7 @@ export async function PATCH(request: NextRequest) {
     .from('archive_auto_recall_settings')
     .update(updates)
     .eq('presence_id', presenceId)
-    .select('presence_id, mode, max_entries, min_match_quality, context_cap, updated_by, created_at, updated_at')
+    .select('presence_id, mode, max_entries, min_match_quality, context_cap, exclude_elevated_sensitivity, updated_by, created_at, updated_at')
     .single()
 
   if (error) {

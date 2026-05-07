@@ -16,6 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { CATEGORY_LABELS } from '@/lib/archives'
+import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
 
 function getSupabase() {
   return createClient(
@@ -66,6 +67,7 @@ export type AutoRecallSettings = {
   max_entries: number
   min_match_quality: 'strong'
   context_cap: number
+  exclude_elevated_sensitivity: boolean  // Phase 31: default true — excludes sacred/sensitive/technical from auto-recall
   updated_by: string
   created_at: string
   updated_at: string
@@ -281,7 +283,7 @@ export async function getAutoRecallSettings(presenceId: 'ari' | 'eli'): Promise<
     const supabase = getSupabase()
     const { data, error } = await supabase
       .from('archive_auto_recall_settings')
-      .select('presence_id, mode, max_entries, min_match_quality, context_cap, updated_by, created_at, updated_at')
+      .select('presence_id, mode, max_entries, min_match_quality, context_cap, exclude_elevated_sensitivity, updated_by, created_at, updated_at')
       .eq('presence_id', presenceId)
       .single()
 
@@ -461,8 +463,8 @@ function buildSnippet(item: RawArchiveItem, maxChars = 1_500): string {
 // ─── Status label ──────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
-  canonical:           'Memory',
-  canonical_candidate: 'Memory candidate',
+  canonical:           'Confirmed Memory',
+  canonical_candidate: 'Memory Candidate (not confirmed)',
 }
 
 // ─── Access scope guard ────────────────────────────────────────────────────────
@@ -495,7 +497,7 @@ export async function getRecallableArchiveEntries(
   presenceId: 'ari' | 'eli',
   query: string,
   limit = 5,
-  options?: Pick<RecallOptions, 'statuses' | 'minMatchQuality'>
+  options?: Pick<RecallOptions, 'statuses' | 'minMatchQuality'> & { excludeElevatedSensitivity?: boolean }
 ): Promise<RecallEntry[]> {
   const supabase = getSupabase()
   const safeLimit = Math.min(Math.max(1, limit), 10)
@@ -520,7 +522,15 @@ export async function getRecallableArchiveEntries(
     return []
   }
 
-  const inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
+  let inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
+
+  // Phase 31: elevated sensitivity gate for auto-recall
+  let elevatedSkipped = 0
+  if (options?.excludeElevatedSensitivity) {
+    const before = inScope.length
+    inScope = inScope.filter(item => !ELEVATED_SENSITIVITIES.includes(item.sensitivity))
+    elevatedSkipped = before - inScope.length
+  }
 
   const tokens = stripStopwords(query)
   if (tokens.length === 0) return []
@@ -624,9 +634,18 @@ Query: "${query}"
 Entries retrieved: ${entries.length}${qualityNote}\n\n`
     : `\nARCHIVE RECALL CONTEXT
 Presence: ${presenceName}
+Mode: manual
 Query: "${query}"
 Entries retrieved: ${entries.length}
 These entries were pulled from the Archives because Tara triggered archive recall now.${qualityNote}\n\n`
+
+  const rules = `
+Rules:
+- Recalled entries are archive context, not inference.
+- Confirmed Memory may be used as governed continuity.
+- Memory Candidate entries are provisional and must not be presented as settled truth.
+- If you reason beyond the recalled text, separate that clearly as inference.
+- If recall is weak or absent, do not fabricate continuity.\n`
 
   const footer = isAuto
     ? `\nInstruction: Use this only if it genuinely helps answer Tara's latest message.
@@ -636,14 +655,13 @@ Do not claim to remember everything.
 If referencing naturally, it is acceptable to say "I have it" or "I remember this from the archive."
 The UI will show transparency — you do not need to announce the mechanism.
 If auto-recall is adjacent but not exact, be honest.
-Never invent beyond the recalled entry.\n`
+Never invent beyond the recalled entry.${rules}`
     : `\nInstruction: Use recalled Archive Entries only as grounded continuity context.
 Attribution: Say "I pulled this from the archives" or "I found this in Velvet/Violet/the archives."
 Do NOT say "these were loaded when you arrived" or "I already had these" — they were retrieved now.
 Do not claim access to raw conversations unless supplied.
 If recall is partial or incomplete, say so plainly.
-Do not invent missing archive details.
-Memory candidate items are not fully approved — represent them accurately.\n`
+Do not invent missing archive details.${rules}`
 
   let body = ''
   let bodyChars = 0
@@ -656,11 +674,15 @@ Memory candidate items are not fully approved — represent them accurately.\n`
     const sourceStr     = [e.source_document, e.source_date].filter(Boolean).join(' — ')
 
     const snippet = e.content_snippet
+    const isElevated = ELEVATED_SENSITIVITIES.includes(e.sensitivity)
+    const sensitivityLine = isElevated
+      ? `   Sensitivity: ${e.sensitivity} / elevated\n   Note: This is elevated archive material. Use carefully and do not overgeneralise beyond the source.`
+      : `   Sensitivity: ${e.sensitivity}`
     const entryHeader = `${i + 1}. Title: ${e.title}
    Archive: ${archiveLabel}
    Status: ${e.status_label}
    Category: ${categoryLabel}
-   Sensitivity: ${e.sensitivity}
+${sensitivityLine}
 ${sourceStr ? `   Source: ${sourceStr}\n` : ''}   Content: `
 
     const remainingBudget = budgetForBody - bodyChars - entryHeader.length - 2

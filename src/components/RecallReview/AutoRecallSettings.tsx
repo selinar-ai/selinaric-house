@@ -1,10 +1,11 @@
 'use client'
 
-// Phase 28D — Auto-Recall Settings Panel
-// Shown on the Recall Review page. Lets Tara toggle auto-recall trial on/off per presence.
+// Phase 28D / Phase 31 — Auto-Recall Settings Panel
+// Shown on the Recall Review page. Lets Tara toggle auto-recall on/off per presence.
 // Loads via GET /api/archive-recall/auto-settings, updates via PATCH.
 // Defaults: both presences off. Mode is 'off' | 'trial'.
 // maxEntries: 1 or 2 only. minMatchQuality always 'strong' (not user-settable).
+// Phase 31: exclude_elevated_sensitivity toggle (default true).
 
 import { useState, useEffect, useCallback } from 'react'
 import type { AutoRecallSettings } from '@/lib/archive-recall'
@@ -74,6 +75,10 @@ export default function AutoRecallSettingsPanel() {
     patch(presenceId, { maxEntries: value })
   }
 
+  function toggleExcludeElevated(presenceId: 'ari' | 'eli', current: boolean) {
+    patch(presenceId, { excludeElevatedSensitivity: !current })
+  }
+
   if (loading) {
     return (
       <div className="flex gap-1.5 py-2">
@@ -96,10 +101,11 @@ export default function AutoRecallSettingsPanel() {
           const isSaving = !!saving[pid]
           const mode = s?.mode ?? 'off'
           const maxEntries = s?.max_entries ?? 1
+          const excludeElevated = s?.exclude_elevated_sensitivity ?? true
           const isOn = mode === 'trial'
 
           return (
-            <div key={pid} className="border border-house-border bg-house-bg px-3 py-3 min-w-[180px]">
+            <div key={pid} className="border border-house-border bg-house-bg px-3 py-3 min-w-[200px]">
               {/* Header: presence + mode toggle */}
               <div className="flex items-center justify-between gap-3 mb-2">
                 <span className="font-body text-xs text-text-primary font-medium">
@@ -117,34 +123,60 @@ export default function AutoRecallSettingsPanel() {
                     disabled:opacity-50 disabled:cursor-not-allowed
                   `}
                 >
-                  {isSaving ? '…' : (isOn ? 'Trial on' : 'Off')}
+                  {isSaving ? '…' : (isOn ? 'Enabled' : 'Off')}
                 </button>
               </div>
 
-              {/* Max entries — only editable when trial is on */}
+              {/* Max entries — only editable when on */}
               {isOn && (
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="font-body text-[10px] text-text-muted">Max entries</span>
-                  <div className="flex gap-1">
-                    {([1, 2] as const).map(n => (
-                      <button
-                        key={n}
-                        onClick={() => setMaxEntries(pid, n)}
-                        disabled={isSaving}
-                        className={`
-                          w-7 h-6 font-mono text-xs border transition-colors
-                          disabled:opacity-50 disabled:cursor-not-allowed
-                          ${maxEntries === n
-                            ? 'text-text-primary border-house-muted bg-house-border'
-                            : 'text-text-muted border-house-border bg-house-bg hover:text-text-secondary hover:border-house-muted'
-                          }
-                        `}
-                      >
-                        {n}
-                      </button>
-                    ))}
+                <>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="font-body text-[10px] text-text-muted">Max entries</span>
+                    <div className="flex gap-1">
+                      {([1, 2] as const).map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setMaxEntries(pid, n)}
+                          disabled={isSaving}
+                          className={`
+                            w-7 h-6 font-mono text-xs border transition-colors
+                            disabled:opacity-50 disabled:cursor-not-allowed
+                            ${maxEntries === n
+                              ? 'text-text-primary border-house-muted bg-house-border'
+                              : 'text-text-muted border-house-border bg-house-bg hover:text-text-secondary hover:border-house-muted'
+                            }
+                          `}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+
+                  {/* Sensitivity gate toggle (Phase 31) */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="font-body text-[10px] text-text-muted">Exclude elevated sensitivity</span>
+                    <button
+                      onClick={() => toggleExcludeElevated(pid, excludeElevated)}
+                      disabled={isSaving}
+                      className={`
+                        h-5 px-2 font-body text-[9px] uppercase tracking-wider border transition-colors
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                        ${excludeElevated
+                          ? 'text-amber-400 border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20'
+                          : 'text-text-muted border-house-border bg-house-surface hover:text-text-secondary hover:border-house-muted'
+                        }
+                      `}
+                    >
+                      {excludeElevated ? 'Yes' : 'No'}
+                    </button>
+                  </div>
+                  {!excludeElevated && (
+                    <p className="font-body text-[9px] text-amber-400/80 mt-1">
+                      ⚠ Sacred, sensitive, and technical items may appear in auto-recall.
+                    </p>
+                  )}
+                </>
               )}
 
               {/* Fixed info: min quality */}
