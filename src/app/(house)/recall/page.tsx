@@ -127,7 +127,7 @@ export default function RecallReviewPage() {
   const hasMore = events.length < total
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col min-h-full">
 
       {/* ── Page header ──────────────────────────────────────────── */}
       <div className="border-b border-house-border bg-house-surface px-4 py-4 md:px-6 shrink-0">
@@ -180,7 +180,7 @@ export default function RecallReviewPage() {
       </div>
 
       {/* ── Two-pane content ─────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+      <div className="flex flex-col md:flex-row md:min-h-[480px] md:h-[calc(100vh-200px)]">
 
         {/* Left: event list */}
         <div className="
@@ -188,7 +188,6 @@ export default function RecallReviewPage() {
           w-full md:w-80 lg:w-96 shrink-0
           border-b md:border-b-0 md:border-r border-house-border
           overflow-hidden
-          md:h-full
           max-h-72 md:max-h-none
         ">
           <div className="px-3 py-2 border-b border-house-border bg-house-surface shrink-0">
