@@ -435,10 +435,16 @@ export async function POST(request: NextRequest) {
   const evidenceContext = buildReasoningPrompt(reqData)
 
   // Call Claude
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    console.error('[reasoned-recall] ANTHROPIC_API_KEY missing')
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY missing' }, { status: 500 })
+  }
+
   try {
-    const client = new Anthropic()
+    const client = new Anthropic({ apiKey })
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 2048,
       system: REASONED_RECALL_SYSTEM,
       messages: [
@@ -462,7 +468,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ analysis: parsed })
   } catch (err) {
-    console.error('[reasoned-recall] Claude API error:', err instanceof Error ? err.message : String(err))
-    return NextResponse.json({ error: 'Reasoned analysis unavailable' }, { status: 502 })
+    const msg = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack : undefined
+    console.error('[reasoned-recall] Claude API error:', msg)
+    if (stack) console.error('[reasoned-recall] Stack:', stack)
+    return NextResponse.json(
+      { error: `Reasoned analysis unavailable: ${msg}` },
+      { status: 502 }
+    )
   }
 }
