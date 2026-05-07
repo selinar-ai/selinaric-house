@@ -16,6 +16,38 @@ import type { HybridRecallResult } from '@/lib/archive-hybrid'
 import type { ReasonedRecallOutput } from '@/app/api/archive-recall/reasoned/route'
 import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
 
+// ─── Client-side fallback parse (last-resort recovery) ─────────────────────
+
+function tryParseFallback(text: string): ReasonedRecallOutput | null {
+  try {
+    // Strip code fences, trailing commas
+    let s = text.replace(/```(?:json)?\s*\n?/g, '').replace(/```/g, '').trim()
+    s = s.replace(/,\s*([}\]])/g, '$1')
+    s = s.replace(/\/\/[^\n]*/g, '')
+
+    // Try full parse
+    try {
+      const obj = JSON.parse(s)
+      if (obj && typeof obj === 'object' && 'evidence_summary' in obj) return obj as ReasonedRecallOutput
+    } catch { /* continue */ }
+
+    // Brace-depth extract
+    const start = s.indexOf('{')
+    if (start === -1) return null
+    let depth = 0, end = -1
+    for (let i = start; i < s.length; i++) {
+      if (s[i] === '{') depth++
+      else if (s[i] === '}') { depth--; if (depth === 0) { end = i; break } }
+    }
+    if (end > start) {
+      const extracted = s.slice(start, end + 1).replace(/,\s*([}\]])/g, '$1')
+      const obj = JSON.parse(extracted)
+      if (obj && typeof obj === 'object' && 'evidence_summary' in obj) return obj as ReasonedRecallOutput
+    }
+  } catch { /* genuine failure */ }
+  return null
+}
+
 // ─── Bounded payload builder ─────────────────────────────────────────────────
 
 function buildRequestPayload(result: HybridRecallResult) {
@@ -148,8 +180,14 @@ export default function ReasonedRecallPanel({ result }: { result: HybridRecallRe
       if (data.analysis) {
         setAnalysis(data.analysis as ReasonedRecallOutput)
       } else if (data.fallbackText) {
-        setFallbackText(data.fallbackText as string)
-        setParseWarning(data.parseWarning as string ?? null)
+        // Client-side recovery: try to parse the fallback text as structured JSON
+        const recovered = tryParseFallback(data.fallbackText as string)
+        if (recovered) {
+          setAnalysis(recovered)
+        } else {
+          setFallbackText(data.fallbackText as string)
+          setParseWarning(data.parseWarning as string ?? null)
+        }
       } else {
         setError('Reasoned analysis returned no usable output.')
       }

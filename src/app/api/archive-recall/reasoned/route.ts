@@ -132,20 +132,48 @@ const MAX_GRAPH    = 5
 
 // ─── JSON safety (same pattern as Forgekeeper) ───────────────────────────────
 
+function cleanJsonString(raw: string): string {
+  // 1. Strip markdown code fences
+  let s = raw.replace(/```(?:json)?\s*\n?/g, '').replace(/```/g, '').trim()
+  // 2. Remove trailing commas before } or ] (common LLM quirk)
+  s = s.replace(/,\s*([}\]])/g, '$1')
+  // 3. Remove single-line // comments (rare but possible)
+  s = s.replace(/\/\/[^\n]*/g, '')
+  return s
+}
+
 function safeParseModelJson<T>(raw: string): T | null {
-  const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
+  const cleaned = cleanJsonString(raw)
+
+  // Attempt 1: parse the full cleaned string
   try {
     return JSON.parse(cleaned) as T
-  } catch {
-    const start = cleaned.indexOf('{')
-    const end = cleaned.lastIndexOf('}')
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1)) as T
-      } catch { /* fall through */ }
+  } catch { /* continue */ }
+
+  // Attempt 2: extract outermost { … } by brace depth
+  const start = cleaned.indexOf('{')
+  if (start === -1) return null
+
+  let depth = 0
+  let end = -1
+  for (let i = start; i < cleaned.length; i++) {
+    if (cleaned[i] === '{') depth++
+    else if (cleaned[i] === '}') {
+      depth--
+      if (depth === 0) { end = i; break }
     }
-    return null
   }
+
+  if (end > start) {
+    const extracted = cleaned.slice(start, end + 1)
+    // Clean again in case the extract has trailing commas
+    const reClean = extracted.replace(/,\s*([}\]])/g, '$1')
+    try {
+      return JSON.parse(reClean) as T
+    } catch { /* fall through */ }
+  }
+
+  return null
 }
 
 // ─── Bounded context builder ─────────────────────────────────────────────────
@@ -448,13 +476,19 @@ export async function POST(request: NextRequest) {
     }
 
     const rawText = textBlock.text
+    console.log('[reasoned-recall] raw response length:', rawText.length, 'starts with:', JSON.stringify(rawText.slice(0, 120)))
     const parsed = safeParseModelJson<ReasonedRecallOutput>(rawText)
-    if (parsed) {
+    if (parsed && typeof parsed === 'object' && 'evidence_summary' in parsed) {
+      console.log('[reasoned-recall] structured parse OK, counts:', {
+        kw: parsed.evidence_summary?.keyword_count,
+        sem: parsed.evidence_summary?.semantic_count,
+        gr: parsed.evidence_summary?.graph_count,
+      })
       return NextResponse.json({ analysis: parsed })
     }
 
     // JSON parse failed — return plain-text fallback if usable text exists
-    console.error('[reasoned-recall] JSON parse failed. Raw preview:', rawText.slice(0, 1000))
+    console.error('[reasoned-recall] JSON parse failed or missing evidence_summary. Raw preview:', rawText.slice(0, 1000))
     if (rawText.trim().length > 20) {
       return NextResponse.json({
         analysis: null,
