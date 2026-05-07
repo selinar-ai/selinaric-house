@@ -190,7 +190,7 @@ export default function ReasonedRecallPanel({ result }: { result: HybridRecallRe
       )}
 
       {analysis && (
-        <div className="mt-3 space-y-1 border border-house-border bg-house-bg p-3">
+        <div className="mt-3 space-y-1 border border-house-border bg-house-bg p-3 max-h-[420px] overflow-y-auto">
 
           {/* Evidence Summary */}
           <SectionHeader label="Evidence Summary" />
