@@ -14,7 +14,7 @@ export default function HouseLayout({
         <Sidebar />
 
         {/* Main content — fills remaining space */}
-        <main className="flex-1 min-h-0 ml-0 md:ml-56 flex flex-col overflow-hidden">
+        <main className="flex-1 min-h-0 ml-0 md:ml-56 flex flex-col overflow-x-hidden overflow-y-auto">
           {children}
         </main>
 
