@@ -200,13 +200,17 @@ function asStringArray(v: unknown): string[] {
 
 function asSectionArray(v: unknown): ReasonedRecallSection[] {
   if (!Array.isArray(v)) {
-    // Single object → wrap in array
+    if (typeof v === 'string' && v.trim()) return [{ title: v.trim() }]
     if (v && typeof v === 'object') return [normaliseSectionItem(v as Record<string, unknown>)]
     return []
   }
   return v
-    .filter(x => x && typeof x === 'object')
-    .map(x => normaliseSectionItem(x as Record<string, unknown>))
+    .filter(x => x != null)
+    .map(x => {
+      if (typeof x === 'string') return { title: x.trim() } as ReasonedRecallSection
+      if (typeof x === 'object') return normaliseSectionItem(x as Record<string, unknown>)
+      return { title: String(x) } as ReasonedRecallSection
+    })
 }
 
 function normaliseSectionItem(o: Record<string, unknown>): ReasonedRecallSection {
@@ -289,60 +293,47 @@ function buildReasoningPrompt(req: ReasonedRecallRequest): string {
   ctx += `Presence: ${req.presenceId === 'ari' ? 'Ari' : 'Eli'}\n`
   ctx += `Archive: ${req.archiveName}\n\n`
 
-  // Keyword results
-  ctx += `── Keyword Results (${keyword.length}) ──\n`
+  // Keyword results (compact: title, status, sensitivity, category — excerpt capped at 150)
+  ctx += `── Keyword (${keyword.length}) ──\n`
   if (keyword.length === 0) {
-    ctx += `No keyword matches.\n\n`
+    ctx += `None.\n\n`
   } else {
     for (const e of keyword) {
-      const elevated = ELEVATED_SENSITIVITIES.includes(e.sensitivity)
-      ctx += `- Title: ${e.title}\n`
-      ctx += `  Status: ${e.canonical_status === 'canonical' ? 'Confirmed Memory' : e.canonical_status === 'canonical_candidate' ? 'Memory Candidate (not confirmed)' : e.canonical_status}\n`
-      ctx += `  Sensitivity: ${e.sensitivity}${elevated ? ' / ELEVATED' : ''}\n`
-      ctx += `  Score: ${e.rank_score} (${e.rank_reason})\n`
-      ctx += `  Category: ${e.category}\n`
-      if (e.excerpt) ctx += `  Excerpt: ${e.excerpt.slice(0, 300)}\n`
-      if (e.source_document || e.source_date) ctx += `  Source: ${[e.source_document, e.source_date].filter(Boolean).join(' — ')}\n`
+      const st = e.canonical_status === 'canonical' ? 'Memory' : e.canonical_status === 'canonical_candidate' ? 'Candidate' : e.canonical_status
+      const el = ELEVATED_SENSITIVITIES.includes(e.sensitivity) ? ' ELEVATED' : ''
+      ctx += `- ${e.title} [${st}] ${e.sensitivity}${el} | ${e.category}`
+      if (e.excerpt) ctx += ` | "${e.excerpt.slice(0, 150)}"`
       ctx += `\n`
     }
+    ctx += `\n`
   }
 
-  // Semantic results
-  ctx += `── Semantic Results (${semantic.length}) ──\n`
+  // Semantic results (compact)
+  ctx += `── Semantic (${semantic.length}) ──\n`
   if (semantic.length === 0) {
-    ctx += `No semantic matches.\n\n`
+    ctx += `None.\n\n`
   } else {
     for (const e of semantic) {
-      const elevated = ELEVATED_SENSITIVITIES.includes(e.sensitivity)
-      ctx += `- Title: ${e.title}\n`
-      ctx += `  Status: ${e.canonical_status === 'canonical' ? 'Confirmed Memory' : e.canonical_status === 'canonical_candidate' ? 'Memory Candidate (not confirmed)' : e.canonical_status}\n`
-      ctx += `  Sensitivity: ${e.sensitivity}${elevated ? ' / ELEVATED' : ''}\n`
-      ctx += `  Similarity: ${(e.similarity * 100).toFixed(1)}%\n`
-      ctx += `  Category: ${e.category}\n`
-      if (e.excerpt) ctx += `  Excerpt: ${e.excerpt.slice(0, 300)}\n`
-      ctx += `\n`
+      const st = e.canonical_status === 'canonical' ? 'Memory' : e.canonical_status === 'canonical_candidate' ? 'Candidate' : e.canonical_status
+      const el = ELEVATED_SENSITIVITIES.includes(e.sensitivity) ? ' ELEVATED' : ''
+      ctx += `- ${e.title} [${st}] ${e.sensitivity}${el} | sim=${(e.similarity * 100).toFixed(0)}% | ${e.category}\n`
     }
+    ctx += `\n`
   }
 
-  // Graph results
-  ctx += `── Graph Results (${graph.length}) ──\n`
+  // Graph results (compact)
+  ctx += `── Graph (${graph.length}) ──\n`
   if (graph.length === 0) {
-    ctx += `No approved graph nodes matched.\n\n`
+    ctx += `None.\n\n`
   } else {
     for (const g of graph) {
-      ctx += `- Node: ${g.label} (${g.node_type.replace(/_/g, ' ')})\n`
-      ctx += `  Match: ${g.match_reason}\n`
-      ctx += `  Provenance: ${g.provenance_ok ? 'verified' : 'unavailable'}\n`
-      if (g.description) ctx += `  Description: ${g.description.slice(0, 200)}\n`
+      ctx += `- ${g.label} (${g.node_type.replace(/_/g, ' ')}) match: ${g.match_reason} prov: ${g.provenance_ok ? 'yes' : 'no'}\n`
       if (g.source_entries.length > 0) {
-        ctx += `  Source entries:\n`
-        for (const s of g.source_entries) {
-          const elevated = ELEVATED_SENSITIVITIES.includes(s.sensitivity)
-          ctx += `    - ${s.title} [${s.canonical_status === 'canonical' ? 'Memory' : s.canonical_status === 'canonical_candidate' ? 'Candidate' : s.canonical_status}] sensitivity: ${s.sensitivity}${elevated ? ' / ELEVATED' : ''}\n`
-        }
+        const srcs = g.source_entries.map(s => `${s.title}[${s.canonical_status}]`).join(', ')
+        ctx += `  sources: ${srcs}\n`
       }
-      ctx += `\n`
     }
+    ctx += `\n`
   }
 
   // Overlap
@@ -372,71 +363,44 @@ function buildReasoningPrompt(req: ReasonedRecallRequest): string {
 
 const REASONED_RECALL_SYSTEM = `You are the Reasoned Recall analyser for Selináric House.
 
-You receive bounded retrieved evidence from three retrieval methods (keyword, semantic, graph) and produce a structured reasoning analysis.
+CRITICAL: Return ONLY compact valid JSON. No markdown. No code fences. No text before or after. Your entire response is one JSON object.
 
-You are NOT a presence. You have no relational voice. You produce careful, evidence-grounded analysis only.
+COMPACTNESS RULES:
+- Every string field: ONE sentence maximum. No long prose.
+- Max 3 items per array. If more exist, summarise extras in gaps_and_absence.
+- Do not reproduce archive content, excerpts, or full titles with decorative punctuation.
+- Keep total output under 1500 tokens.
 
-CRITICAL OUTPUT RULE:
-Return ONLY valid JSON. No markdown. No code fences. No commentary before or after the JSON object. Your entire response must be a single JSON object and nothing else.
-
-Core laws:
-- Recall retrieves evidence. Reasoning explains relationships.
-- canonical_status remains the single Memory authority.
+Laws:
+- canonical_status is the single Memory authority. You do not promote or approve.
+- "Confirmed Memory" = canonical_status is "canonical". Only use for items marked canonical.
+- "Memory Candidate" = canonical_status is "canonical_candidate". Always note not confirmed.
+- Semantic similarity = textual closeness, not truth.
+- Graph relationships connect concepts, not confirm Memory.
+- Overlap does not make a result authoritative.
+- Absence does not mean Memory does not exist.
 - Inference must be labelled as inference.
-- Tara promotes. You do not promote, reject, or approve.
 
-Rules:
-- Reason ONLY over the evidence supplied. Do not invent entries, facts, or connections not present in the input.
-- "Confirmed Memory" means canonical_status = canonical. Only use this label for items explicitly marked as such.
-- "Memory Candidate" means canonical_status = canonical_candidate. Always note it is NOT confirmed.
-- Semantic similarity means textual closeness. It does NOT mean truth or confirmation.
-- Graph relationships connect concepts. They do NOT confirm Memory.
-- Overlap between methods does NOT make a result authoritative.
-- If elevated sensitivity material (sacred, sensitive, technical) appears, note: "Elevated archive material. Use carefully. Do not overgeneralise beyond the source."
-- If no confirmed Memory is found, say so clearly. Do NOT imply absence means the Memory does not exist — it may be unembedded, pending approval, or outside the current scope.
-- "No result returned" is NOT the same as "no Memory exists."
+Confidence (use exactly one):
+"strong evidence" | "moderate evidence" | "weak / adjacent evidence" | "no confirmed evidence" | "conflict / unresolved"
 
-Confidence labels (use exactly one of these strings):
-- "strong evidence"
-- "moderate evidence"
-- "weak / adjacent evidence"
-- "no confirmed evidence"
-- "conflict / unresolved"
+NOTE: The evidence_summary section is pre-filled by the system. You will receive it as a prefill. Do NOT generate evidence_summary yourself — it is already provided.
 
-Your JSON response must match this exact structure:
+Return this exact JSON shape (evidence_summary will be injected, produce only the remaining fields):
 
 {
-  "evidence_summary": {
-    "keyword_count": 0,
-    "semantic_count": 0,
-    "graph_count": 0,
-    "strongest_keyword": null,
-    "closest_semantic": null,
-    "overlap_description": ""
-  },
-  "confirmed_memory": [],
-  "memory_candidate": [],
-  "graph_context": [],
-  "semantic_context": [],
-  "overlap_analysis": "",
-  "gaps_and_absence": [],
-  "reasoned_inference": {
-    "inference": "",
-    "confidence": "no confirmed evidence",
-    "based_on": ""
-  },
-  "do_not_treat_as_memory": "Any inference above is analysis, not Memory. Promotion requires Tara."
+  "confirmed_memory": [{"title":"short title","relevance":"one sentence","caution":"one sentence"}],
+  "memory_candidate": [{"title":"short title","relevance":"one sentence","caution":"Provisional."}],
+  "graph_context": ["Short node description"],
+  "semantic_context": ["Short match description"],
+  "overlap_analysis": "One sentence.",
+  "gaps_and_absence": ["One sentence per gap."],
+  "reasoned_inference": {"inference":"One sentence.","confidence":"moderate evidence","based_on":"One sentence."},
+  "do_not_treat_as_memory": "Analysis only. Not Memory."
 }
 
-Each confirmed_memory item: {"title":"","found_via":"","relevance":"","sensitivity":"","source":"","caution":""}
-Each memory_candidate item: {"title":"","found_via":"","status":"Memory Candidate - not confirmed","caution":"This material is provisional."}
-Each graph_context item: {"title":"","node_type":"","relationship":"","source":"","approval":"approved","caution":"Graph relationships connect concepts. They do not confirm Memory."}
-Each semantic_context item: {"title":"","similarity":"","relevance":"","caution":"Similarity indicates textual closeness, not confirmation."}
-Each gaps_and_absence item is a plain string.
-
-Always include the do_not_treat_as_memory field. If no evidence was retrieved, use empty arrays and appropriate absence notes.
-
-Remember: return ONLY the JSON object. No other text.`
+Max 3 items per list. Short strings only. No nested objects in graph_context or semantic_context — plain strings.
+Return ONLY the JSON object.`
 
 // ─── Route handler ───────────────────────────────────────────────────────────
 
@@ -541,6 +505,31 @@ export async function POST(request: NextRequest) {
   // Build bounded prompt from sanitized input
   const evidenceContext = buildReasoningPrompt(reqData)
 
+  // ─── Compute evidence_summary deterministically (not from model output) ───
+  const strongestKeyword = keyword.length > 0
+    ? keyword.reduce((a, b) => a.rank_score >= b.rank_score ? a : b).title
+    : null
+  const closestSemantic = semantic.length > 0
+    ? semantic.reduce((a, b) => a.similarity >= b.similarity ? a : b).title
+    : null
+
+  // Build overlap description from counts
+  const overlapParts: string[] = []
+  if (overlap.all_three > 0) overlapParts.push(`${overlap.all_three} in all three methods`)
+  if (overlap.keyword_and_semantic > 0) overlapParts.push(`${overlap.keyword_and_semantic} keyword+semantic`)
+  if (overlap.keyword_and_graph > 0) overlapParts.push(`${overlap.keyword_and_graph} keyword+graph`)
+  if (overlap.semantic_and_graph > 0) overlapParts.push(`${overlap.semantic_and_graph} semantic+graph`)
+  const overlapDescription = overlapParts.length > 0 ? overlapParts.join('; ') : 'No overlap between methods.'
+
+  const deterministicSummary = {
+    keyword_count: keyword.length,
+    semantic_count: semantic.length,
+    graph_count: graph.length,
+    strongest_keyword: strongestKeyword,
+    closest_semantic: closestSemantic,
+    overlap_description: overlapDescription,
+  }
+
   // Diagnostic logging — payload counts
   console.log('[reasoned-recall] payload counts:', {
     keyword: keyword.length,
@@ -559,14 +548,23 @@ export async function POST(request: NextRequest) {
 
   try {
     const client = new Anthropic({ apiKey })
+
+    // Prefill: start the assistant response with the deterministic evidence_summary
+    // so the model only needs to produce the reasoning sections
+    const prefill = `{"evidence_summary":${JSON.stringify(deterministicSummary)},`
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: 2500,
       system: REASONED_RECALL_SYSTEM,
       messages: [
         {
           role: 'user',
-          content: `Analyse the following retrieved evidence and produce a structured reasoning summary.\n\n${evidenceContext}`,
+          content: `Analyse the following retrieved evidence. Return compact JSON only.\n\n${evidenceContext}`,
+        },
+        {
+          role: 'assistant',
+          content: prefill,
         },
       ],
     })
@@ -576,34 +574,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No text response from reasoning model' }, { status: 502 })
     }
 
-    const rawText = textBlock.text
-    console.log('[reasoned-recall] raw response length:', rawText.length, 'starts with:', JSON.stringify(rawText.slice(0, 120)))
+    // Reconstruct full JSON: prefill + model continuation
+    const rawContinuation = textBlock.text
+    const rawText = prefill + rawContinuation
+    console.log('[reasoned-recall] raw response length:', rawText.length, 'continuation starts with:', JSON.stringify(rawContinuation.slice(0, 120)))
 
     // Try to parse JSON from model output
     const parsed = safeParseModelJson<unknown>(rawText)
 
-    // If we got a parseable object that looks like a reasoned output, normalise it
+    // If we got a parseable object, normalise it (evidence_summary will come from the prefill)
     if (looksLikeReasonedOutput(parsed)) {
       const normalised = normaliseReasonedOutput(parsed)
-      console.log('[reasoned-recall] structured parse + normalise OK, counts:', {
-        kw: normalised.evidence_summary.keyword_count,
-        sem: normalised.evidence_summary.semantic_count,
-        gr: normalised.evidence_summary.graph_count,
+      // Override evidence_summary with deterministic values (authoritative)
+      normalised.evidence_summary = deterministicSummary
+      console.log('[reasoned-recall] structured parse + normalise OK, sections:', {
         confirmed: normalised.confirmed_memory.length,
         candidates: normalised.memory_candidate.length,
         graph: normalised.graph_context.length,
         semantic: normalised.semantic_context.length,
+        gaps: normalised.gaps_and_absence.length,
       })
       return NextResponse.json({ analysis: normalised })
     }
 
-    // JSON parse failed or object unrecognisable — return plain-text fallback if usable text exists
-    console.error('[reasoned-recall] JSON parse failed or unrecognised shape. Raw preview:', rawText.slice(0, 1000))
+    // Detect truncation: starts with { but braces don't balance
+    const trimmed = rawText.trim()
+    const openBraces = (trimmed.match(/\{/g) || []).length
+    const closeBraces = (trimmed.match(/\}/g) || []).length
+    const likelyTruncated = trimmed.startsWith('{') && openBraces > closeBraces
+
+    console.error('[reasoned-recall] parse failed.', likelyTruncated ? 'TRUNCATED.' : 'Unrecognised shape.', 'Raw preview:', rawText.slice(0, 800))
+
     if (rawText.trim().length > 20) {
       return NextResponse.json({
         analysis: null,
         fallbackText: rawText.trim().slice(0, 3000),
-        parseWarning: 'Model returned non-JSON output; rendered as plain text fallback.',
+        parseWarning: likelyTruncated
+          ? 'Model output appears truncated before valid JSON completed. Re-analyse may help.'
+          : 'Model returned non-JSON output; rendered as plain text fallback.',
         inputCounts: { keyword: keyword.length, semantic: semantic.length, graph: graph.length },
       })
     }

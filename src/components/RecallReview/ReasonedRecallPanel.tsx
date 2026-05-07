@@ -25,20 +25,26 @@ function asNum(v: unknown, fb = 0): number { const n = Number(v); return isNaN(n
 function asStrArr(v: unknown): string[] { if (Array.isArray(v)) return v.map(x => asStr(x)).filter(Boolean); if (typeof v === 'string' && v.trim()) return [v]; return [] }
 
 function asSecArr(v: unknown): ReasonedRecallOutput['confirmed_memory'] {
+  if (typeof v === 'string' && v.trim()) return [{ title: v.trim() }]
   const arr = Array.isArray(v) ? v : (v && typeof v === 'object') ? [v] : []
-  return arr.filter(x => x && typeof x === 'object').map((x: Record<string, unknown>) => ({
-    title: asStr(x.title || x.label || x.name, 'Untitled'),
-    status: x.status != null ? asStr(x.status) : undefined,
-    sensitivity: x.sensitivity != null ? asStr(x.sensitivity) : undefined,
-    found_via: x.found_via != null ? asStr(x.found_via) : undefined,
-    relevance: x.relevance != null ? asStr(x.relevance) : undefined,
-    source: x.source != null ? asStr(x.source) : undefined,
-    caution: x.caution != null ? asStr(x.caution) : undefined,
-    similarity: x.similarity != null ? asStr(x.similarity) : undefined,
-    node_type: x.node_type != null ? asStr(x.node_type) : undefined,
-    relationship: x.relationship != null ? asStr(x.relationship) : undefined,
-    approval: x.approval != null ? asStr(x.approval) : undefined,
-  }))
+  return arr.filter(x => x != null).map((x: unknown) => {
+    if (typeof x === 'string') return { title: x.trim() }
+    if (typeof x !== 'object' || !x) return { title: String(x) }
+    const o = x as Record<string, unknown>
+    return {
+      title: asStr(o.title || o.label || o.name, 'Untitled'),
+      status: o.status != null ? asStr(o.status) : undefined,
+      sensitivity: o.sensitivity != null ? asStr(o.sensitivity) : undefined,
+      found_via: o.found_via != null ? asStr(o.found_via) : undefined,
+      relevance: o.relevance != null ? asStr(o.relevance) : undefined,
+      source: o.source != null ? asStr(o.source) : undefined,
+      caution: o.caution != null ? asStr(o.caution) : undefined,
+      similarity: o.similarity != null ? asStr(o.similarity) : undefined,
+      node_type: o.node_type != null ? asStr(o.node_type) : undefined,
+      relationship: o.relationship != null ? asStr(o.relationship) : undefined,
+      approval: o.approval != null ? asStr(o.approval) : undefined,
+    }
+  })
 }
 
 function normaliseClientOutput(o: Record<string, unknown>): ReasonedRecallOutput {
