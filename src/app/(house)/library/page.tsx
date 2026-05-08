@@ -1,16 +1,17 @@
 'use client'
 
-// Phase 33B — House Library v1
+// Phase 33B + 33C — House Library v1 + File Attachments
 //
 // Collections sidebar · Item list with search/filters · Item detail · Create/edit form
 // Development Documentation grouped by phase_code/phase_label
 // Authority display uses getEffectiveAuthorityStatus() — One Crown Rule enforced
+// Phase 33C: File attachments (DOCX, PDF, PNG, JPG, WEBP) via Supabase Storage
 //
 // This is a reference-material surface only.
 // No RAG, no embeddings, no chat injection, no Memory Review, no auto-promotion.
-// Reading is not remembering.
+// Reading is not remembering. Uploading a file is not remembering.
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { getEffectiveAuthorityStatus, isInvalidCanonicalMemoryLabel } from '@/lib/library/authority'
 import type { AuthorityStatus, PresenceScope, RetrievedContextItem } from '@/lib/library/authority'
 
@@ -63,6 +64,19 @@ interface LibraryItem {
   derived_canonical_status: string | null
   created_at: string
   updated_at: string
+}
+
+interface LibraryFile {
+  id: string
+  library_item_id: string
+  file_name: string
+  file_path: string
+  file_type: 'docx' | 'pdf' | 'image' | 'other'
+  mime_type: string | null
+  file_size_bytes: number | null
+  storage_bucket: string
+  created_at: string
+  url: string | null
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -181,6 +195,22 @@ function formatDate(iso: string): string {
     day: 'numeric',
   })
 }
+
+function formatFileSize(bytes: number | null): string {
+  if (bytes == null) return 'Unknown size'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const FILE_TYPE_ICONS: Record<string, string> = {
+  docx: '📄',
+  pdf: '📕',
+  image: '🖼',
+  other: '📎',
+}
+
+const ACCEPTED_FILE_TYPES = '.docx,.pdf,.png,.jpg,.jpeg,.webp'
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
@@ -788,6 +818,69 @@ function ItemDetail({
   const effectiveAuthority = getEffectiveAuthority(item)
   const rejected = isRejectedCanonical(item)
 
+  // ─── File attachments state (Phase 33C) ──────────────────────────
+  const [files, setFiles] = useState<LibraryFile[]>([])
+  const [filesLoading, setFilesLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [deleteFileId, setDeleteFileId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const fetchFiles = useCallback(async () => {
+    setFilesLoading(true)
+    try {
+      const res = await fetch(`/api/library-files?library_item_id=${item.id}`)
+      const data = await res.json()
+      if (res.ok) setFiles(data.files ?? [])
+    } catch { /* silent */ }
+    finally { setFilesLoading(false) }
+  }, [item.id])
+
+  useEffect(() => { fetchFiles() }, [fetchFiles])
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    setUploadError(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('library_item_id', item.id)
+
+    try {
+      const res = await fetch('/api/library-files', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      await fetchFiles()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  async function handleDeleteFile(fileId: string) {
+    try {
+      const res = await fetch('/api/library-files', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: fileId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      setDeleteFileId(null)
+      await fetchFiles()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -951,6 +1044,125 @@ function ItemDetail({
             </div>
           </div>
         )}
+
+        {/* ── File Attachments (Phase 33C) ──────────────────────────────── */}
+        <div className="pt-3 border-t border-house-border/40">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-body text-[10px] text-text-muted tracking-widest uppercase">
+              Attachments
+            </span>
+            <label className={`
+              font-body text-[10px] px-2 py-1 border border-house-muted text-text-secondary
+              hover:bg-house-bg transition-all cursor-pointer
+              ${uploading ? 'opacity-40 pointer-events-none' : ''}
+            `}>
+              {uploading ? 'Uploading...' : '+ Attach file'}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_FILE_TYPES}
+                onChange={handleFileUpload}
+                disabled={uploading}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          <p className="font-body text-[10px] text-text-muted mb-2">
+            DOCX, PDF, PNG, JPG, WEBP — max 30 MB
+          </p>
+
+          {uploadError && (
+            <div className="mb-2 px-2 py-1.5 border border-red-400/20 bg-red-400/5">
+              <p className="font-body text-[10px] text-red-400">{uploadError}</p>
+              <button
+                onClick={() => setUploadError(null)}
+                className="font-body text-[10px] text-text-muted hover:text-text-secondary mt-0.5"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {filesLoading && (
+            <p className="font-body text-[10px] text-text-muted">Loading files...</p>
+          )}
+
+          {!filesLoading && files.length === 0 && (
+            <p className="font-body text-[10px] text-text-muted italic">No attachments yet.</p>
+          )}
+
+          {!filesLoading && files.length > 0 && (
+            <div className="space-y-1.5">
+              {files.map(file => (
+                <div
+                  key={file.id}
+                  className="flex items-center gap-2 px-2.5 py-2 bg-house-bg border border-house-border/40 group"
+                >
+                  {/* Icon / thumbnail */}
+                  {file.file_type === 'image' && file.url ? (
+                    <img
+                      src={file.url}
+                      alt={file.file_name}
+                      className="w-8 h-8 object-cover rounded flex-shrink-0 border border-house-border/40"
+                    />
+                  ) : (
+                    <span className="text-base flex-shrink-0">
+                      {FILE_TYPE_ICONS[file.file_type] ?? FILE_TYPE_ICONS.other}
+                    </span>
+                  )}
+
+                  {/* File info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-body text-xs text-text-secondary truncate">
+                      {file.file_name}
+                    </p>
+                    <p className="font-body text-[10px] text-text-muted">
+                      {file.file_type.toUpperCase()} · {formatFileSize(file.file_size_bytes)} · {formatDate(file.created_at)}
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {file.url && (
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                      >
+                        Open
+                      </a>
+                    )}
+                    {deleteFileId === file.id ? (
+                      <span className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDeleteFile(file.id)}
+                          className="font-body text-[10px] text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => setDeleteFileId(null)}
+                          className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                        >
+                          No
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteFileId(file.id)}
+                        className="font-body text-[10px] text-red-400/40 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="pt-2 border-t border-house-border/40 grid grid-cols-2 gap-2">
           <DetailField label="Created">{formatDate(item.created_at)}</DetailField>
