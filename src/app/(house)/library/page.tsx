@@ -12,8 +12,16 @@
 // Reading is not remembering. Uploading a file is not remembering.
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import { getEffectiveAuthorityStatus, isInvalidCanonicalMemoryLabel } from '@/lib/library/authority'
 import type { AuthorityStatus, PresenceScope, RetrievedContextItem } from '@/lib/library/authority'
+
+// ─── Supabase client (browser-side, for direct Storage uploads) ────────────
+
+const supabaseClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+)
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -212,6 +220,121 @@ const FILE_TYPE_ICONS: Record<string, string> = {
 }
 
 const ACCEPTED_FILE_TYPES = '.docx,.pdf,.md,.png,.jpg,.jpeg,.webp'
+
+const MAX_FILE_SIZE = 30 * 1024 * 1024 // 30 MB
+const STORAGE_BUCKET = 'library-files'
+
+const ALLOWED_MIME_MAP: Record<string, string> = {
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/pdf': 'pdf',
+  'image/png': 'image',
+  'image/jpeg': 'image',
+  'image/webp': 'image',
+  'text/markdown': 'markdown',
+  'text/x-markdown': 'markdown',
+}
+const MD_EXTENSION_ONLY = new Set(['text/plain', 'application/octet-stream'])
+
+function resolveFileType(file: File): string | null {
+  const mapped = ALLOWED_MIME_MAP[file.type]
+  if (mapped) return mapped
+  if (MD_EXTENSION_ONLY.has(file.type) && file.name.toLowerCase().endsWith('.md')) return 'markdown'
+  return null
+}
+
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .substring(0, 200)
+}
+
+/** Safely parse a fetch response — never throws a JSON parse error */
+async function safeResponseJson(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> | null; error: string }> {
+  if (!res.ok) {
+    const ct = res.headers.get('content-type') ?? ''
+    if (ct.includes('application/json')) {
+      try {
+        const data = await res.json()
+        return { ok: false, data, error: (data as Record<string, unknown>).error as string ?? `HTTP ${res.status}` }
+      } catch {
+        return { ok: false, data: null, error: `HTTP ${res.status}` }
+      }
+    }
+    // Non-JSON error response (e.g. "Request Entity Too Large")
+    const text = await res.text().catch(() => '')
+    const msg = text.length > 0 && text.length < 200 ? text : `HTTP ${res.status}`
+    return { ok: false, data: null, error: msg }
+  }
+  try {
+    const data = await res.json()
+    return { ok: true, data, error: '' }
+  } catch {
+    return { ok: true, data: null, error: '' }
+  }
+}
+
+/**
+ * Upload a file directly to Supabase Storage from the browser,
+ * then create metadata via the API route.
+ * Returns { file, error }.
+ */
+async function uploadLibraryFile(
+  file: File,
+  libraryItemId: string,
+): Promise<{ file: LibraryFile | null; error: string | null }> {
+  // Client-side validation
+  if (file.size > MAX_FILE_SIZE) {
+    return { file: null, error: `File too large (${formatFileSize(file.size)}). Maximum is 30 MB.` }
+  }
+  const fileType = resolveFileType(file)
+  if (!fileType) {
+    return { file: null, error: `Unsupported file type: ${file.type}. Allowed: DOCX, PDF, MD, PNG, JPG, WEBP.` }
+  }
+
+  // Build storage path
+  const safeName = sanitizeFilename(file.name)
+  const timestamp = Date.now()
+  const storagePath = `library/${libraryItemId}/${timestamp}-${safeName}`
+
+  // Direct upload to Supabase Storage (bypasses Vercel body limits)
+  const { error: uploadErr } = await supabaseClient.storage
+    .from(STORAGE_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type,
+      upsert: false,
+    })
+
+  if (uploadErr) {
+    return { file: null, error: `Storage upload failed: ${uploadErr.message}` }
+  }
+
+  // Create metadata via API route (small JSON, no file bytes)
+  const metaRes = await fetch('/api/library-files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      library_item_id: libraryItemId,
+      file_name: file.name,
+      file_path: storagePath,
+      file_type: fileType,
+      mime_type: file.type,
+      file_size_bytes: file.size,
+    }),
+  })
+
+  const parsed = await safeResponseJson(metaRes)
+  if (!parsed.ok) {
+    // Clean up the uploaded file since metadata creation failed
+    await supabaseClient.storage.from(STORAGE_BUCKET).remove([storagePath])
+    return { file: null, error: parsed.error }
+  }
+
+  return {
+    file: (parsed.data as Record<string, unknown>)?.file as LibraryFile ?? null,
+    error: null,
+  }
+}
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
@@ -413,21 +536,14 @@ export default function LibraryPage() {
       const createdItem: LibraryItem | null = data.item ?? null
 
       // Phase 33C.1 — Upload staged files after successful item creation
+      // Uses direct browser-to-Supabase Storage upload (bypasses Vercel body limits)
       const fileErrors: string[] = []
       if (!isEdit && createdItem && stagedFiles.length > 0) {
         for (const file of stagedFiles) {
           try {
-            const formData = new FormData()
-            formData.append('file', file)
-            formData.append('library_item_id', createdItem.id)
-
-            const uploadRes = await fetch('/api/library-files', {
-              method: 'POST',
-              body: formData,
-            })
-            const uploadData = await uploadRes.json()
-            if (!uploadRes.ok) {
-              fileErrors.push(`${file.name}: ${uploadData.error ?? 'Upload failed'}`)
+            const result = await uploadLibraryFile(file, createdItem.id)
+            if (result.error) {
+              fileErrors.push(`${file.name}: ${result.error}`)
             }
           } catch (err) {
             fileErrors.push(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed'}`)
@@ -913,18 +1029,13 @@ function ItemDetail({
     setUploading(true)
     setUploadError(null)
 
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('library_item_id', item.id)
-
     try {
-      const res = await fetch('/api/library-files', {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
-      await fetchFiles()
+      const result = await uploadLibraryFile(file, item.id)
+      if (result.error) {
+        setUploadError(result.error)
+      } else {
+        await fetchFiles()
+      }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -940,8 +1051,8 @@ function ItemDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: fileId }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      const parsed = await safeResponseJson(res)
+      if (!parsed.ok) throw new Error(parsed.error)
       setDeleteFileId(null)
       await fetchFiles()
     } catch (err) {

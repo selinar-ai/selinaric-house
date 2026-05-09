@@ -1,8 +1,11 @@
-// Phase 33C — Library File Attachments API
+// Phase 33C.3 — Library File Attachments API (direct Storage upload)
 //
-// POST   /api/library-files  — upload file (multipart/form-data)
-// GET    /api/library-files   — list files for a library item
-// DELETE /api/library-files   — delete file (storage + metadata)
+// POST   /api/library-files  — create metadata (JSON body, no file bytes)
+// GET    /api/library-files  — list files for a library item
+// DELETE /api/library-files  — delete file (storage + metadata)
+//
+// File bytes upload directly from browser to Supabase Storage.
+// This API only manages metadata rows and signed URLs.
 //
 // Uploading a file is not remembering.
 // Attachments are Library material only.
@@ -12,34 +15,15 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-const MAX_FILE_SIZE = 30 * 1024 * 1024 // 30 MB
 const STORAGE_BUCKET = 'library-files'
 
-const ALLOWED_MIME_TYPES: Record<string, string> = {
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/pdf': 'pdf',
-  'image/png': 'image',
-  'image/jpeg': 'image',
-  'image/webp': 'image',
-  'text/markdown': 'markdown',
-  'text/x-markdown': 'markdown',
-}
-
-// MIME types that are only allowed when the file extension is .md
-const MD_EXTENSION_ONLY_MIMES = new Set(['text/plain', 'application/octet-stream'])
+const VALID_FILE_TYPES = new Set(['docx', 'pdf', 'image', 'markdown', 'other'])
 
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   )
-}
-
-function sanitizeFilename(name: string): string {
-  return name
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .replace(/_{2,}/g, '_')
-    .substring(0, 200)
 }
 
 // ─── GET ────────────────────────────────────────────────────────────────────
@@ -80,49 +64,40 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ files })
 }
 
-// ─── POST (upload) ──────────────────────────────────────────────────────────
+// ─── POST (metadata only — file bytes uploaded directly to Storage) ────────
 
 export async function POST(request: NextRequest) {
   const supabase = getSupabase()
 
-  let formData: FormData
+  let body: Record<string, unknown>
   try {
-    formData = await request.formData()
+    body = await request.json() as Record<string, unknown>
   } catch {
-    return NextResponse.json({ error: 'Invalid form data' }, { status: 400 })
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const file = formData.get('file') as File | null
-  const libraryItemId = formData.get('library_item_id') as string | null
+  const libraryItemId = body.library_item_id as string | undefined
+  const fileName = body.file_name as string | undefined
+  const filePath = body.file_path as string | undefined
+  const fileType = body.file_type as string | undefined
+  const mimeType = body.mime_type as string | undefined
+  const fileSizeBytes = body.file_size_bytes as number | undefined
 
-  if (!file || !(file instanceof File)) {
-    return NextResponse.json({ error: 'file is required' }, { status: 400 })
-  }
+  // Validate required fields
   if (!libraryItemId) {
     return NextResponse.json({ error: 'library_item_id is required' }, { status: 400 })
   }
-
-  // Validate file size
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json(
-      { error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024} MB.` },
-      { status: 400 },
-    )
+  if (!fileName || !filePath || !fileType) {
+    return NextResponse.json({ error: 'file_name, file_path, and file_type are required' }, { status: 400 })
+  }
+  if (!VALID_FILE_TYPES.has(fileType)) {
+    return NextResponse.json({ error: `Invalid file_type: ${fileType}` }, { status: 400 })
   }
 
-  // Validate MIME type (with extension-based fallback for markdown)
-  let fileType = ALLOWED_MIME_TYPES[file.type]
-  if (!fileType && MD_EXTENSION_ONLY_MIMES.has(file.type)) {
-    // Accept text/plain and application/octet-stream only if the file extension is .md
-    if (file.name.toLowerCase().endsWith('.md')) {
-      fileType = 'markdown'
-    }
-  }
-  if (!fileType) {
-    return NextResponse.json(
-      { error: `Unsupported file type: ${file.type}. Allowed: DOCX, PDF, MD, PNG, JPG, WEBP.` },
-      { status: 400 },
-    )
+  // Verify the storage path belongs to this library item (prevent path injection)
+  const expectedPrefix = `library/${libraryItemId}/`
+  if (!filePath.startsWith(expectedPrefix)) {
+    return NextResponse.json({ error: 'Invalid file_path' }, { status: 400 })
   }
 
   // Verify library item exists
@@ -136,25 +111,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Library item not found' }, { status: 404 })
   }
 
-  // Build storage path: library/{library_item_id}/{timestamp}-{safe_filename}
-  const safeName = sanitizeFilename(file.name)
-  const timestamp = Date.now()
-  const storagePath = `library/${libraryItemId}/${timestamp}-${safeName}`
-
-  // Read file buffer
-  const buffer = Buffer.from(await file.arrayBuffer())
-
-  // Upload to Supabase Storage
-  const { error: uploadErr } = await supabase.storage
+  // Verify the file actually exists in storage
+  const { data: storageList, error: listErr } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(storagePath, buffer, {
-      contentType: file.type,
-      upsert: false,
+    .list(`library/${libraryItemId}`, {
+      search: filePath.replace(expectedPrefix, ''),
+      limit: 1,
     })
 
-  if (uploadErr) {
-    console.error('[library-files] Upload error:', uploadErr.message)
-    return NextResponse.json({ error: 'File upload failed: ' + uploadErr.message }, { status: 500 })
+  if (listErr || !storageList || storageList.length === 0) {
+    return NextResponse.json({ error: 'File not found in storage. Upload the file first.' }, { status: 400 })
   }
 
   // Insert metadata row
@@ -162,19 +128,17 @@ export async function POST(request: NextRequest) {
     .from('library_item_files')
     .insert({
       library_item_id: libraryItemId,
-      file_name: file.name,
-      file_path: storagePath,
+      file_name: fileName,
+      file_path: filePath,
       file_type: fileType,
-      mime_type: file.type,
-      file_size_bytes: file.size,
+      mime_type: mimeType ?? null,
+      file_size_bytes: fileSizeBytes ?? null,
       storage_bucket: STORAGE_BUCKET,
     })
     .select()
     .single()
 
   if (insertErr) {
-    // Clean up uploaded file if metadata insert fails
-    await supabase.storage.from(STORAGE_BUCKET).remove([storagePath])
     console.error('[library-files] Insert error:', insertErr.message)
     return NextResponse.json({ error: insertErr.message }, { status: 500 })
   }
@@ -182,7 +146,7 @@ export async function POST(request: NextRequest) {
   // Generate signed URL for the response
   const { data: urlData } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .createSignedUrl(storagePath, 3600)
+    .createSignedUrl(filePath, 3600)
 
   return NextResponse.json(
     {
