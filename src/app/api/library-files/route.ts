@@ -21,7 +21,12 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
   'image/png': 'image',
   'image/jpeg': 'image',
   'image/webp': 'image',
+  'text/markdown': 'markdown',
+  'text/x-markdown': 'markdown',
 }
+
+// MIME types that are only allowed when the file extension is .md
+const MD_EXTENSION_ONLY_MIMES = new Set(['text/plain', 'application/octet-stream'])
 
 function getSupabase() {
   return createClient(
@@ -105,11 +110,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Validate MIME type
-  const fileType = ALLOWED_MIME_TYPES[file.type]
+  // Validate MIME type (with extension-based fallback for markdown)
+  let fileType = ALLOWED_MIME_TYPES[file.type]
+  if (!fileType && MD_EXTENSION_ONLY_MIMES.has(file.type)) {
+    // Accept text/plain and application/octet-stream only if the file extension is .md
+    if (file.name.toLowerCase().endsWith('.md')) {
+      fileType = 'markdown'
+    }
+  }
   if (!fileType) {
     return NextResponse.json(
-      { error: `Unsupported file type: ${file.type}. Allowed: DOCX, PDF, PNG, JPG, WEBP.` },
+      { error: `Unsupported file type: ${file.type}. Allowed: DOCX, PDF, MD, PNG, JPG, WEBP.` },
       { status: 400 },
     )
   }

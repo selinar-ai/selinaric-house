@@ -5,7 +5,7 @@
 // Collections sidebar · Item list with search/filters · Item detail · Create/edit form
 // Development Documentation grouped by phase_code/phase_label
 // Authority display uses getEffectiveAuthorityStatus() — One Crown Rule enforced
-// Phase 33C: File attachments (DOCX, PDF, PNG, JPG, WEBP) via Supabase Storage
+// Phase 33C: File attachments (DOCX, PDF, MD, PNG, JPG, WEBP) via Supabase Storage
 //
 // This is a reference-material surface only.
 // No RAG, no embeddings, no chat injection, no Memory Review, no auto-promotion.
@@ -71,7 +71,7 @@ interface LibraryFile {
   library_item_id: string
   file_name: string
   file_path: string
-  file_type: 'docx' | 'pdf' | 'image' | 'other'
+  file_type: 'docx' | 'pdf' | 'image' | 'markdown' | 'other'
   mime_type: string | null
   file_size_bytes: number | null
   storage_bucket: string
@@ -207,10 +207,11 @@ const FILE_TYPE_ICONS: Record<string, string> = {
   docx: '📄',
   pdf: '📕',
   image: '🖼',
+  markdown: '📝',
   other: '📎',
 }
 
-const ACCEPTED_FILE_TYPES = '.docx,.pdf,.png,.jpg,.jpeg,.webp'
+const ACCEPTED_FILE_TYPES = '.docx,.pdf,.md,.png,.jpg,.jpeg,.webp'
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
@@ -1136,7 +1137,7 @@ function ItemDetail({
           </div>
 
           <p className="font-body text-[10px] text-text-muted mb-2">
-            DOCX, PDF, PNG, JPG, WEBP — max 30 MB
+            DOCX, PDF, MD, PNG, JPG, WEBP — max 30 MB
           </p>
 
           {uploadError && (
@@ -1300,6 +1301,8 @@ function ItemForm({
     if (file.type === 'application/pdf') return 'pdf'
     if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
     if (file.type.startsWith('image/')) return 'image'
+    if (file.type === 'text/markdown' || file.type === 'text/x-markdown') return 'markdown'
+    if ((file.type === 'text/plain' || file.type === 'application/octet-stream') && file.name.toLowerCase().endsWith('.md')) return 'markdown'
     return 'other'
   }
 
@@ -1552,7 +1555,7 @@ function ItemForm({
               </label>
             </div>
             <p className="font-body text-[10px] text-text-muted mb-2">
-              DOCX, PDF, PNG, JPG, WEBP — max 30 MB each. Files upload after item is created.
+              DOCX, PDF, MD, PNG, JPG, WEBP — max 30 MB each. Files upload after item is created.
             </p>
 
             {stagedFiles.length > 0 && (
