@@ -236,6 +236,10 @@ export default function LibraryPage() {
   const [formWarning, setFormWarning] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
+  // Phase 33C.1 — staged files for new item creation
+  const [stagedFiles, setStagedFiles] = useState<File[]>([])
+  const [uploadErrors, setUploadErrors] = useState<string[]>([])
+
   // ─── Fetch ──────────────────────────────────────────────────────────────
 
   const fetchItems = useCallback(async () => {
@@ -325,6 +329,8 @@ export default function LibraryPage() {
     })
     setFormError(null)
     setFormWarning(null)
+    setStagedFiles([])
+    setUploadErrors([])
     setFormOpen(true)
     setSelectedItem(null)
   }
@@ -349,6 +355,8 @@ export default function LibraryPage() {
     })
     setFormError(null)
     setFormWarning(null)
+    setStagedFiles([])
+    setUploadErrors([])
     setFormOpen(true)
     setSelectedItem(null)
   }
@@ -360,6 +368,7 @@ export default function LibraryPage() {
     setFormSubmitting(true)
     setFormError(null)
     setFormWarning(null)
+    setUploadErrors([])
 
     const payload: Record<string, unknown> = {
       title: form.title.trim(),
@@ -400,10 +409,46 @@ export default function LibraryPage() {
         setFormWarning(data.warning)
       }
 
+      const createdItem: LibraryItem | null = data.item ?? null
+
+      // Phase 33C.1 — Upload staged files after successful item creation
+      const fileErrors: string[] = []
+      if (!isEdit && createdItem && stagedFiles.length > 0) {
+        for (const file of stagedFiles) {
+          try {
+            const formData = new FormData()
+            formData.append('file', file)
+            formData.append('library_item_id', createdItem.id)
+
+            const uploadRes = await fetch('/api/library-files', {
+              method: 'POST',
+              body: formData,
+            })
+            const uploadData = await uploadRes.json()
+            if (!uploadRes.ok) {
+              fileErrors.push(`${file.name}: ${uploadData.error ?? 'Upload failed'}`)
+            }
+          } catch (err) {
+            fileErrors.push(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed'}`)
+          }
+        }
+      }
+
       setFormOpen(false)
       setEditingItem(null)
       setForm({ ...BLANK_FORM })
+      setStagedFiles([])
       await fetchItems()
+
+      // Show file upload errors if any, but keep the item
+      if (fileErrors.length > 0) {
+        setUploadErrors(fileErrors)
+      }
+
+      // Open the newly created item in the detail view
+      if (!isEdit && createdItem) {
+        setSelectedItem(createdItem)
+      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Save failed')
     } finally {
@@ -693,7 +738,9 @@ export default function LibraryPage() {
                 error={formError}
                 warning={formWarning}
                 onSubmit={handleFormSubmit}
-                onCancel={() => { setFormOpen(false); setEditingItem(null) }}
+                onCancel={() => { setFormOpen(false); setEditingItem(null); setStagedFiles([]) }}
+                stagedFiles={stagedFiles}
+                setStagedFiles={setStagedFiles}
               />
             )}
           </div>
@@ -713,6 +760,26 @@ export default function LibraryPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Phase 33C.1 — File upload errors after item creation */}
+      {uploadErrors.length > 0 && !formOpen && (
+        <div className="shrink-0 border-t border-red-400/30 bg-red-400/5 px-4 py-2.5">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-body text-xs text-red-400">
+              {uploadErrors.length} file{uploadErrors.length === 1 ? '' : 's'} failed to upload. Item was saved. You can attach files from the item detail.
+            </span>
+            <button
+              onClick={() => setUploadErrors([])}
+              className="font-body text-[10px] text-text-muted hover:text-text-secondary ml-3"
+            >
+              Dismiss
+            </button>
+          </div>
+          {uploadErrors.map((err, i) => (
+            <p key={i} className="font-body text-[10px] text-red-400/70">{err}</p>
+          ))}
         </div>
       )}
     </div>
@@ -1201,6 +1268,8 @@ function ItemForm({
   warning,
   onSubmit,
   onCancel,
+  stagedFiles,
+  setStagedFiles,
 }: {
   form: typeof BLANK_FORM
   setForm: (fn: (f: typeof BLANK_FORM) => typeof BLANK_FORM) => void
@@ -1210,7 +1279,30 @@ function ItemForm({
   warning: string | null
   onSubmit: (e: React.FormEvent) => void
   onCancel: () => void
+  stagedFiles: File[]
+  setStagedFiles: (files: File[] | ((prev: File[]) => File[])) => void
 }) {
+  const stageFileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleStageFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const newFiles = Array.from(e.target.files ?? [])
+    if (newFiles.length > 0) {
+      setStagedFiles(prev => [...prev, ...newFiles])
+    }
+    if (stageFileInputRef.current) stageFileInputRef.current.value = ''
+  }
+
+  function removeStagedFile(index: number) {
+    setStagedFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function getStagedFileType(file: File): string {
+    if (file.type === 'application/pdf') return 'pdf'
+    if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
+    if (file.type.startsWith('image/')) return 'image'
+    return 'other'
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div className="shrink-0 px-4 py-3 border-b border-house-border flex items-center justify-between">
@@ -1440,6 +1532,68 @@ function ItemForm({
           />
         </div>
 
+        {/* Phase 33C.1 — Staged file attachments (new items only) */}
+        {!isEdit && (
+          <div className="pt-2 border-t border-house-border/40">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-body text-[10px] text-text-muted tracking-widest uppercase">
+                Attachments
+              </span>
+              <label className="font-body text-[10px] px-2 py-1 border border-house-muted text-text-secondary hover:bg-house-bg transition-all cursor-pointer">
+                + Add file
+                <input
+                  ref={stageFileInputRef}
+                  type="file"
+                  accept={ACCEPTED_FILE_TYPES}
+                  multiple
+                  onChange={handleStageFiles}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <p className="font-body text-[10px] text-text-muted mb-2">
+              DOCX, PDF, PNG, JPG, WEBP — max 30 MB each. Files upload after item is created.
+            </p>
+
+            {stagedFiles.length > 0 && (
+              <div className="space-y-1.5">
+                {stagedFiles.map((file, idx) => {
+                  const fileType = getStagedFileType(file)
+                  return (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      className="flex items-center gap-2 px-2.5 py-2 bg-house-bg border border-house-border/40"
+                    >
+                      <span className="text-base flex-shrink-0">
+                        {FILE_TYPE_ICONS[fileType] ?? FILE_TYPE_ICONS.other}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-body text-xs text-text-secondary truncate">
+                          {file.name}
+                        </p>
+                        <p className="font-body text-[10px] text-text-muted">
+                          {fileType.toUpperCase()} · {formatFileSize(file.size)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeStagedFile(idx)}
+                        className="font-body text-[10px] text-red-400/60 hover:text-red-400 transition-colors shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {stagedFiles.length === 0 && (
+              <p className="font-body text-[10px] text-text-muted italic">No files staged.</p>
+            )}
+          </div>
+        )}
+
         {/* Errors / warnings */}
         {error && (
           <p className="font-body text-xs text-red-400">{error}</p>
@@ -1457,7 +1611,10 @@ function ItemForm({
             disabled={submitting || !form.title.trim()}
             className="font-body text-xs px-4 py-1.5 border border-house-muted text-text-secondary hover:bg-house-bg transition-all disabled:opacity-40"
           >
-            {submitting ? 'Saving...' : isEdit ? 'Update item' : 'Create item'}
+            {submitting
+              ? stagedFiles.length > 0 ? 'Creating & uploading...' : 'Saving...'
+              : isEdit ? 'Update item' : stagedFiles.length > 0 ? `Create item + ${stagedFiles.length} file${stagedFiles.length === 1 ? '' : 's'}` : 'Create item'
+            }
           </button>
           <button
             type="button"
