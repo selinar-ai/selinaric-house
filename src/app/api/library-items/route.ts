@@ -108,14 +108,14 @@ export async function GET(request: NextRequest) {
   let items = data ?? []
 
   // Phase 2: if searching, also find items via extracted attachment text
-  // and merge any new matches not already in results
+  // Search cleaned_extracted_text first (better OCR), then fall back to extracted_text
   let attachmentMatches: Record<string, string[]> | undefined
   if (search) {
     const { data: fileMatches } = await supabase
       .from('library_item_files')
       .select('library_item_id, file_name')
       .eq('extraction_status', 'extracted')
-      .ilike('extracted_text', `%${search}%`)
+      .or(`cleaned_extracted_text.ilike.%${search}%,extracted_text.ilike.%${search}%`)
 
     if (fileMatches && fileMatches.length > 0) {
       // Build attachment match map

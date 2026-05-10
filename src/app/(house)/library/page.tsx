@@ -97,6 +97,10 @@ interface LibraryFile {
   extraction_language: string | null
   media_duration_seconds: number | null
   extraction_metadata: Record<string, unknown>
+  // OCR quality fields (Phase 33E.1)
+  ocr_quality: 'clean' | 'partial' | 'noisy' | 'failed' | null
+  needs_review: boolean
+  cleaned_extracted_text: string | null
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -1053,6 +1057,13 @@ const EXTRACTION_METHOD_LABELS: Record<string, string> = {
   video_audio_transcript: 'Audio transcript',
 }
 
+const OCR_QUALITY_BADGES: Record<string, { label: string; color: string }> = {
+  clean: { label: 'Clean OCR', color: 'text-green-400/80' },
+  partial: { label: 'Partial OCR', color: 'text-amber-400/80' },
+  noisy: { label: 'Noisy OCR', color: 'text-red-400/80' },
+  failed: { label: 'OCR failed', color: 'text-red-400' },
+}
+
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.round(seconds % 60)
@@ -1075,6 +1086,7 @@ function FileAttachmentCard({
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(false)
+  const [showRawOcr, setShowRawOcr] = useState(false)
 
   const canExtract = ['docx', 'pdf', 'markdown', 'image', 'audio', 'video'].includes(file.file_type)
   const isMediaType = ['image', 'audio', 'video'].includes(file.file_type)
@@ -1164,6 +1176,16 @@ function FileAttachmentCard({
                 ({EXTRACTION_METHOD_LABELS[file.extraction_method] ?? file.extraction_method})
               </span>
             )}
+            {file.ocr_quality && OCR_QUALITY_BADGES[file.ocr_quality] && (
+              <span className={`font-body text-[10px] ${OCR_QUALITY_BADGES[file.ocr_quality].color}`}>
+                {OCR_QUALITY_BADGES[file.ocr_quality].label}
+              </span>
+            )}
+            {file.needs_review && (
+              <span className="font-body text-[10px] text-amber-400 italic">
+                Needs review
+              </span>
+            )}
             {file.extraction_status === 'extracted' && file.extraction_char_count != null && (
               <span className="font-body text-[10px] text-text-muted">
                 {file.extraction_char_count.toLocaleString()} chars{file.extraction_truncated ? ' (truncated)' : ''}
@@ -1247,9 +1269,38 @@ function FileAttachmentCard({
           </button>
           {showPreview && (
             <div className="px-2.5 pb-2.5">
-              <div className="font-body text-[11px] text-text-secondary bg-house-surface p-2.5 whitespace-pre-wrap max-h-60 overflow-y-auto border border-house-border/30 leading-relaxed">
-                {file.extracted_text}
-              </div>
+              {/* Noisy OCR warning */}
+              {file.ocr_quality === 'noisy' && (
+                <p className="font-body text-[10px] text-amber-400 mb-1.5 italic">
+                  OCR may be incomplete or unreliable for this image.
+                </p>
+              )}
+
+              {/* Show cleaned text if available, else raw */}
+              {file.cleaned_extracted_text ? (
+                <>
+                  <div className="font-body text-[11px] text-text-secondary bg-house-surface p-2.5 whitespace-pre-wrap max-h-60 overflow-y-auto border border-house-border/30 leading-relaxed">
+                    {file.cleaned_extracted_text}
+                  </div>
+                  {/* Toggle raw OCR */}
+                  <button
+                    onClick={() => setShowRawOcr(!showRawOcr)}
+                    className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors mt-1.5"
+                  >
+                    {showRawOcr ? '▾ Hide raw OCR' : '▸ Show raw OCR'}
+                  </button>
+                  {showRawOcr && (
+                    <div className="font-body text-[11px] text-text-muted bg-house-bg p-2.5 whitespace-pre-wrap max-h-40 overflow-y-auto border border-house-border/20 leading-relaxed mt-1 opacity-70">
+                      {file.extracted_text}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="font-body text-[11px] text-text-secondary bg-house-surface p-2.5 whitespace-pre-wrap max-h-60 overflow-y-auto border border-house-border/30 leading-relaxed">
+                  {file.extracted_text}
+                </div>
+              )}
+
               {file.extraction_truncated && (
                 <p className="font-body text-[10px] text-amber-400/70 mt-1 italic">
                   Extracted text truncated for storage safety.

@@ -82,6 +82,111 @@ function exec(cmd, args) {
   });
 }
 
+// ─── OCR Cleanup & Quality Classification ─────────────────────────────────
+
+/**
+ * Lightweight cleanup of raw OCR text.
+ * Conservative — preserves original meaning, only fixes common OCR artifacts.
+ */
+function cleanOcrText(raw) {
+  if (!raw) return null;
+  let text = raw;
+
+  // 1. Join hyphenated line breaks: "worcester-\nshire" → "worcestershire"
+  text = text.replace(/(\w)-\n(\w)/g, '$1$2');
+
+  // 2. Remove stray OCR bullet artifacts: standalone @® ® @ sequences
+  //    Only remove when they appear as isolated tokens (not inside words)
+  text = text.replace(/(?:^|(?<=\s))[@®]+(?=\s|$)/gm, '');
+
+  // 3. Remove stray pipe artifacts: | | or || at line boundaries
+  text = text.replace(/(?:^|(?<=\s))\|[\s|]*\|(?=\s|$)/gm, '');
+  text = text.replace(/(?:^|(?<=\s))\|(?=\s|$)/gm, '');
+
+  // 4. Fix common split-word artifacts (conservative: only obvious single-space splits mid-word)
+  //    "pecorino r omano" → "pecorino romano" — only fix single-char isolated fragments
+  //    between two lowercase letter sequences
+  text = text.replace(/([a-z]) ([a-z]) ([a-z])/gi, (match, a, b, c) => {
+    // Only merge if the middle part is a single lowercase letter
+    if (b.length === 1 && /^[a-z]$/.test(b)) {
+      return a + b + ' ' + c;
+    }
+    return match;
+  });
+
+  // 5. Fix "Arotating" style: capital letter directly joined to next word after line start
+  //    Only when preceded by newline or start — "Arotating" → "A rotating"
+  //    This is tricky and could overcorrect, so skip for safety
+
+  // 6. Normalise excessive whitespace
+  text = text.replace(/[ \t]+/g, ' ');           // multiple spaces/tabs → single space
+  text = text.replace(/\n{3,}/g, '\n\n');         // 3+ newlines → 2
+  text = text.replace(/^\s+$/gm, '');             // blank lines with whitespace → empty
+
+  return text.trim() || null;
+}
+
+/**
+ * Classify OCR quality based on heuristics.
+ * Returns { quality: 'clean'|'partial'|'noisy'|'failed', needsReview: boolean }
+ */
+function classifyOcrQuality(rawText, confidence) {
+  if (!rawText || rawText.trim().length === 0) {
+    return { quality: 'failed', needsReview: false };
+  }
+
+  const text = rawText.trim();
+  const totalChars = text.length;
+
+  // Very short text is suspicious but not necessarily noisy
+  if (totalChars < 10) {
+    return { quality: 'partial', needsReview: true };
+  }
+
+  // Count noise signals
+  let noiseScore = 0;
+
+  // A. Non-ASCII noise ratio (excluding common punctuation and accented chars)
+  const nonAsciiNoise = (text.match(/[^\x20-\x7E\n\r\tÀ-ſ]/g) || []).length;
+  const noiseRatio = nonAsciiNoise / totalChars;
+  if (noiseRatio > 0.15) noiseScore += 3;
+  else if (noiseRatio > 0.05) noiseScore += 1;
+
+  // B. Repeated gibberish patterns (3+ consecutive non-word chars)
+  const gibberishRuns = (text.match(/[^a-zA-Z0-9\s.,;:!?'"()-]{3,}/g) || []).length;
+  if (gibberishRuns > 5) noiseScore += 3;
+  else if (gibberishRuns > 2) noiseScore += 1;
+
+  // C. Very short average word length (garbled text tends to have short fragments)
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  const avgWordLen = words.reduce((sum, w) => sum + w.length, 0) / (words.length || 1);
+  if (avgWordLen < 2.0) noiseScore += 2;
+  else if (avgWordLen < 2.5) noiseScore += 1;
+
+  // D. Low tesseract confidence
+  if (confidence != null) {
+    if (confidence < 0.40) noiseScore += 3;
+    else if (confidence < 0.60) noiseScore += 2;
+    else if (confidence < 0.75) noiseScore += 1;
+  }
+
+  // E. High ratio of single-character "words" (fragmented OCR)
+  const singleCharWords = words.filter(w => w.length === 1 && !/^[AIai]$/.test(w)).length;
+  const singleCharRatio = singleCharWords / (words.length || 1);
+  if (singleCharRatio > 0.20) noiseScore += 2;
+  else if (singleCharRatio > 0.10) noiseScore += 1;
+
+  // F. Line structure: very short average line length suggests fragmentation
+  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  const avgLineLen = lines.reduce((sum, l) => sum + l.trim().length, 0) / (lines.length || 1);
+  if (lines.length > 5 && avgLineLen < 8) noiseScore += 1;
+
+  // Classify
+  if (noiseScore >= 5) return { quality: 'noisy', needsReview: true };
+  if (noiseScore >= 2) return { quality: 'partial', needsReview: true };
+  return { quality: 'clean', needsReview: false };
+}
+
 // ─── Image OCR (tesseract.js) ──────────────────────────────────────────────
 
 async function processImageOcr(buffer, mimeType) {
@@ -96,11 +201,18 @@ async function processImageOcr(buffer, mimeType) {
   try {
     const { data } = await worker.recognize(buffer);
     const text = (data.text || '').trim();
+    const confidence = data.confidence / 100;
+    const cleanedText = cleanOcrText(text);
+    const { quality, needsReview } = classifyOcrQuality(text, confidence);
+
     return {
       text: text || null,
-      confidence: data.confidence / 100,
+      cleanedText,
+      confidence,
       language: 'en',
       method: 'image_ocr',
+      ocrQuality: quality,
+      needsReview,
     };
   } finally {
     await worker.terminate();
@@ -273,7 +385,8 @@ async function processJob(job) {
     const storedText = truncated ? text.substring(0, MAX_CHARS) : text;
     const status = text ? 'extracted' : 'empty';
 
-    await sb.from('library_item_files').update({
+    // Build update payload
+    const fileUpdate = {
       extraction_status: status,
       extracted_text: storedText || null,
       extracted_at: new Date().toISOString(),
@@ -284,7 +397,24 @@ async function processJob(job) {
       extraction_confidence: result.confidence ?? null,
       extraction_language: result.language ?? null,
       media_duration_seconds: result.duration ?? null,
-    }).eq('id', job.file_id);
+    };
+
+    // OCR quality fields (image_ocr only)
+    if (result.ocrQuality) {
+      fileUpdate.ocr_quality = result.ocrQuality;
+      fileUpdate.needs_review = result.needsReview ?? false;
+      // Store cleaned text (truncated if needed)
+      if (result.cleanedText) {
+        const cleanedLen = result.cleanedText.length;
+        fileUpdate.cleaned_extracted_text = cleanedLen > MAX_CHARS
+          ? result.cleanedText.substring(0, MAX_CHARS)
+          : result.cleanedText;
+      } else {
+        fileUpdate.cleaned_extracted_text = null;
+      }
+    }
+
+    await sb.from('library_item_files').update(fileUpdate).eq('id', job.file_id);
 
     await sb.from('library_extraction_jobs').update({
       status: 'completed',
@@ -293,7 +423,8 @@ async function processJob(job) {
       result_truncated: truncated,
     }).eq('id', job.id);
 
-    console.log(`  ✓ Job ${job.id} completed: ${status}, ${charCount} chars`);
+    const qualityTag = result.ocrQuality ? ` [${result.ocrQuality}]` : '';
+    console.log(`  ✓ Job ${job.id} completed: ${status}, ${charCount} chars${qualityTag}`);
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
