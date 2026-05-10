@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const STORAGE_BUCKET = 'library-files'
 
-const VALID_FILE_TYPES = new Set(['docx', 'pdf', 'image', 'markdown', 'other'])
+const VALID_FILE_TYPES = new Set(['docx', 'pdf', 'image', 'markdown', 'audio', 'video', 'other'])
 
 function getSupabase() {
   return createClient(

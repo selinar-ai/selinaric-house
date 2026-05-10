@@ -1,12 +1,12 @@
-// Phase 33D — Document Text Extraction API
+// Phase 33D + 33E — Document & Media Text Extraction API
 //
 // POST /api/library-files/[id]/extract
 //
-// Downloads file from private Supabase Storage, extracts text,
-// and saves extraction result to library_item_files.
+// For DOCX/PDF/MD: sync extraction (downloads from Storage, extracts, saves)
+// For image/audio/video: creates extraction job (processed by local worker)
 //
-// Extraction is not Memory. Searchable text is not RAG.
-// Extracted attachment text is Library material only.
+// Extraction is not Memory. OCR is not Memory. Transcript is not Memory.
+// Searchable media text is not RAG. Library media content is Library material only.
 // No embeddings. No vector search. No chat injection.
 
 import { createClient } from '@supabase/supabase-js'
@@ -14,6 +14,12 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const STORAGE_BUCKET = 'library-files'
 const MAX_EXTRACTED_CHARS = 200_000
+
+const JOB_TYPE_MAP: Record<string, string> = {
+  image: 'image_ocr',
+  audio: 'audio_transcript',
+  video: 'video_audio_transcript',
+}
 
 function getSupabase() {
   return createClient(
@@ -143,9 +149,71 @@ export async function POST(
 
   const fileType = fileRecord.file_type as string
 
-  // 3. Check if file type supports extraction
+  // ─── Media types: create extraction job (processed by local worker) ───
+
+  const jobType = JOB_TYPE_MAP[fileType]
+  if (jobType) {
+    // Check for existing queued/processing job to avoid duplicates
+    const { data: existingJobs } = await supabase
+      .from('library_extraction_jobs')
+      .select('*')
+      .eq('file_id', id)
+      .in('status', ['queued', 'processing'])
+      .order('requested_at', { ascending: false })
+      .limit(1)
+
+    if (existingJobs && existingJobs.length > 0) {
+      const existing = existingJobs[0]
+      return NextResponse.json({
+        extraction: {
+          status: existing.status,
+          job_id: existing.id,
+          job_type: existing.job_type,
+          message: `Extraction already ${existing.status}`,
+        },
+      })
+    }
+
+    // Create extraction job
+    const { data: job, error: jobErr } = await supabase
+      .from('library_extraction_jobs')
+      .insert({
+        file_id: id,
+        library_item_id: fileRecord.library_item_id,
+        job_type: jobType,
+        status: 'queued',
+      })
+      .select()
+      .single()
+
+    if (jobErr) {
+      console.error('[library-files/extract] Job creation error:', jobErr.message)
+      return NextResponse.json({ error: jobErr.message }, { status: 500 })
+    }
+
+    // Mark file as queued
+    await supabase
+      .from('library_item_files')
+      .update({
+        extraction_status: 'queued',
+        extraction_error: null,
+      })
+      .eq('id', id)
+
+    return NextResponse.json({
+      extraction: {
+        status: 'queued',
+        job_id: job.id,
+        job_type: jobType,
+        message: 'Extraction job queued. Start the local worker to process.',
+      },
+    })
+  }
+
+  // ─── Document types: sync extraction ─────────────────────────────────
+
   if (!['docx', 'pdf', 'markdown'].includes(fileType)) {
-    // Mark as unsupported and return
+    // Unsupported (e.g. 'other')
     await supabase
       .from('library_item_files')
       .update({
@@ -223,6 +291,7 @@ export async function POST(
       extraction_error: result.error,
       extraction_char_count: result.charCount,
       extraction_truncated: result.truncated,
+      extraction_method: 'text_parse',
     })
     .eq('id', id)
 

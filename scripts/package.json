@@ -1,0 +1,13 @@
+{
+  "name": "library-extraction-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phase 33E — Local extraction worker for image OCR and audio/video transcription",
+  "scripts": {
+    "start": "node library-extraction-worker.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "tesseract.js": "^5.1.1"
+  }
+}

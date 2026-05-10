@@ -5,7 +5,7 @@
 // Collections sidebar · Item list with search/filters · Item detail · Create/edit form
 // Development Documentation grouped by phase_code/phase_label
 // Authority display uses getEffectiveAuthorityStatus() — One Crown Rule enforced
-// Phase 33C: File attachments (DOCX, PDF, MD, PNG, JPG, WEBP) via Supabase Storage
+// Phase 33C+E: File attachments (DOCX, PDF, MD, images, audio, video) via Supabase Storage
 //
 // This is a reference-material surface only.
 // No RAG, no embeddings, no chat injection, no Memory Review, no auto-promotion.
@@ -79,19 +79,24 @@ interface LibraryFile {
   library_item_id: string
   file_name: string
   file_path: string
-  file_type: 'docx' | 'pdf' | 'image' | 'markdown' | 'other'
+  file_type: 'docx' | 'pdf' | 'image' | 'markdown' | 'audio' | 'video' | 'other'
   mime_type: string | null
   file_size_bytes: number | null
   storage_bucket: string
   created_at: string
   url: string | null
-  // Extraction fields (Phase 33D)
-  extraction_status: 'not_started' | 'processing' | 'extracted' | 'empty' | 'failed' | 'unsupported'
+  // Extraction fields (Phase 33D + 33E)
+  extraction_status: 'not_started' | 'queued' | 'processing' | 'extracted' | 'empty' | 'failed' | 'unsupported'
   extracted_text: string | null
   extracted_at: string | null
   extraction_error: string | null
   extraction_char_count: number | null
   extraction_truncated: boolean
+  extraction_method: string | null
+  extraction_confidence: number | null
+  extraction_language: string | null
+  media_duration_seconds: number | null
+  extraction_metadata: Record<string, unknown>
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -223,10 +228,12 @@ const FILE_TYPE_ICONS: Record<string, string> = {
   pdf: '📕',
   image: '🖼',
   markdown: '📝',
+  audio: '🎵',
+  video: '🎬',
   other: '📎',
 }
 
-const ACCEPTED_FILE_TYPES = '.docx,.pdf,.md,.png,.jpg,.jpeg,.webp'
+const ACCEPTED_FILE_TYPES = '.docx,.pdf,.md,.png,.jpg,.jpeg,.webp,.mp3,.m4a,.wav,.mp4,.mov,.webm'
 
 const MAX_FILE_SIZE = 30 * 1024 * 1024 // 30 MB
 const STORAGE_BUCKET = 'library-files'
@@ -239,13 +246,33 @@ const ALLOWED_MIME_MAP: Record<string, string> = {
   'image/webp': 'image',
   'text/markdown': 'markdown',
   'text/x-markdown': 'markdown',
+  // Audio
+  'audio/mpeg': 'audio',
+  'audio/mp3': 'audio',
+  'audio/mp4': 'audio',
+  'audio/m4a': 'audio',
+  'audio/wav': 'audio',
+  'audio/webm': 'audio',
+  'audio/x-wav': 'audio',
+  'audio/x-m4a': 'audio',
+  // Video
+  'video/mp4': 'video',
+  'video/quicktime': 'video',
+  'video/webm': 'video',
 }
 const MD_EXTENSION_ONLY = new Set(['text/plain', 'application/octet-stream'])
+
+const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'wav', 'ogg', 'flac', 'wma', 'aac'])
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'mkv', 'avi'])
 
 function resolveFileType(file: File): string | null {
   const mapped = ALLOWED_MIME_MAP[file.type]
   if (mapped) return mapped
   if (MD_EXTENSION_ONLY.has(file.type) && file.name.toLowerCase().endsWith('.md')) return 'markdown'
+  // Extension fallback for audio/video with generic MIME types
+  const ext = file.name.toLowerCase().split('.').pop() ?? ''
+  if (file.type.startsWith('audio/') || AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (file.type.startsWith('video/') || VIDEO_EXTENSIONS.has(ext)) return 'video'
   return null
 }
 
@@ -296,7 +323,7 @@ async function uploadLibraryFile(
   }
   const fileType = resolveFileType(file)
   if (!fileType) {
-    return { file: null, error: `Unsupported file type: ${file.type}. Allowed: DOCX, PDF, MD, PNG, JPG, WEBP.` }
+    return { file: null, error: `Unsupported file type: ${file.type}. Allowed: DOCX, PDF, MD, PNG, JPG, WEBP, MP3, WAV, M4A, MP4, MOV, WEBM.` }
   }
 
   // Build storage path
@@ -1011,11 +1038,25 @@ function ItemRow({
 
 const EXTRACTION_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   not_started: { label: 'Not extracted', color: 'text-text-muted' },
+  queued: { label: 'Queued', color: 'text-blue-400/80' },
   processing: { label: 'Extracting...', color: 'text-amber-400' },
   extracted: { label: 'Extracted', color: 'text-green-400/80' },
   empty: { label: 'No text found', color: 'text-text-muted' },
   failed: { label: 'Extraction failed', color: 'text-red-400/80' },
   unsupported: { label: 'Not supported', color: 'text-text-muted' },
+}
+
+const EXTRACTION_METHOD_LABELS: Record<string, string> = {
+  text_parse: 'Text parse',
+  image_ocr: 'OCR',
+  audio_transcript: 'Transcript',
+  video_audio_transcript: 'Audio transcript',
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
 function FileAttachmentCard({
@@ -1035,8 +1076,39 @@ function FileAttachmentCard({
   const [extractError, setExtractError] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(false)
 
-  const canExtract = ['docx', 'pdf', 'markdown'].includes(file.file_type)
+  const canExtract = ['docx', 'pdf', 'markdown', 'image', 'audio', 'video'].includes(file.file_type)
+  const isMediaType = ['image', 'audio', 'video'].includes(file.file_type)
   const statusInfo = EXTRACTION_STATUS_LABELS[file.extraction_status] ?? EXTRACTION_STATUS_LABELS.not_started
+
+  // Poll for job completion when file is queued/processing (media types)
+  useEffect(() => {
+    if (!isMediaType) return
+    if (file.extraction_status !== 'queued' && file.extraction_status !== 'processing') return
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/library-extraction-jobs?file_id=${file.id}`)
+        const data = await res.json()
+        const jobs = data.jobs ?? []
+        const latest = jobs[0]
+        if (latest && (latest.status === 'completed' || latest.status === 'failed')) {
+          onFileUpdated()
+        }
+      } catch { /* silent */ }
+    }, 6000)
+
+    return () => clearInterval(interval)
+  }, [file.id, file.extraction_status, isMediaType, onFileUpdated])
+
+  function getExtractLabel(): string {
+    if (file.extraction_status === 'not_started') {
+      if (file.file_type === 'image') return 'Extract text (OCR)'
+      if (file.file_type === 'audio') return 'Extract transcript'
+      if (file.file_type === 'video') return 'Extract audio transcript'
+      return 'Extract text'
+    }
+    return 'Re-extract'
+  }
 
   async function handleExtract() {
     setExtracting(true)
@@ -1078,21 +1150,28 @@ function FileAttachmentCard({
             {file.file_name}
           </p>
           <p className="font-body text-[10px] text-text-muted">
-            {file.file_type.toUpperCase()} · {formatFileSize(file.file_size_bytes)} · {formatDate(file.created_at)}
+            {file.file_type.toUpperCase()} · {formatFileSize(file.file_size_bytes)}
+            {file.media_duration_seconds != null && ` · ${formatDuration(file.media_duration_seconds)}`}
+            {' · '}{formatDate(file.created_at)}
           </p>
           {/* Extraction status */}
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className={`font-body text-[10px] ${statusInfo.color}`}>
               {statusInfo.label}
             </span>
-            {file.extraction_status === 'extracted' && file.extraction_char_count != null && (
+            {file.extraction_method && (
               <span className="font-body text-[10px] text-text-muted">
-                ({file.extraction_char_count.toLocaleString()} chars{file.extraction_truncated ? ', truncated' : ''})
+                ({EXTRACTION_METHOD_LABELS[file.extraction_method] ?? file.extraction_method})
               </span>
             )}
-            {file.file_type === 'image' && (
+            {file.extraction_status === 'extracted' && file.extraction_char_count != null && (
+              <span className="font-body text-[10px] text-text-muted">
+                {file.extraction_char_count.toLocaleString()} chars{file.extraction_truncated ? ' (truncated)' : ''}
+              </span>
+            )}
+            {isMediaType && (file.extraction_status === 'queued' || file.extraction_status === 'processing') && (
               <span className="font-body text-[10px] text-text-muted italic">
-                Text extraction not supported for images yet.
+                Requires local worker
               </span>
             )}
           </div>
@@ -1101,16 +1180,18 @@ function FileAttachmentCard({
         {/* Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Extract / Re-extract */}
-          {canExtract && !extracting && (
+          {canExtract && !extracting && file.extraction_status !== 'queued' && file.extraction_status !== 'processing' && (
             <button
               onClick={handleExtract}
               className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
             >
-              {file.extraction_status === 'not_started' ? 'Extract text' : 'Re-extract'}
+              {getExtractLabel()}
             </button>
           )}
           {extracting && (
-            <span className="font-body text-[10px] text-amber-400">Extracting...</span>
+            <span className="font-body text-[10px] text-amber-400">
+              {isMediaType ? 'Queueing...' : 'Extracting...'}
+            </span>
           )}
           {file.url && (
             <a
@@ -1459,7 +1540,7 @@ function ItemDetail({
           </div>
 
           <p className="font-body text-[10px] text-text-muted mb-2">
-            DOCX, PDF, MD, PNG, JPG, WEBP — max 30 MB
+            DOCX, PDF, MD, PNG, JPG, WEBP, MP3, WAV, M4A, MP4, MOV, WEBM — max 30 MB
           </p>
 
           {uploadError && (
@@ -1569,6 +1650,8 @@ function ItemForm({
     if (file.type.startsWith('image/')) return 'image'
     if (file.type === 'text/markdown' || file.type === 'text/x-markdown') return 'markdown'
     if ((file.type === 'text/plain' || file.type === 'application/octet-stream') && file.name.toLowerCase().endsWith('.md')) return 'markdown'
+    if (file.type.startsWith('audio/')) return 'audio'
+    if (file.type.startsWith('video/')) return 'video'
     return 'other'
   }
 
@@ -1821,7 +1904,7 @@ function ItemForm({
               </label>
             </div>
             <p className="font-body text-[10px] text-text-muted mb-2">
-              DOCX, PDF, MD, PNG, JPG, WEBP — max 30 MB each. Files upload after item is created.
+              DOCX, PDF, MD, PNG, JPG, WEBP, MP3, WAV, M4A, MP4, MOV, WEBM — max 30 MB each. Files upload after item is created.
             </p>
 
             {stagedFiles.length > 0 && (
