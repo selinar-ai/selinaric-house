@@ -1269,10 +1269,15 @@ function FileAttachmentCard({
           </button>
           {showPreview && (
             <div className="px-2.5 pb-2.5">
-              {/* Noisy OCR warning */}
+              {/* OCR quality warning */}
               {file.ocr_quality === 'noisy' && (
-                <p className="font-body text-[10px] text-amber-400 mb-1.5 italic">
-                  OCR may be incomplete or unreliable for this image.
+                <p className="font-body text-[10px] text-red-400/80 mb-1.5 italic">
+                  OCR is unreliable for this image. Text below may be incomplete or garbled.
+                </p>
+              )}
+              {file.ocr_quality === 'partial' && (
+                <p className="font-body text-[10px] text-amber-400/80 mb-1.5 italic">
+                  OCR may be incomplete or contain errors for this image.
                 </p>
               )}
 

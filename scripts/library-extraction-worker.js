@@ -85,49 +85,114 @@ function exec(cmd, args) {
 // ─── OCR Cleanup & Quality Classification ─────────────────────────────────
 
 /**
- * Lightweight cleanup of raw OCR text.
- * Conservative — preserves original meaning, only fixes common OCR artifacts.
+ * Score a single line for readability. Returns 0.0–1.0 (1 = clean).
+ * Used by both cleanup (to filter lines) and classification.
+ */
+function scoreLineReadability(line) {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return 0;
+
+  const chars = trimmed.length;
+  let penalty = 0;
+
+  // Non-ASCII noise (excluding accented Latin, common currency/punctuation)
+  const noise = (trimmed.match(/[^\x20-\x7E\n\r\tÀ-ſ€£¥°±²³µ·¹º]/g) || []).length;
+  penalty += (noise / chars) * 3;
+
+  // Gibberish runs (3+ consecutive non-word, non-punctuation chars)
+  const gibberish = (trimmed.match(/[^a-zA-Z0-9\s.,;:!?'"()\-/&$#@%+*=\[\]{}À-ſ]{3,}/g) || []).length;
+  penalty += gibberish * 0.4;
+
+  // Single-char word ratio (fragmented OCR)
+  const words = trimmed.split(/\s+/).filter(w => w.length > 0);
+  if (words.length > 0) {
+    const singleChar = words.filter(w => w.length === 1 && !/^[AIai0-9&$]$/.test(w)).length;
+    penalty += (singleChar / words.length) * 1.5;
+  }
+
+  // Very short line with mixed casing and no recognisable words
+  if (chars < 4 && words.length <= 2) {
+    const hasLetter = /[a-zA-Z]/.test(trimmed);
+    const hasDigit = /[0-9]/.test(trimmed);
+    if (!hasLetter && !hasDigit) penalty += 1;
+  }
+
+  // All-caps gibberish (common in decorative font OCR): e.g. "XJKW QR"
+  if (words.length >= 2 && /^[^a-z]*$/.test(trimmed)) {
+    const recognisable = words.filter(w => w.length >= 3).length;
+    if (recognisable / words.length < 0.3) penalty += 0.8;
+  }
+
+  return Math.max(0, Math.min(1, 1 - penalty));
+}
+
+/**
+ * Clean OCR text: per-line filtering + artifact removal + paragraph reconstruction.
+ * Conservative — preserves readable content, strips garbled lines.
+ * Raw OCR is always kept separately in extracted_text.
  */
 function cleanOcrText(raw) {
   if (!raw) return null;
   let text = raw;
 
-  // 1. Join hyphenated line breaks: "worcester-\nshire" → "worcestershire"
+  // ── Phase 1: Global artifact removal ──
+
+  // Join hyphenated line breaks: "worcester-\nshire" → "worcestershire"
   text = text.replace(/(\w)-\n(\w)/g, '$1$2');
 
-  // 2. Remove stray OCR bullet artifacts: standalone @® ® @ sequences
-  //    Only remove when they appear as isolated tokens (not inside words)
+  // Remove stray OCR bullet artifacts: standalone @® ® @ sequences
   text = text.replace(/(?:^|(?<=\s))[@®]+(?=\s|$)/gm, '');
 
-  // 3. Remove stray pipe artifacts: | | or || at line boundaries
+  // Remove stray pipe artifacts: | | or || at line boundaries
   text = text.replace(/(?:^|(?<=\s))\|[\s|]*\|(?=\s|$)/gm, '');
   text = text.replace(/(?:^|(?<=\s))\|(?=\s|$)/gm, '');
 
-  // 4. Fix common split-word artifacts (conservative: only obvious single-space splits mid-word)
-  //    "pecorino r omano" → "pecorino romano" — only fix single-char isolated fragments
-  //    between two lowercase letter sequences
+  // Fix common single-char split-word artifacts: "pecorino r omano" → "pecorino romano"
   text = text.replace(/([a-z]) ([a-z]) ([a-z])/gi, (match, a, b, c) => {
-    // Only merge if the middle part is a single lowercase letter
     if (b.length === 1 && /^[a-z]$/.test(b)) {
       return a + b + ' ' + c;
     }
     return match;
   });
 
-  // 5. Fix "Arotating" style: capital letter directly joined to next word after line start
-  //    Only when preceded by newline or start — "Arotating" → "A rotating"
-  //    This is tricky and could overcorrect, so skip for safety
+  // ── Phase 2: Per-line quality filter ──
+  // Score each line; keep lines above readability threshold.
+  const LINE_THRESHOLD = 0.35;
+  const inputLines = text.split('\n');
+  const keptLines = [];
+  let consecutiveBlanks = 0;
 
-  // 6. Normalise excessive whitespace
-  text = text.replace(/[ \t]+/g, ' ');           // multiple spaces/tabs → single space
-  text = text.replace(/\n{3,}/g, '\n\n');         // 3+ newlines → 2
-  text = text.replace(/^\s+$/gm, '');             // blank lines with whitespace → empty
+  for (const line of inputLines) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      // Preserve paragraph breaks (max 1 blank line)
+      if (consecutiveBlanks < 1 && keptLines.length > 0) {
+        keptLines.push('');
+        consecutiveBlanks++;
+      }
+      continue;
+    }
 
-  return text.trim() || null;
+    const score = scoreLineReadability(trimmed);
+    if (score >= LINE_THRESHOLD) {
+      keptLines.push(trimmed);
+      consecutiveBlanks = 0;
+    }
+    // Lines below threshold are silently dropped from cleaned text
+  }
+
+  // ── Phase 3: Final normalisation ──
+  let cleaned = keptLines.join('\n');
+  cleaned = cleaned.replace(/[ \t]+/g, ' ');           // multiple spaces → single
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');         // 3+ newlines → 2
+  cleaned = cleaned.replace(/^\s+$/gm, '');             // blank-only lines → empty
+
+  return cleaned.trim() || null;
 }
 
 /**
  * Classify OCR quality based on heuristics.
+ * Uses per-line scoring for a more accurate picture of overall quality.
  * Returns { quality: 'clean'|'partial'|'noisy'|'failed', needsReview: boolean }
  */
 function classifyOcrQuality(rawText, confidence) {
@@ -138,51 +203,76 @@ function classifyOcrQuality(rawText, confidence) {
   const text = rawText.trim();
   const totalChars = text.length;
 
-  // Very short text is suspicious but not necessarily noisy
+  // Very short text is suspicious
   if (totalChars < 10) {
     return { quality: 'partial', needsReview: true };
   }
 
-  // Count noise signals
+  // ── Per-line scoring ──
+  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  const lineScores = lines.map(l => scoreLineReadability(l.trim()));
+  const avgLineScore = lineScores.reduce((a, b) => a + b, 0) / (lineScores.length || 1);
+  const cleanLines = lineScores.filter(s => s >= 0.5).length;
+  const noisyLines = lineScores.filter(s => s < 0.35).length;
+  const cleanRatio = cleanLines / (lines.length || 1);
+  const noisyRatio = noisyLines / (lines.length || 1);
+
+  // ── Aggregate noise score ──
   let noiseScore = 0;
 
-  // A. Non-ASCII noise ratio (excluding common punctuation and accented chars)
+  // A. Overall line quality
+  if (avgLineScore < 0.3) noiseScore += 4;
+  else if (avgLineScore < 0.5) noiseScore += 2;
+  else if (avgLineScore < 0.65) noiseScore += 1;
+
+  // B. Ratio of noisy lines
+  if (noisyRatio > 0.50) noiseScore += 3;
+  else if (noisyRatio > 0.30) noiseScore += 2;
+  else if (noisyRatio > 0.15) noiseScore += 1;
+
+  // C. Low ratio of clean lines
+  if (cleanRatio < 0.30) noiseScore += 2;
+  else if (cleanRatio < 0.50) noiseScore += 1;
+
+  // D. Non-ASCII noise ratio (global)
   const nonAsciiNoise = (text.match(/[^\x20-\x7E\n\r\tÀ-ſ]/g) || []).length;
   const noiseRatio = nonAsciiNoise / totalChars;
-  if (noiseRatio > 0.15) noiseScore += 3;
-  else if (noiseRatio > 0.05) noiseScore += 1;
+  if (noiseRatio > 0.10) noiseScore += 3;
+  else if (noiseRatio > 0.04) noiseScore += 1;
 
-  // B. Repeated gibberish patterns (3+ consecutive non-word chars)
-  const gibberishRuns = (text.match(/[^a-zA-Z0-9\s.,;:!?'"()-]{3,}/g) || []).length;
-  if (gibberishRuns > 5) noiseScore += 3;
-  else if (gibberishRuns > 2) noiseScore += 1;
+  // E. Global gibberish runs (3+ consecutive non-word chars)
+  const gibberishRuns = (text.match(/[^a-zA-Z0-9\s.,;:!?'"()\-/]{3,}/g) || []).length;
+  if (gibberishRuns > 8) noiseScore += 3;
+  else if (gibberishRuns > 3) noiseScore += 2;
+  else if (gibberishRuns > 1) noiseScore += 1;
 
-  // C. Very short average word length (garbled text tends to have short fragments)
+  // F. Short average word length (garbled text has short fragments)
   const words = text.split(/\s+/).filter(w => w.length > 0);
   const avgWordLen = words.reduce((sum, w) => sum + w.length, 0) / (words.length || 1);
   if (avgWordLen < 2.0) noiseScore += 2;
   else if (avgWordLen < 2.5) noiseScore += 1;
 
-  // D. Low tesseract confidence
+  // G. Low tesseract confidence (strengthened thresholds)
   if (confidence != null) {
-    if (confidence < 0.40) noiseScore += 3;
-    else if (confidence < 0.60) noiseScore += 2;
+    if (confidence < 0.35) noiseScore += 4;
+    else if (confidence < 0.50) noiseScore += 3;
+    else if (confidence < 0.65) noiseScore += 2;
     else if (confidence < 0.75) noiseScore += 1;
   }
 
-  // E. High ratio of single-character "words" (fragmented OCR)
-  const singleCharWords = words.filter(w => w.length === 1 && !/^[AIai]$/.test(w)).length;
+  // H. High single-character word ratio
+  const singleCharWords = words.filter(w => w.length === 1 && !/^[AIai0-9&$]$/.test(w)).length;
   const singleCharRatio = singleCharWords / (words.length || 1);
   if (singleCharRatio > 0.20) noiseScore += 2;
   else if (singleCharRatio > 0.10) noiseScore += 1;
 
-  // F. Line structure: very short average line length suggests fragmentation
-  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  // I. Very fragmented line structure
   const avgLineLen = lines.reduce((sum, l) => sum + l.trim().length, 0) / (lines.length || 1);
-  if (lines.length > 5 && avgLineLen < 8) noiseScore += 1;
+  if (lines.length > 5 && avgLineLen < 6) noiseScore += 2;
+  else if (lines.length > 5 && avgLineLen < 10) noiseScore += 1;
 
-  // Classify
-  if (noiseScore >= 5) return { quality: 'noisy', needsReview: true };
+  // Classify — tighter thresholds so bad OCR doesn't appear deceptively usable
+  if (noiseScore >= 4) return { quality: 'noisy', needsReview: true };
   if (noiseScore >= 2) return { quality: 'partial', needsReview: true };
   return { quality: 'clean', needsReview: false };
 }
