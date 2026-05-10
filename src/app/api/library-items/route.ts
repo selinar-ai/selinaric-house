@@ -89,8 +89,10 @@ export async function GET(request: NextRequest) {
   if (phaseCode) query = query.eq('phase_code', phaseCode)
 
   const search = params.get('search')?.trim()
+
   if (search) {
-    // ilike search across key text fields
+    // Search items directly + items with matching attachment extracted text
+    // Phase 1: direct item field search
     query = query.or(
       `title.ilike.%${search}%,description.ilike.%${search}%,content_text.ilike.%${search}%,phase_label.ilike.%${search}%,phase_code.ilike.%${search}%`
     )
@@ -103,7 +105,56 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ items: data ?? [] })
+  let items = data ?? []
+
+  // Phase 2: if searching, also find items via extracted attachment text
+  // and merge any new matches not already in results
+  let attachmentMatches: Record<string, string[]> | undefined
+  if (search) {
+    const { data: fileMatches } = await supabase
+      .from('library_item_files')
+      .select('library_item_id, file_name')
+      .eq('extraction_status', 'extracted')
+      .ilike('extracted_text', `%${search}%`)
+
+    if (fileMatches && fileMatches.length > 0) {
+      // Build attachment match map
+      attachmentMatches = {}
+      for (const fm of fileMatches) {
+        if (!attachmentMatches[fm.library_item_id]) {
+          attachmentMatches[fm.library_item_id] = []
+        }
+        attachmentMatches[fm.library_item_id].push(fm.file_name)
+      }
+
+      // Find item IDs not already in results
+      const existingIds = new Set(items.map(i => i.id))
+      const missingIds = Object.keys(attachmentMatches).filter(id => !existingIds.has(id))
+
+      if (missingIds.length > 0) {
+        // Fetch the missing items (apply same filters except search)
+        let extraQuery = supabase
+          .from('library_items')
+          .select('*')
+          .in('id', missingIds)
+          .order('created_at', { ascending: false })
+
+        if (collection) extraQuery = extraQuery.eq('collection', collection)
+        if (authorityStatus) extraQuery = extraQuery.eq('authority_status', authorityStatus)
+        if (presenceScope) extraQuery = extraQuery.eq('presence_scope', presenceScope)
+
+        const { data: extraItems } = await extraQuery
+        if (extraItems) {
+          items = [...items, ...extraItems]
+        }
+      }
+    }
+  }
+
+  return NextResponse.json({
+    items,
+    ...(attachmentMatches ? { attachment_matches: attachmentMatches } : {}),
+  })
 }
 
 // ─── POST ───────────────────────────────────────────────────────────────────

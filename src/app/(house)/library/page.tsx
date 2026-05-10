@@ -85,6 +85,13 @@ interface LibraryFile {
   storage_bucket: string
   created_at: string
   url: string | null
+  // Extraction fields (Phase 33D)
+  extraction_status: 'not_started' | 'processing' | 'extracted' | 'empty' | 'failed' | 'unsupported'
+  extracted_text: string | null
+  extracted_at: string | null
+  extraction_error: string | null
+  extraction_char_count: number | null
+  extraction_truncated: boolean
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -364,6 +371,9 @@ export default function LibraryPage() {
   const [stagedFiles, setStagedFiles] = useState<File[]>([])
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
 
+  // Phase 33D — attachment text search match tracking
+  const [attachmentMatches, setAttachmentMatches] = useState<Record<string, string[]>>({})
+
   // ─── Fetch ──────────────────────────────────────────────────────────────
 
   const fetchItems = useCallback(async () => {
@@ -380,6 +390,7 @@ export default function LibraryPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       setItems(data.items ?? [])
+      setAttachmentMatches(data.attachment_matches ?? {})
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load library items')
     } finally {
@@ -784,6 +795,7 @@ export default function LibraryPage() {
                           item={item}
                           isSelected={selectedItem?.id === item.id}
                           onClick={() => { setSelectedItem(item); setFormOpen(false) }}
+                          attachmentMatchFiles={attachmentMatches[item.id]}
                         />
                       ))}
                     </div>
@@ -805,6 +817,7 @@ export default function LibraryPage() {
                         item={item}
                         isSelected={selectedItem?.id === item.id}
                         onClick={() => { setSelectedItem(item); setFormOpen(false) }}
+                        attachmentMatchFiles={attachmentMatches[item.id]}
                       />
                     ))}
                   </div>
@@ -821,6 +834,7 @@ export default function LibraryPage() {
                     item={item}
                     isSelected={selectedItem?.id === item.id}
                     onClick={() => { setSelectedItem(item); setFormOpen(false) }}
+                    attachmentMatchFiles={attachmentMatches[item.id]}
                   />
                 ))}
               </div>
@@ -909,10 +923,12 @@ function ItemRow({
   item,
   isSelected,
   onClick,
+  attachmentMatchFiles,
 }: {
   item: LibraryItem
   isSelected: boolean
   onClick: () => void
+  attachmentMatchFiles?: string[]
 }) {
   const effectiveAuthority = getEffectiveAuthority(item)
   const rejected = isRejectedCanonical(item)
@@ -976,7 +992,202 @@ function ItemRow({
           ))}
         </div>
       )}
+
+      {/* Attachment text match cue */}
+      {attachmentMatchFiles && attachmentMatchFiles.length > 0 && (
+        <div className="mt-1.5">
+          {attachmentMatchFiles.map(fname => (
+            <span key={fname} className="font-body text-[10px] text-amber-400/80 mr-2">
+              📎 Matched file: {fname}
+            </span>
+          ))}
+        </div>
+      )}
     </button>
+  )
+}
+
+// ─── File Attachment Card (Phase 33D — with extraction) ────────────────────
+
+const EXTRACTION_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  not_started: { label: 'Not extracted', color: 'text-text-muted' },
+  processing: { label: 'Extracting...', color: 'text-amber-400' },
+  extracted: { label: 'Extracted', color: 'text-green-400/80' },
+  empty: { label: 'No text found', color: 'text-text-muted' },
+  failed: { label: 'Extraction failed', color: 'text-red-400/80' },
+  unsupported: { label: 'Not supported', color: 'text-text-muted' },
+}
+
+function FileAttachmentCard({
+  file,
+  deleteFileId,
+  setDeleteFileId,
+  handleDeleteFile,
+  onFileUpdated,
+}: {
+  file: LibraryFile
+  deleteFileId: string | null
+  setDeleteFileId: (id: string | null) => void
+  handleDeleteFile: (id: string) => void
+  onFileUpdated: () => void
+}) {
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
+  const [showPreview, setShowPreview] = useState(false)
+
+  const canExtract = ['docx', 'pdf', 'markdown'].includes(file.file_type)
+  const statusInfo = EXTRACTION_STATUS_LABELS[file.extraction_status] ?? EXTRACTION_STATUS_LABELS.not_started
+
+  async function handleExtract() {
+    setExtracting(true)
+    setExtractError(null)
+    try {
+      const res = await fetch(`/api/library-files/${file.id}/extract`, { method: 'POST' })
+      const parsed = await safeResponseJson(res)
+      if (!parsed.ok) {
+        setExtractError(parsed.error)
+      } else {
+        onFileUpdated()
+      }
+    } catch (err) {
+      setExtractError(err instanceof Error ? err.message : 'Extraction failed')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  return (
+    <div className="bg-house-bg border border-house-border/40 group">
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        {/* Icon / thumbnail */}
+        {file.file_type === 'image' && file.url ? (
+          <img
+            src={file.url}
+            alt={file.file_name}
+            className="w-8 h-8 object-cover rounded flex-shrink-0 border border-house-border/40"
+          />
+        ) : (
+          <span className="text-base flex-shrink-0">
+            {FILE_TYPE_ICONS[file.file_type] ?? FILE_TYPE_ICONS.other}
+          </span>
+        )}
+
+        {/* File info */}
+        <div className="flex-1 min-w-0">
+          <p className="font-body text-xs text-text-secondary truncate">
+            {file.file_name}
+          </p>
+          <p className="font-body text-[10px] text-text-muted">
+            {file.file_type.toUpperCase()} · {formatFileSize(file.file_size_bytes)} · {formatDate(file.created_at)}
+          </p>
+          {/* Extraction status */}
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className={`font-body text-[10px] ${statusInfo.color}`}>
+              {statusInfo.label}
+            </span>
+            {file.extraction_status === 'extracted' && file.extraction_char_count != null && (
+              <span className="font-body text-[10px] text-text-muted">
+                ({file.extraction_char_count.toLocaleString()} chars{file.extraction_truncated ? ', truncated' : ''})
+              </span>
+            )}
+            {file.file_type === 'image' && (
+              <span className="font-body text-[10px] text-text-muted italic">
+                Text extraction not supported for images yet.
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Extract / Re-extract */}
+          {canExtract && !extracting && (
+            <button
+              onClick={handleExtract}
+              className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+            >
+              {file.extraction_status === 'not_started' ? 'Extract text' : 'Re-extract'}
+            </button>
+          )}
+          {extracting && (
+            <span className="font-body text-[10px] text-amber-400">Extracting...</span>
+          )}
+          {file.url && (
+            <a
+              href={file.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+            >
+              Open
+            </a>
+          )}
+          {deleteFileId === file.id ? (
+            <span className="flex items-center gap-1">
+              <button
+                onClick={() => handleDeleteFile(file.id)}
+                className="font-body text-[10px] text-red-400 hover:text-red-300 transition-colors"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setDeleteFileId(null)}
+                className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+              >
+                No
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setDeleteFileId(file.id)}
+              className="font-body text-[10px] text-red-400/40 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Extraction error */}
+      {extractError && (
+        <div className="px-2.5 py-1.5 border-t border-house-border/20">
+          <p className="font-body text-[10px] text-red-400">{extractError}</p>
+        </div>
+      )}
+
+      {/* Extraction preview */}
+      {file.extraction_status === 'extracted' && file.extracted_text && (
+        <div className="border-t border-house-border/20">
+          <button
+            onClick={() => setShowPreview(!showPreview)}
+            className="w-full text-left px-2.5 py-1.5 font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+          >
+            {showPreview ? '▾ Hide extracted text' : '▸ Show extracted text'}
+          </button>
+          {showPreview && (
+            <div className="px-2.5 pb-2.5">
+              <div className="font-body text-[11px] text-text-secondary bg-house-surface p-2.5 whitespace-pre-wrap max-h-60 overflow-y-auto border border-house-border/30 leading-relaxed">
+                {file.extracted_text}
+              </div>
+              {file.extraction_truncated && (
+                <p className="font-body text-[10px] text-amber-400/70 mt-1 italic">
+                  Extracted text truncated for storage safety.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Failed extraction error detail */}
+      {file.extraction_status === 'failed' && file.extraction_error && (
+        <div className="px-2.5 py-1.5 border-t border-house-border/20">
+          <p className="font-body text-[10px] text-red-400/70 italic">
+            Error: {file.extraction_error}
+          </p>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1272,72 +1483,16 @@ function ItemDetail({
           )}
 
           {!filesLoading && files.length > 0 && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {files.map(file => (
-                <div
+                <FileAttachmentCard
                   key={file.id}
-                  className="flex items-center gap-2 px-2.5 py-2 bg-house-bg border border-house-border/40 group"
-                >
-                  {/* Icon / thumbnail */}
-                  {file.file_type === 'image' && file.url ? (
-                    <img
-                      src={file.url}
-                      alt={file.file_name}
-                      className="w-8 h-8 object-cover rounded flex-shrink-0 border border-house-border/40"
-                    />
-                  ) : (
-                    <span className="text-base flex-shrink-0">
-                      {FILE_TYPE_ICONS[file.file_type] ?? FILE_TYPE_ICONS.other}
-                    </span>
-                  )}
-
-                  {/* File info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-body text-xs text-text-secondary truncate">
-                      {file.file_name}
-                    </p>
-                    <p className="font-body text-[10px] text-text-muted">
-                      {file.file_type.toUpperCase()} · {formatFileSize(file.file_size_bytes)} · {formatDate(file.created_at)}
-                    </p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {file.url && (
-                      <a
-                        href={file.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
-                      >
-                        Open
-                      </a>
-                    )}
-                    {deleteFileId === file.id ? (
-                      <span className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleDeleteFile(file.id)}
-                          className="font-body text-[10px] text-red-400 hover:text-red-300 transition-colors"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setDeleteFileId(null)}
-                          className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
-                        >
-                          No
-                        </button>
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => setDeleteFileId(file.id)}
-                        className="font-body text-[10px] text-red-400/40 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
+                  file={file}
+                  deleteFileId={deleteFileId}
+                  setDeleteFileId={setDeleteFileId}
+                  handleDeleteFile={handleDeleteFile}
+                  onFileUpdated={fetchFiles}
+                />
               ))}
             </div>
           )}
