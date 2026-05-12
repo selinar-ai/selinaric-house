@@ -237,7 +237,7 @@ function isCodeArtefact(text: string): boolean {
   for (const line of lines) {
     if (CODE_ARTIFACT_PATTERNS.some(p => p.test(line))) codeLineCount++
   }
-  return codeLineCount >= 3 && codeLineCount / lines.length > 0.3
+  return codeLineCount >= 2 && codeLineCount / lines.length > 0.15
 }
 
 // ─── Chunk Selection ────────────────────────────────────────────────────────
@@ -332,6 +332,18 @@ function buildCandidateChunks(results: HybridLibrarySearchResult[]): CandidateCh
   return candidates
 }
 
+const MIN_CHUNK_SELECTION_SCORE = 75
+
+function hasPromptArtefact(text: string): boolean {
+  const promptPatterns = [
+    /\bconst\s+systemPrompt\b/i,
+    /\bsystemPrompt\s*[=:]/,
+    /\bsystem_prompt\s*[=:]/,
+    /\bconst\s+\w+Prompt\s*=/,
+  ]
+  return promptPatterns.some(p => p.test(text))
+}
+
 function selectRagChunks(
   candidates: CandidateChunk[],
   opts: {
@@ -351,71 +363,58 @@ function selectRagChunks(
   const seenItemIds = new Set<string>()
   let totalChars = 0
 
+  function reject(chunk: CandidateChunk, reason: string, rule: string) {
+    rejected.push({
+      title: chunk.title,
+      libraryItemId: chunk.libraryItemId,
+      chunkId: chunk.chunkId,
+      reason,
+      score: chunk.finalScore,
+      sourceField: chunk.sourceField,
+    })
+    rules.push(rule)
+  }
+
   for (const chunk of sorted) {
     const itemCount = itemChunkCounts.get(chunk.libraryItemId) ?? 0
 
+    if (chunk.finalScore < MIN_CHUNK_SELECTION_SCORE) {
+      reject(chunk, 'excluded_low_score', 'chunk_below_selection_threshold')
+      continue
+    }
+
+    if (chunk.effectiveAuthority === 'archive_only' || chunk.authorityStatus === 'archive_only') {
+      reject(chunk, 'excluded_authority_mismatch', 'archive_only_excluded')
+      continue
+    }
+
+    if (chunk.sourceField === 'title') {
+      reject(chunk, 'excluded_title_only', 'title_only_deprioritised')
+      continue
+    }
+
+    if (isCodeArtefact(chunk.chunkText) || hasPromptArtefact(chunk.chunkText)) {
+      reject(chunk, 'excluded_code_artifact', 'code_artifact_rejected')
+      continue
+    }
+
     if (seenItemIds.size >= opts.maxItems && !seenItemIds.has(chunk.libraryItemId)) {
-      rejected.push({
-        title: chunk.title,
-        libraryItemId: chunk.libraryItemId,
-        chunkId: chunk.chunkId,
-        reason: 'excluded_over_budget',
-        score: chunk.finalScore,
-        sourceField: chunk.sourceField,
-      })
-      rules.push('item_budget_exceeded')
+      reject(chunk, 'excluded_over_budget', 'item_budget_exceeded')
       continue
     }
 
     if (itemCount >= opts.maxChunksPerItem) {
-      rejected.push({
-        title: chunk.title,
-        libraryItemId: chunk.libraryItemId,
-        chunkId: chunk.chunkId,
-        reason: 'excluded_over_budget',
-        score: chunk.finalScore,
-        sourceField: chunk.sourceField,
-      })
-      rules.push('per_item_chunk_limit')
+      reject(chunk, 'excluded_over_budget', 'per_item_chunk_limit')
       continue
     }
 
     if (selected.length >= opts.maxTotalChunks) {
-      rejected.push({
-        title: chunk.title,
-        libraryItemId: chunk.libraryItemId,
-        chunkId: chunk.chunkId,
-        reason: 'excluded_over_budget',
-        score: chunk.finalScore,
-        sourceField: chunk.sourceField,
-      })
-      rules.push('total_chunk_limit')
+      reject(chunk, 'excluded_over_budget', 'total_chunk_limit')
       continue
     }
 
     if (totalChars + chunk.chunkText.length > opts.maxChars) {
-      rejected.push({
-        title: chunk.title,
-        libraryItemId: chunk.libraryItemId,
-        chunkId: chunk.chunkId,
-        reason: 'excluded_over_budget',
-        score: chunk.finalScore,
-        sourceField: chunk.sourceField,
-      })
-      rules.push('char_budget_exceeded')
-      continue
-    }
-
-    if (isCodeArtefact(chunk.chunkText)) {
-      rejected.push({
-        title: chunk.title,
-        libraryItemId: chunk.libraryItemId,
-        chunkId: chunk.chunkId,
-        reason: 'excluded_code_artifact',
-        score: chunk.finalScore,
-        sourceField: chunk.sourceField,
-      })
-      rules.push('code_artifact_rejected')
+      reject(chunk, 'excluded_over_budget', 'char_budget_exceeded')
       continue
     }
 
@@ -456,7 +455,8 @@ function buildContextBlock(
     lines.push(chunk.attributionLabel)
     lines.push(`Title: ${chunk.title}`)
     if (chunk.collection) lines.push(`Collection: ${chunk.collection}`)
-    if (chunk.effectiveAuthority) lines.push(`Authority: ${chunk.effectiveAuthority}`)
+    if (chunk.authorityStatus) lines.push(`Authority: ${chunk.authorityStatus}`)
+    if (chunk.effectiveAuthority) lines.push(`Effective Authority: ${chunk.effectiveAuthority}`)
     if (chunk.presenceScope) lines.push(`Presence Scope: ${chunk.presenceScope}`)
     if (chunk.phaseCode) lines.push(`Phase: ${chunk.phaseCode}${chunk.phaseLabel ? ` — ${chunk.phaseLabel}` : ''}`)
     lines.push(`Matched By: ${chunk.matchedBy.join(', ')}`)
