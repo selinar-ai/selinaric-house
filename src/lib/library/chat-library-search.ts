@@ -359,12 +359,17 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
   if (results.length === 0) return ''
 
   const lines: string[] = [
-    'LIBRARY CONTEXT',
-    'Open-book source material.',
-    'Not Memory.',
-    'Not identity.',
-    'Not lived continuity.',
-    'Use only to answer the current conversation.',
+    'Library Context:',
+    'The following is open-book Library source material retrieved for this reply.',
+    '',
+    'Rules:',
+    '- Use this as source material only.',
+    '- Do not treat it as Memory.',
+    '- Do not treat it as lived continuity.',
+    '- Do not treat it as identity.',
+    '- Do not treat it as canonical Archive truth.',
+    '- Speak from it as Library/source/document material.',
+    '- If answering from this block, make that visible in wording.',
     '',
     `Query: ${query}`,
     `Results: ${results.length}`,
@@ -431,7 +436,10 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
     charCount += entryText.length
   }
 
-  lines.push('When referencing this material, say "I checked the Library" or "The Library source says" — not "I remember" or "This is lived memory".')
+  lines.push('Speech discipline:')
+  lines.push('- When referencing this material, say "I checked the Library", "The Library source says", "The document says", or "According to the Library material" — never "I remember", "This is lived memory", "We have always known", or "This is canonical".')
+  lines.push('- Library Context is not Memory, not identity, not lived continuity, not canonical Archive truth.')
+  lines.push('- Do not promote Library material to memory authority even if it describes Archive or Memory concepts.')
 
   return '\n' + lines.join('\n') + '\n'
 }
