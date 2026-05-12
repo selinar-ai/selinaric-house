@@ -49,6 +49,7 @@ export type HybridLibrarySearchOutput = {
     itemsMerged: number
     itemsRejectedBelowThreshold: number
     itemsRejectedByUsefulnessGate: number
+    semanticError?: string
     durationMs: number
   }
 }
@@ -277,6 +278,7 @@ export async function hybridLibrarySearch(
   let semanticResultCount = 0
   let rejectedBelowThreshold = 0
   let rejectedByUsefulnessGate = 0
+  let semanticError: string | undefined
 
   // ─── 1. Keyword retrieval ─────────────────────────────────────────
 
@@ -369,7 +371,9 @@ export async function hybridLibrarySearch(
         similarityThreshold: semanticThreshold,
       })
     } catch (err) {
-      console.error('[hybrid-library-search] semantic search error:', err)
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[hybrid-library-search] semantic search error:', msg)
+      semanticError = msg
     }
 
     // Group by libraryItemId, keep best chunk per item
@@ -479,6 +483,7 @@ export async function hybridLibrarySearch(
       itemsMerged: results.filter(r => r.keywordScore > 0 && r.semanticScore > 0).length,
       itemsRejectedBelowThreshold: rejectedBelowThreshold,
       itemsRejectedByUsefulnessGate: rejectedByUsefulnessGate,
+      semanticError,
       durationMs: Date.now() - startTime,
     },
   }

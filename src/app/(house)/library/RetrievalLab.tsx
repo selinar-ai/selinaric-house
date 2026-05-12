@@ -94,6 +94,7 @@ interface HybridDiagnostics {
   usedSemantic: boolean
   usedKeyword: boolean
   itemsMerged: number
+  semanticError?: string
   durationMs: number
 }
 
@@ -423,6 +424,11 @@ export default function RetrievalLab() {
                   <span className="font-body text-[10px] text-text-muted">
                     Threshold: {hybridResponse.diagnostics.semanticThreshold}
                   </span>
+                  {hybridResponse.diagnostics.semanticError && (
+                    <span className="font-body text-[10px] text-red-400">
+                      Semantic error: {hybridResponse.diagnostics.semanticError}
+                    </span>
+                  )}
                 </div>
               </div>
 
