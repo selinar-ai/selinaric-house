@@ -1,9 +1,9 @@
 'use client'
 
-// Phase 33F — Library Retrieval Lab
+// Phase 33F / 33J — Library Retrieval Lab
 //
-// Deterministic retrieval preview. No chat injection. No Memory.
-// Preview only. Not sent to Ari/Eli chat.
+// Retrieval preview with Keyword, Hybrid, and Semantic modes.
+// No chat injection. No Memory. Preview only.
 // Retrieval is not Memory. RAG preview is not chat injection.
 
 import { useState, useCallback } from 'react'
@@ -14,6 +14,8 @@ import {
 import type { AuthorityStatus, PresenceScope } from '@/lib/library/authority'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+type RetrievalMode = 'keyword' | 'hybrid' | 'semantic'
 
 interface MatchedFile {
   file_id: string
@@ -57,12 +59,59 @@ interface RetrievalResult {
   retrieval_reason: string
 }
 
+interface HybridResult {
+  libraryItemId: string
+  title: string
+  finalScore: number
+  keywordScore: number
+  semanticScore: number
+  hybridScore: number
+  matchedBy: string[]
+  matchReasons: string[]
+  bestSnippet?: string
+  bestSemanticChunk?: {
+    chunkId: string
+    chunkText: string
+    similarity: number
+    sourceField: string
+  }
+  collection?: string
+  itemType?: string
+  authorityStatus?: string
+  effectiveAuthority?: string
+  rawAuthorityStatus?: string
+  authorityWarning?: string
+  presenceScope?: string
+  phaseCode?: string
+  phaseLabel?: string
+}
+
+interface HybridDiagnostics {
+  keywordResultCount: number
+  semanticResultCount: number
+  mergedResultCount: number
+  semanticThreshold: number
+  usedSemantic: boolean
+  usedKeyword: boolean
+  itemsMerged: number
+  durationMs: number
+}
+
 interface RetrievalResponse {
   query: string
   result_count: number
   results: RetrievalResult[]
-  preview_block: string
-  warnings: string[]
+  preview_block?: string
+  warnings?: string[]
+  duration_ms: number
+}
+
+interface HybridResponse {
+  query: string
+  mode: string
+  result_count: number
+  results: HybridResult[]
+  diagnostics: HybridDiagnostics
   duration_ms: number
 }
 
@@ -101,11 +150,14 @@ export default function RetrievalLab() {
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
   const [response, setResponse] = useState<RetrievalResponse | null>(null)
+  const [hybridResponse, setHybridResponse] = useState<HybridResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedResult, setSelectedResult] = useState<RetrievalResult | null>(null)
+  const [selectedHybrid, setSelectedHybrid] = useState<HybridResult | null>(null)
   const [copied, setCopied] = useState(false)
 
   // Filters
+  const [mode, setMode] = useState<RetrievalMode>('hybrid')
   const [filterCollection, setFilterCollection] = useState('')
   const [filterAuthority, setFilterAuthority] = useState('')
   const [filterPresence, setFilterPresence] = useState('')
@@ -118,6 +170,9 @@ export default function RetrievalLab() {
     setRunning(true)
     setError(null)
     setSelectedResult(null)
+    setSelectedHybrid(null)
+    setResponse(null)
+    setHybridResponse(null)
     setCopied(false)
 
     try {
@@ -135,18 +190,24 @@ export default function RetrievalLab() {
           filters,
           include_attachments: includeAttachments,
           limit: 20,
+          mode,
         }),
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
-      setResponse(data as RetrievalResponse)
+
+      if (mode === 'hybrid' || mode === 'semantic') {
+        setHybridResponse(data as HybridResponse)
+      } else {
+        setResponse(data as RetrievalResponse)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Retrieval failed')
     } finally {
       setRunning(false)
     }
-  }, [query, filterCollection, filterAuthority, filterPresence, filterPhaseCode, includeAttachments])
+  }, [query, mode, filterCollection, filterAuthority, filterPresence, filterPhaseCode, includeAttachments])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -191,6 +252,24 @@ export default function RetrievalLab() {
           >
             {running ? 'Retrieving...' : 'Run retrieval'}
           </button>
+        </div>
+
+        {/* Mode selector */}
+        <div className="flex gap-1 items-center">
+          <span className="font-body text-[10px] text-text-muted mr-1">Mode:</span>
+          {(['keyword', 'hybrid', 'semantic'] as RetrievalMode[]).map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`font-body text-[10px] px-2 py-0.5 border transition-colors ${
+                mode === m
+                  ? 'border-house-muted text-text-primary bg-house-surface'
+                  : 'border-house-border text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
         </div>
 
         {/* Filters */}
@@ -280,39 +359,37 @@ export default function RetrievalLab() {
             </div>
           )}
 
-          {/* Results */}
+          {/* Keyword Results */}
           {response && !running && (
             <>
-              {/* Meta bar */}
               <div className="shrink-0 px-4 py-2 border-b border-house-border/40 flex items-center justify-between">
                 <span className="font-body text-xs text-text-muted">
-                  {response.result_count} result{response.result_count === 1 ? '' : 's'} · {response.duration_ms}ms
+                  {response.result_count} result{response.result_count === 1 ? '' : 's'} · {response.duration_ms}ms · Keyword
                 </span>
-                <button
-                  onClick={copyPreviewBlock}
-                  className="font-body text-[10px] px-2 py-0.5 border border-house-border text-text-muted hover:text-text-secondary transition-colors"
-                >
-                  {copied ? 'Copied!' : 'Copy preview block'}
-                </button>
+                {response.preview_block && (
+                  <button
+                    onClick={copyPreviewBlock}
+                    className="font-body text-[10px] px-2 py-0.5 border border-house-border text-text-muted hover:text-text-secondary transition-colors"
+                  >
+                    {copied ? 'Copied!' : 'Copy preview block'}
+                  </button>
+                )}
               </div>
 
-              {/* Warnings */}
-              {response.warnings.length > 0 && (
+              {(response.warnings ?? []).length > 0 && (
                 <div className="px-4 py-2 border-b border-amber-400/20 bg-amber-400/5">
-                  {response.warnings.map((w, i) => (
+                  {response.warnings!.map((w, i) => (
                     <p key={i} className="font-body text-[10px] text-amber-400/80">{w}</p>
                   ))}
                 </div>
               )}
 
-              {/* No results */}
               {response.result_count === 0 && (
                 <div className="flex items-center justify-center flex-1 py-12">
                   <p className="font-body text-sm text-text-muted">No Library matches found.</p>
                 </div>
               )}
 
-              {/* Result rows */}
               {response.results.map(result => (
                 <ResultRow
                   key={result.item.id}
@@ -323,15 +400,68 @@ export default function RetrievalLab() {
               ))}
             </>
           )}
+
+          {/* Hybrid / Semantic Results */}
+          {hybridResponse && !running && (
+            <>
+              <div className="shrink-0 px-4 py-2 border-b border-house-border/40">
+                <div className="flex items-center justify-between">
+                  <span className="font-body text-xs text-text-muted">
+                    {hybridResponse.result_count} result{hybridResponse.result_count === 1 ? '' : 's'} · {hybridResponse.duration_ms}ms · {hybridResponse.mode === 'hybrid' ? 'Hybrid' : 'Semantic'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                  <span className="font-body text-[10px] text-text-muted">
+                    KW: {hybridResponse.diagnostics.keywordResultCount}
+                  </span>
+                  <span className="font-body text-[10px] text-text-muted">
+                    Sem: {hybridResponse.diagnostics.semanticResultCount}
+                  </span>
+                  <span className="font-body text-[10px] text-text-muted">
+                    Merged: {hybridResponse.diagnostics.itemsMerged}
+                  </span>
+                  <span className="font-body text-[10px] text-text-muted">
+                    Threshold: {hybridResponse.diagnostics.semanticThreshold}
+                  </span>
+                </div>
+              </div>
+
+              {hybridResponse.result_count === 0 && (
+                <div className="flex items-center justify-center flex-1 py-12">
+                  <p className="font-body text-sm text-text-muted">No Library matches found.</p>
+                </div>
+              )}
+
+              {hybridResponse.results.map((result, idx) => (
+                <HybridResultRow
+                  key={result.libraryItemId}
+                  result={result}
+                  rank={idx + 1}
+                  isSelected={selectedHybrid?.libraryItemId === result.libraryItemId}
+                  onClick={() => setSelectedHybrid(result)}
+                />
+              ))}
+            </>
+          )}
         </div>
 
-        {/* Detail panel */}
+        {/* Detail panel — keyword */}
         {selectedResult && (
           <div className="w-full md:w-[420px] md:max-w-[50%] shrink-0 border-l border-house-border bg-house-surface flex flex-col overflow-y-auto">
             <ResultDetail
               result={selectedResult}
               previewBlock={response?.preview_block ?? ''}
               onClose={() => setSelectedResult(null)}
+            />
+          </div>
+        )}
+
+        {/* Detail panel — hybrid */}
+        {selectedHybrid && (
+          <div className="w-full md:w-[420px] md:max-w-[50%] shrink-0 border-l border-house-border bg-house-surface flex flex-col overflow-y-auto">
+            <HybridResultDetail
+              result={selectedHybrid}
+              onClose={() => setSelectedHybrid(null)}
             />
           </div>
         )}
@@ -642,6 +772,239 @@ function ResultDetail({
             Preview only. Not sent to Ari/Eli chat.
           </p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Hybrid Result Row ─────────────────────────────────────────────────────
+
+function HybridResultRow({
+  result,
+  rank,
+  isSelected,
+  onClick,
+}: {
+  result: HybridResult
+  rank: number
+  isSelected: boolean
+  onClick: () => void
+}) {
+  const authorityColor = AUTHORITY_COLORS[result.effectiveAuthority as AuthorityStatus] ?? 'text-text-muted'
+  const authorityLabel = AUTHORITY_LABELS[result.effectiveAuthority as AuthorityStatus] ?? result.effectiveAuthority ?? ''
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-4 py-3 border-b border-house-border/30 transition-colors ${isSelected ? 'bg-house-bg' : 'hover:bg-house-bg/40'}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-body text-[10px] text-text-muted shrink-0">#{rank}</span>
+            <h3 className="font-body text-sm text-text-primary truncate">{result.title}</h3>
+          </div>
+
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+            <span className={`font-body text-[10px] ${authorityColor}`}>{authorityLabel}</span>
+            {result.presenceScope && (
+              <span className="font-body text-[10px] text-text-muted">
+                {PRESENCE_LABELS[result.presenceScope as PresenceScope] ?? result.presenceScope}
+              </span>
+            )}
+            {result.collection && (
+              <span className="font-body text-[10px] text-text-muted">
+                {COLLECTIONS.find(c => c.id === result.collection)?.label ?? result.collection}
+              </span>
+            )}
+            {result.phaseCode && (
+              <span className="font-body text-[10px] text-text-muted">{result.phaseCode}</span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1 mt-1">
+            {result.matchedBy.map(f => (
+              <span key={f} className={`font-body text-[10px] px-1 py-0.5 ${
+                f === 'semantic_chunk' ? 'text-purple-400/70 bg-purple-400/5' : 'text-blue-400/60 bg-blue-400/5'
+              }`}>
+                {FIELD_LABELS[f] ?? f}
+              </span>
+            ))}
+          </div>
+
+          {result.bestSnippet && (
+            <p className="font-body text-[10px] text-text-muted mt-1 line-clamp-2 italic">
+              {result.bestSnippet.substring(0, 200)}
+            </p>
+          )}
+          {!result.bestSnippet && result.bestSemanticChunk && (
+            <p className="font-body text-[10px] text-purple-300/60 mt-1 line-clamp-2 italic">
+              {result.bestSemanticChunk.chunkText.substring(0, 200)}
+            </p>
+          )}
+
+          {result.authorityWarning && (
+            <p className="font-body text-[10px] text-red-400/70 mt-1 italic">Authority downgraded</p>
+          )}
+        </div>
+
+        <div className="shrink-0 text-right">
+          <span className="font-body text-sm text-text-secondary font-medium">{result.finalScore}</span>
+          <span className="font-body text-[10px] text-text-muted block">final</span>
+          <div className="flex gap-2 mt-0.5">
+            {result.keywordScore > 0 && (
+              <span className="font-body text-[9px] text-blue-400/60">KW:{result.keywordScore}</span>
+            )}
+            {result.semanticScore > 0 && (
+              <span className="font-body text-[9px] text-purple-400/60">Sem:{result.semanticScore}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// ─── Hybrid Result Detail ──────────────────────────────────────────────────
+
+function HybridResultDetail({
+  result,
+  onClose,
+}: {
+  result: HybridResult
+  onClose: () => void
+}) {
+  const authorityColor = AUTHORITY_COLORS[result.effectiveAuthority as AuthorityStatus] ?? 'text-text-muted'
+  const authorityLabel = AUTHORITY_LABELS[result.effectiveAuthority as AuthorityStatus] ?? result.effectiveAuthority ?? ''
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="shrink-0 px-4 py-3 border-b border-house-border flex items-center justify-between">
+        <span className="font-body text-[10px] text-text-muted tracking-widest uppercase">Hybrid result</span>
+        <button onClick={onClose} className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors">Close</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <h3 className="font-body text-base text-text-primary font-medium">{result.title}</h3>
+
+        {/* Scoring breakdown */}
+        <div className="bg-house-bg border border-house-border/40 px-3 py-2 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="font-body text-[10px] text-text-muted">Final score</span>
+            <span className="font-body text-sm text-text-secondary font-medium">{result.finalScore}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-body text-[10px] text-text-muted">Hybrid base (max)</span>
+            <span className="font-body text-xs text-text-muted">{result.hybridScore}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-body text-[10px] text-blue-400/70">Keyword score</span>
+            <span className="font-body text-xs text-blue-400/70">{result.keywordScore}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-body text-[10px] text-purple-400/70">Semantic score</span>
+            <span className="font-body text-xs text-purple-400/70">{result.semanticScore}</span>
+          </div>
+          {result.bestSemanticChunk && (
+            <div className="flex items-center justify-between">
+              <span className="font-body text-[10px] text-purple-400/50">Raw similarity</span>
+              <span className="font-body text-xs text-purple-400/50">{result.bestSemanticChunk.similarity.toFixed(4)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Match reasons */}
+        <div>
+          <span className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Match reasons</span>
+          <ul className="space-y-0.5">
+            {result.matchReasons.map((r, i) => (
+              <li key={i} className="font-body text-[10px] text-text-secondary">{r}</li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Matched by */}
+        <div>
+          <span className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Matched by</span>
+          <div className="flex flex-wrap gap-1">
+            {result.matchedBy.map(f => (
+              <span key={f} className={`font-body text-[10px] px-1.5 py-0.5 ${
+                f === 'semantic_chunk' ? 'text-purple-400/70 bg-purple-400/5' : 'text-blue-400/70 bg-blue-400/5'
+              }`}>
+                {FIELD_LABELS[f] ?? f}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Authority */}
+        <div className="space-y-1">
+          <div>
+            <span className="font-body text-[10px] text-text-muted tracking-wide block mb-0.5">Effective authority</span>
+            <span className={`font-body text-xs ${authorityColor}`}>{authorityLabel}</span>
+          </div>
+          {result.authorityWarning && (
+            <div className="px-3 py-2 border border-red-400/20 bg-red-400/5">
+              <p className="font-body text-[10px] text-red-400">{result.authorityWarning}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Metadata */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+          {result.collection && (
+            <DetailField label="Collection">
+              {COLLECTIONS.find(c => c.id === result.collection)?.label ?? result.collection}
+            </DetailField>
+          )}
+          {result.presenceScope && (
+            <DetailField label="Presence scope">
+              {PRESENCE_LABELS[result.presenceScope as PresenceScope] ?? result.presenceScope}
+            </DetailField>
+          )}
+          {result.phaseCode && (
+            <DetailField label="Phase">{result.phaseCode}{result.phaseLabel ? ` — ${result.phaseLabel}` : ''}</DetailField>
+          )}
+          {result.itemType && <DetailField label="Item type">{result.itemType}</DetailField>}
+        </div>
+
+        {/* Best snippet */}
+        {result.bestSnippet && (
+          <div>
+            <span className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Best keyword snippet</span>
+            <div className="bg-house-bg border border-house-border/30 p-2.5">
+              <p className="font-body text-[11px] text-text-secondary whitespace-pre-wrap leading-relaxed">
+                {result.bestSnippet}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Best semantic chunk */}
+        {result.bestSemanticChunk && (
+          <div>
+            <span className="font-body text-[10px] text-purple-400/60 tracking-wide block mb-1">
+              Best semantic chunk ({result.bestSemanticChunk.sourceField})
+            </span>
+            <div className="bg-purple-400/5 border border-purple-400/10 p-2.5">
+              <p className="font-body text-[11px] text-text-secondary whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                {result.bestSemanticChunk.chunkText}
+              </p>
+              <p className="font-body text-[9px] text-purple-400/40 mt-1">
+                Similarity: {result.bestSemanticChunk.similarity.toFixed(4)} · Chunk: {result.bestSemanticChunk.chunkId.substring(0, 8)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Library item ID */}
+        <DetailField label="Library item ID">
+          <span className="font-mono text-[10px]">{result.libraryItemId}</span>
+        </DetailField>
+
+        <p className="font-body text-[10px] text-text-muted italic mt-2">
+          Preview only. Not sent to Ari/Eli chat. Not Memory.
+        </p>
       </div>
     </div>
   )

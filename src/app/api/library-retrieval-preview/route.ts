@@ -17,6 +17,7 @@ import {
   isInvalidCanonicalMemoryLabel,
 } from '@/lib/library/authority'
 import type { AuthorityStatus, PresenceScope, RetrievedContextItem } from '@/lib/library/authority'
+import { hybridLibrarySearch } from '@/lib/library/hybrid-library-search'
 
 function getSupabase() {
   return createClient(
@@ -380,6 +381,39 @@ export async function POST(request: NextRequest) {
   const filters = (body.filters as Filters) ?? {}
   const includeAttachments = body.include_attachments !== false
   const saveRun = body.save_run === true
+  const mode = (body.mode as string) ?? 'keyword'
+
+  // ─── Hybrid mode (Phase 33J) ─────────────────────────────────────────
+  if (mode === 'hybrid' || mode === 'semantic') {
+    try {
+      const hybridResult = await hybridLibrarySearch({
+        query,
+        limit,
+        collection: filters.collection,
+        presenceScope: filters.presence_scope,
+        phaseCode: filters.phase_code,
+        includeAttachments,
+        includeSemantic: true,
+        includeKeyword: mode === 'hybrid',
+        authorityStatuses: filters.authority_status ? [filters.authority_status] : undefined,
+      })
+
+      const durationMs = Date.now() - startTime
+      return NextResponse.json({
+        query,
+        mode,
+        result_count: hybridResult.results.length,
+        results: hybridResult.results,
+        diagnostics: hybridResult.diagnostics,
+        duration_ms: durationMs,
+      })
+    } catch (err) {
+      console.error('[library-retrieval-preview] Hybrid search error:', err)
+      return NextResponse.json({ error: 'Hybrid search failed' }, { status: 500 })
+    }
+  }
+
+  // ─── Keyword-only mode (existing behaviour) ──────────────────────────
 
   // Normalise query into terms
   const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
