@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
   const window = searchParams.get('window') // 'today' | 'session' | 'all'
   const sessionId = searchParams.get('session_id')
   const keyword = searchParams.get('q')
+  const source = searchParams.get('source') // 'web' | 'library' | null (all)
   const limitParam = searchParams.get('limit')
   const limit = limitParam ? parseInt(limitParam, 10) : 100
 
@@ -19,6 +20,10 @@ export async function GET(request: NextRequest) {
 
   if (presence && (presence === 'ari' || presence === 'eli')) {
     query = query.eq('presence_id', presence)
+  }
+
+  if (source && (source === 'web' || source === 'library')) {
+    query = query.eq('source_type', source)
   }
 
   if (window === 'today') {

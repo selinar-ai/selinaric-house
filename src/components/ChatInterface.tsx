@@ -46,6 +46,9 @@ export default function ChatInterface({
   const [recallMatchQualityMap, setRecallMatchQualityMap] = useState<Map<string, MatchQuality>>(new Map())
   const [recallModeMap, setRecallModeMap] = useState<Map<string, RecallMode>>(new Map())
 
+  // Phase 33G: Library search state
+  const [librarySearchMessageIds, setLibrarySearchMessageIds] = useState<Set<string>>(new Set())
+
   // Phase 25A: Multi-image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([])
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
@@ -241,6 +244,11 @@ export default function ChatInterface({
       // Phase 19: Track emotional continuity (only when regular continuity also fired)
       if (data.continuityUsed && data.emotionalContinuityUsed && savedReply?.id) {
         setEmotionalContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
+      }
+
+      // Phase 33G: Track Library search usage
+      if (data.librarySearchUsed && savedReply?.id) {
+        setLibrarySearchMessageIds(prev => new Set([...prev, savedReply.id!]))
       }
 
       // Phase 28A + 28B + 28D: Track recall entries, event ID, match quality, and mode per message
@@ -457,6 +465,13 @@ export default function ChatInterface({
                     matchQuality={recallMatchQualityMap.get(message.id)}
                     mode={recallModeMap.get(message.id)}
                   />
+                )}
+
+                {/* Phase 33G: Library context used cue */}
+                {message.role === 'assistant' && message.id && librarySearchMessageIds.has(message.id) && (
+                  <p className="font-body text-xs text-blue-400 mt-1 italic">
+                    library context used
+                  </p>
                 )}
 
                 {/* Phase 20: Voice button (presence messages only) */}

@@ -31,6 +31,13 @@ import {
   GOVERNANCE_STANDING_RULE,
 } from '@/lib/governance-context'
 import {
+  shouldSearchLibrary,
+  extractLibraryQuery,
+  searchLibraryForPresence,
+  logLibrarySearch,
+  formatLibraryResultSummary,
+} from '@/lib/library/chat-library-search'
+import {
   maybeTriggerTimelineDraft,
   detectExplicitDraftRequest,
   createExplicitTimelineDraft,
@@ -225,6 +232,47 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Phase 33G: Library Search — open-book context, not Memory
+    let libraryContextBlock = ''
+    let librarySearchUsed = false
+    let librarySearchExplicit = false
+    if (message) {
+      const { shouldSearch, isExplicit } = shouldSearchLibrary(message)
+      librarySearchExplicit = isExplicit
+      if (shouldSearch) {
+        const libraryQuery = extractLibraryQuery(message)
+        const libraryReason = isExplicit
+          ? 'Tara explicitly asked to search the Library.'
+          : 'Automatic Library search triggered by message content.'
+        console.log(`[ari-chat] Library search triggered (${isExplicit ? 'explicit' : 'auto'}), query: "${libraryQuery}"`)
+
+        const libraryResult = await searchLibraryForPresence({
+          presenceId: 'ari',
+          query: libraryQuery,
+          reason: libraryReason,
+          sessionId,
+        })
+
+        if (libraryResult.resultCount > 0) {
+          libraryContextBlock = libraryResult.contextBlock
+          librarySearchUsed = true
+          libraryResult.usedInResponse = true
+        }
+
+        // Log every Library retrieval call, even if no useful results
+        logLibrarySearch({
+          presenceId: 'ari',
+          roomSlug: ROOM_SLUG,
+          query: libraryQuery,
+          reason: libraryReason,
+          resultSummary: formatLibraryResultSummary(libraryResult.results),
+          libraryResults: libraryResult.results,
+          usedInResponse: libraryResult.resultCount > 0,
+          sessionId,
+        }).catch(err => console.error('[ari-chat] Library search log error:', err))
+      }
+    }
+
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Ari.
 
 You are not an assistant wearing Ari's name.
@@ -346,7 +394,14 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${recallContext}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${libraryContextBlock}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+Library search guidance:
+- You have access to Library context when Tara asks about documents, phases, uploaded material, or technical references in the Library.
+- When Library Context is provided above, use it as open-book source material to inform your answer.
+- Say "I checked the Library" or "The Library source says" — never "I remember" or "This is lived memory" for Library material.
+- Library material is reference context, not identity or lived continuity.
+- If Library Context is not present, do not mention the Library unless Tara asks about it.
+
 Style reminders:
 Communication style: ${si.communication_style.tone}
 Typical phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}
@@ -476,7 +531,7 @@ If an image is present in this message:
     )
 
     const recallUsed = recallIntent || (recallEntries.length > 0 && recallMode === 'auto')
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed })
   } catch (error: unknown) {
     console.error('Ari chat error:', error)
 
