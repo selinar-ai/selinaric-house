@@ -62,6 +62,22 @@ export interface LibrarySnippet {
   text: string
 }
 
+export type LibrarySearchStatusReason =
+  | 'useful_results_found'
+  | 'no_useful_results'
+  | 'not_triggered'
+  | 'search_error'
+
+export interface LibrarySearchStatus {
+  attempted: boolean
+  query: string
+  source: 'library'
+  usefulResultCount: number
+  rawResultCount?: number
+  contextInjected: boolean
+  reason: LibrarySearchStatusReason
+}
+
 export interface LibrarySearchOutput {
   query: string
   reason: string
@@ -71,6 +87,7 @@ export interface LibrarySearchOutput {
   warnings: string[]
   durationMs: number
   usedInResponse: boolean   // will be set true if context was injected
+  status: LibrarySearchStatus
 }
 
 // ─── Trigger Detection ──────────────────────────────────────────────────────
@@ -529,7 +546,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
 
   if (itemsErr) {
     console.error(`[chat-library-search] Items query error:`, itemsErr.message)
-    return { query, reason, resultCount: 0, results: [], contextBlock: '', warnings: [itemsErr.message], durationMs: Date.now() - startTime, usedInResponse: false }
+    return { query, reason, resultCount: 0, results: [], contextBlock: '', warnings: [itemsErr.message], durationMs: Date.now() - startTime, usedInResponse: false, status: { attempted: true, query, source: 'library', usefulResultCount: 0, contextInjected: false, reason: 'search_error' } }
   }
 
   const allItems = items ?? []
@@ -674,6 +691,16 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
   const contextBlock = buildLibraryContextBlock(query, usefulResults)
 
   const durationMs = Date.now() - startTime
+  const status: LibrarySearchStatus = {
+    attempted: true,
+    query,
+    source: 'library',
+    usefulResultCount: usefulResults.length,
+    rawResultCount: topResults.length,
+    contextInjected: usefulResults.length > 0,
+    reason: usefulResults.length > 0 ? 'useful_results_found' : 'no_useful_results',
+  }
+
   return {
     query,
     reason,
@@ -683,7 +710,36 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
     warnings,
     durationMs,
     usedInResponse: false,       // will be set by caller only if usefulResults > 0
+    status,
   }
+}
+
+// ─── Library Search Status Block (Phase 33G.1) ─────────────────────────────
+
+export function buildLibrarySearchStatusBlock(
+  status: LibrarySearchStatus
+): string {
+  if (!status.attempted) return ''
+  if (status.contextInjected || status.usefulResultCount > 0) return ''
+  if (status.reason !== 'no_useful_results') return ''
+
+  return `
+Library Search Status:
+- Search attempted: true
+- Source: Library
+- Query: ${status.query}
+- Useful results found: 0
+- Context injected: false
+- Reason: No useful Library results met the usefulness gate.
+
+IMPORTANT — You searched the Library. The search ran. It returned no useful results.
+You MUST acknowledge that you searched. Say something like: "I searched the Library for '${status.query}', but nothing useful came back."
+You MUST NOT say you cannot search the Library. You just did.
+You MUST NOT say you do not have a Library search tool. The search already ran.
+You MUST NOT say the user needs to run the search themselves. It already happened.
+You MUST NOT invent or fabricate results.
+This status is not Library Context, not memory, not evidence, not authority.
+`.trim()
 }
 
 // ─── Search Logging ─────────────────────────────────────────────────────────

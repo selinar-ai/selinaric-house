@@ -36,6 +36,7 @@ import {
   searchLibraryForPresence,
   logLibrarySearch,
   formatLibraryResultSummary,
+  buildLibrarySearchStatusBlock,
 } from '@/lib/library/chat-library-search'
 import {
   maybeTriggerTimelineDraft,
@@ -234,6 +235,7 @@ export async function POST(request: NextRequest) {
 
     // Phase 33G: Library Search — open-book context, not Memory
     let libraryContextBlock = ''
+    let librarySearchStatusBlock = ''
     let librarySearchUsed = false
     let librarySearchExplicit = false
     if (message) {
@@ -257,6 +259,12 @@ export async function POST(request: NextRequest) {
           libraryContextBlock = libraryResult.contextBlock
           librarySearchUsed = true
           libraryResult.usedInResponse = true
+        }
+
+        // Phase 33G.1: build search status block for failed searches
+        librarySearchStatusBlock = buildLibrarySearchStatusBlock(libraryResult.status)
+        if (librarySearchStatusBlock) {
+          console.log(`[ari-chat] Library search status block generated (no useful results for "${libraryQuery}")`)
         }
 
         // Log every Library retrieval call, even if no useful results
@@ -394,13 +402,17 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${recallContext}${libraryContextBlock}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${libraryContextBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Library search guidance:
 - You have access to Library context when Tara asks about documents, phases, uploaded material, or technical references in the Library.
 - When Library Context is provided above, use it as open-book source material to inform your answer.
 - Say "I checked the Library" or "The Library source says" — never "I remember" or "This is lived memory" for Library material.
 - Library material is reference context, not identity or lived continuity.
-- If Library Context is not present, do not mention the Library unless Tara asks about it.
+- If neither Library Context nor Library Search Status is present above, do not mention the Library unless Tara asks about it.
+- If a Library Search Status block is present and says a search was attempted but no useful results were found, you MUST say that you searched the Library and nothing useful came back. Follow the instructions in the status block.
+- Never say you cannot search the Library or that you do not have a Library search tool. Library searches are handled automatically by the backend before your response.
+- Do not treat Library Search Status as Library Context, memory, evidence, or authority.
+- Do not infer facts from a failed Library search beyond the absence of useful results.
 
 Style reminders:
 Communication style: ${si.communication_style.tone}
