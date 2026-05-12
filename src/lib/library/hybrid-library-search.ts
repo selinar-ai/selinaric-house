@@ -138,16 +138,19 @@ function scoreItemKeyword(
   const phaseLabel = (item.phase_label as string) ?? ''
   const tags: string[] = (item.tags as string[]) ?? []
 
-  const titleSubstantiveWords = title.toLowerCase().split(/\s+/).filter(t => t.length >= 2 && !GENERIC_TERMS.has(t))
-  const queryContainsTitle = title.length >= 4 && titleSubstantiveWords.length >= 2
-    && query.toLowerCase().includes(title.toLowerCase())
+  const coreTitle = title.replace(/^Phase\s+\S+\s*[—–\-]\s*/i, '').trim()
+  const coreTitleNorm = coreTitle.toLowerCase().replace(/[—–\-]/g, ' ').replace(/\s+/g, ' ').trim()
+  const coreTitleSubstantiveWords = coreTitleNorm.split(/\s+/).filter(t => t.length >= 2 && !GENERIC_TERMS.has(t))
+  const queryNorm = query.toLowerCase().replace(/[—–\-]/g, ' ').replace(/\s+/g, ' ').trim()
+  const queryContainsCoreTitle = coreTitleNorm.length >= 4 && coreTitleSubstantiveWords.length >= 2
+    && queryNorm.includes(coreTitleNorm)
 
   if (title.toLowerCase() === query.toLowerCase()) {
     score += 100; matchedFields.push('title'); bestSnippet = title; reasons.push('Exact title match')
   } else if (containsQuery(title, query)) {
     score += 80; matchedFields.push('title'); bestSnippet = extractSnippet(title, query); reasons.push('Title contains query')
-  } else if (queryContainsTitle) {
-    score += 80; matchedFields.push('title'); bestSnippet = title; reasons.push('Query contains exact title phrase')
+  } else if (queryContainsCoreTitle) {
+    score += 80; matchedFields.push('title'); bestSnippet = title; reasons.push(`Query contains core title phrase: ${coreTitle}`)
   } else {
     const titleTerms = containsAnyTerm(title, terms)
     if (titleTerms.length > 0) {
