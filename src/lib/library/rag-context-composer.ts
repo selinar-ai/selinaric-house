@@ -289,11 +289,13 @@ function buildCandidateChunks(results: HybridLibrarySearchResult[]): CandidateCh
     }
 
     if (r.bestSnippet && r.bestSnippet !== r.bestSemanticChunk?.chunkText) {
+      const snippetIsTitle = r.bestSnippet.trim() === r.title.trim()
+        || r.bestSnippet.trim() === `[Title: ${r.title}]`
       candidates.push({
         libraryItemId: r.libraryItemId,
         title: r.title,
         chunkText: r.bestSnippet,
-        sourceField: 'keyword_snippet',
+        sourceField: snippetIsTitle ? 'title' : 'keyword_snippet',
         finalScore: r.finalScore,
         keywordScore: r.keywordScore,
         semanticScore: r.semanticScore,
@@ -551,6 +553,35 @@ export function composeLibraryRagContext(
   diagnostics.keywordResultCount = kwCount
   diagnostics.semanticResultCount = semCount
   diagnostics.mergedResultCount = mergedCount
+
+  // Anchor preservation: if the top result has a high score but all its
+  // chunks were rejected, do not silently compose from unrelated items.
+  const topResult = input.results[0]
+  const isAnchoredQuery = topResult && topResult.finalScore >= 75
+    && topResult.matchedBy.some(m => m === 'title' || m === 'phase_code')
+  const anchorItemId = isAnchoredQuery ? topResult.libraryItemId : null
+
+  if (anchorItemId) {
+    const anchorSelected = selected.some(c => c.libraryItemId === anchorItemId)
+    if (!anchorSelected) {
+      const reason = 'Library retrieval found a matching item, but no reliable source excerpt cleared the composer threshold.'
+      diagnostics.composerRulesApplied.push('anchor_rejected_no_fallback')
+      return {
+        status: 'no_reliable_context',
+        confidence: 'low',
+        query: input.query,
+        mode: input.mode,
+        selectedChunks: [],
+        rejectedChunks: rejected,
+        selectedItemCount: 0,
+        selectedChunkCount: 0,
+        rejectedChunkCount: rejected.length,
+        contextBlock: buildLowConfidenceBlock(input.query, reason),
+        attributionMap: {},
+        diagnostics: { ...diagnostics, lowConfidenceReason: reason },
+      }
+    }
+  }
 
   if (selected.length === 0) {
     const reason = rejected.length > 0 ? 'All candidate chunks rejected.' : 'No eligible chunks.'
