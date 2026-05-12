@@ -419,10 +419,97 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
   return '\n' + lines.join('\n') + '\n'
 }
 
+// ─── Usefulness Gate ───────────────────────────────────────────────────────
+
+/**
+ * Generic/low-signal terms that should not count as substantive matches.
+ * If the only query terms matching are these, the result is not useful.
+ */
+const GENERIC_TERMS = new Set([
+  'protocol', 'phase', 'document', 'library', 'build', 'notes', 'test',
+  'the', 'for', 'and', 'this', 'that', 'with', 'from', 'about',
+  'item', 'file', 'search', 'check', 'find', 'look', 'docs',
+  'house', 'shared', 'reference', 'note', 'type', 'data',
+])
+
+/**
+ * Minimum score threshold for a Library result to be considered useful.
+ * Must clear this AND pass the substantive-match check.
+ */
+const MIN_USEFUL_SCORE = 30
+
+/**
+ * Determines if a scored Library result is genuinely useful for the given query.
+ *
+ * Rules:
+ * - Score must be >= MIN_USEFUL_SCORE
+ * - Must have at least one substantive (non-generic) field match:
+ *   - Exact phrase match in title, description, content, or extracted text
+ *   - At least 2 substantive query terms matched
+ *   - Phase code exact match
+ *   - File attachment text match with meaningful content
+ * - Generic-only term matches are rejected
+ */
+export function isUsefulLibraryResult(result: LibrarySearchResult, query: string): boolean {
+  if (result.score < MIN_USEFUL_SCORE) return false
+
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
+  const substantiveTerms = queryTerms.filter(t => !GENERIC_TERMS.has(t))
+
+  // If all query terms are generic, the match cannot be useful
+  if (substantiveTerms.length === 0 && queryTerms.length > 0) return false
+
+  // Exact phrase match in a content field = always useful
+  const contentFields = ['title', 'description', 'content_text', 'phase_label']
+  for (const field of contentFields) {
+    if (result.matchedFields.includes(field)) {
+      // Check if the matched snippet contains the full query (not just a generic term)
+      const fieldSnippet = result.snippets.find(s => s.field === field)
+      if (fieldSnippet && fieldSnippet.text.toLowerCase().includes(query.toLowerCase())) {
+        return true
+      }
+    }
+  }
+
+  // Phase code exact match = useful
+  if (result.matchedFields.includes('phase_code')) return true
+
+  // File attachment text match with substantive terms = useful
+  if (result.matchedFiles.length > 0) {
+    for (const mf of result.matchedFiles) {
+      if (mf.matchedField === 'extracted_text' || mf.matchedField === 'cleaned_extracted_text') {
+        // Check snippet contains query or substantive terms
+        if (mf.snippet.toLowerCase().includes(query.toLowerCase())) return true
+        const matchedSubstantive = substantiveTerms.filter(t => mf.snippet.toLowerCase().includes(t))
+        if (matchedSubstantive.length >= 2) return true
+      }
+    }
+  }
+
+  // Count how many substantive query terms appear in matched fields
+  const allSnippetText = result.snippets.map(s => s.text.toLowerCase()).join(' ')
+  const matchedSubstantiveCount = substantiveTerms.filter(t => allSnippetText.includes(t)).length
+
+  // Multi-word query: need at least 2 substantive terms matched
+  if (substantiveTerms.length >= 2 && matchedSubstantiveCount >= 2) return true
+
+  // Single substantive term: need high score (strong title/content match)
+  if (substantiveTerms.length === 1 && matchedSubstantiveCount >= 1 && result.score >= 60) return true
+
+  return false
+}
+
+/**
+ * Filters a scored result set to only useful results.
+ * Returns empty array if no results pass the usefulness gate.
+ */
+export function filterUsefulLibraryResults(results: LibrarySearchResult[], query: string): LibrarySearchResult[] {
+  return results.filter(r => isUsefulLibraryResult(r, query))
+}
+
 // ─── Main Search Function ──────────────────────────────────────────────────
 
 const CHAT_SEARCH_LIMIT = 5
-const MIN_USEFUL_SCORE = 15 // below this, results aren't useful enough to inject
 
 export async function searchLibraryForPresence(params: LibrarySearchParams): Promise<LibrarySearchOutput> {
   const startTime = Date.now()
@@ -579,19 +666,23 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
   const topResults = scored.slice(0, limit)
   topResults.forEach((r, i) => { r.rank = i + 1 })
 
-  // Build context block (empty string if no results)
-  const contextBlock = buildLibraryContextBlock(query, topResults)
+  // Apply usefulness gate — only inject results that pass relevance checks
+  const usefulResults = filterUsefulLibraryResults(topResults, query)
+  usefulResults.forEach((r, i) => { r.rank = i + 1 }) // re-rank useful subset
+
+  // Build context block only from useful results (empty string if none pass)
+  const contextBlock = buildLibraryContextBlock(query, usefulResults)
 
   const durationMs = Date.now() - startTime
   return {
     query,
     reason,
-    resultCount: topResults.length,
-    results: topResults,
-    contextBlock,
+    resultCount: usefulResults.length,
+    results: topResults,         // return all scored results for logging
+    contextBlock,                // only useful results in context block
     warnings,
     durationMs,
-    usedInResponse: false, // will be set by caller
+    usedInResponse: false,       // will be set by caller only if usefulResults > 0
   }
 }
 
