@@ -158,7 +158,7 @@ export async function indexLibraryItem(libraryItemId: string): Promise<IndexResu
 
 // ─── Semantic Search ──────────────────────────────────────────────────────
 
-const DEFAULT_SIMILARITY_THRESHOLD = 0.72
+const DEFAULT_SIMILARITY_THRESHOLD = 0.83
 const DEFAULT_MATCH_COUNT = 10
 
 export interface SemanticLibrarySearchInput {
@@ -173,6 +173,7 @@ export interface SemanticLibrarySearchInput {
 export interface SemanticLibrarySearchResult {
   chunkId: string
   libraryItemId: string
+  title: string
   chunkText: string
   similarity: number
   sourceField: string
@@ -220,6 +221,7 @@ export async function semanticLibrarySearch(
   return results.map(r => ({
     chunkId: r.chunk_id as string,
     libraryItemId: r.library_item_id as string,
+    title: r.title as string,
     chunkText: r.chunk_text as string,
     similarity: r.similarity as number,
     sourceField: r.source_field as string,

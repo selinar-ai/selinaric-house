@@ -60,7 +60,7 @@ alter table library_chunks enable row level security;
 create policy "Allow all access to library_chunks"
   on library_chunks for all using (true) with check (true);
 
--- Semantic search RPC
+-- Semantic search RPC (joins library_items for title)
 create or replace function match_library_chunks(
   query_embedding vector(384),
   match_threshold float,
@@ -69,6 +69,7 @@ create or replace function match_library_chunks(
 returns table (
   chunk_id uuid,
   library_item_id uuid,
+  title text,
   chunk_text text,
   similarity float,
   source_field text,
@@ -85,6 +86,7 @@ as $$
   select
     lc.id as chunk_id,
     lc.library_item_id,
+    li.title,
     lc.chunk_text,
     1 - (lc.embedding <=> query_embedding) as similarity,
     lc.source_field,
@@ -93,9 +95,10 @@ as $$
     lc.authority_status,
     lc.effective_authority,
     lc.presence_scope,
-    lc.phase_code,
-    lc.phase_label
+    coalesce(lc.phase_code, li.phase_code) as phase_code,
+    coalesce(lc.phase_label, li.phase_label) as phase_label
   from library_chunks lc
+  join library_items li on li.id = lc.library_item_id
   where lc.embedding is not null
     and 1 - (lc.embedding <=> query_embedding) >= match_threshold
   order by lc.embedding <=> query_embedding
