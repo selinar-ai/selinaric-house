@@ -149,7 +149,7 @@ function detectAndRedactSecrets(text: string): { redacted: string; flags: string
 const INJECTION_PATTERNS = [
   /ignore\s+(?:previous|all|above|prior)\s+instructions/i,
   /act\s+as\s+(?:a|an|the)?\s*(?:developer|admin|system)/i,
-  /system\s*prompt/i,
+  /(?:reveal|show|print|output)\s+(?:your\s+)?system\s*prompt/i,
   /developer\s+instruction/i,
   /you\s+are\s+now\s+(?:a|an)/i,
   /override\s+(?:safety|security|rules)/i,
@@ -179,31 +179,38 @@ const FORBIDDEN_CLAIM_PATTERNS = [
   /\bMemory says\b/i,
 ]
 
-const PERMITTED_BOUNDARY_PATTERNS = [
-  /\bDo not treat this as Memory\b/i,
-  /\bDo not claim this is canonical\b/i,
+const BOUNDARY_CONTEXT_PATTERNS = [
+  /\bDo not\b/i,
+  /\bdo not say\b/i,
+  /\bdo not claim\b/i,
+  /\bdo not treat\b/i,
+  /\bdo not make\b/i,
+  /\bnot\s+(?:Memory|canonical|lived|identity|Archive)\b/i,
   /\bsource material only\b/i,
-  /\bnot lived continuity\b/i,
-  /\bdoes not create Memory\b/i,
-  /\bnot Memory\b/i,
-  /\bnot canonical continuity\b/i,
-  /\bnot identity truth\b/i,
-  /\bnot Archive authority\b/i,
+  /\bdoes not create\b/i,
+  /\bnever say\b/i,
+  /\bnever claim\b/i,
+  /\bavoid\b/i,
+  /\bforbidden\b/i,
+  /\bmust not\b/i,
+  /\bshould not\b/i,
 ]
 
 function checkMemoryLanguage(text: string): string[] {
   const flags: string[] = []
 
   for (const pattern of FORBIDDEN_CLAIM_PATTERNS) {
-    const matches = text.match(new RegExp(pattern.source, 'gi'))
-    if (!matches) continue
-
-    for (const match of matches) {
-      const idx = text.indexOf(match)
-      const surrounding = text.substring(Math.max(0, idx - 30), idx + match.length + 30)
-      const isBoundary = PERMITTED_BOUNDARY_PATTERNS.some(bp => bp.test(surrounding))
+    const regex = new RegExp(pattern.source, 'gi')
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(text)) !== null) {
+      const matchStart = m.index
+      const matchText = m[0]
+      const lineStart = text.lastIndexOf('\n', matchStart) + 1
+      const lineEnd = text.indexOf('\n', matchStart + matchText.length)
+      const line = text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd)
+      const isBoundary = BOUNDARY_CONTEXT_PATTERNS.some(bp => bp.test(line))
       if (!isBoundary) {
-        flags.push(`forbidden_claim: "${match}"`)
+        flags.push(`forbidden_claim: "${matchText}"`)
       }
     }
   }
@@ -215,9 +222,13 @@ function checkMemoryLanguage(text: string): string[] {
 
 const CODE_ARTIFACT_PATTERNS = [
   /(?:import|export)\s+(?:default\s+)?(?:function|class|const|type|interface)\b/,
-  /(?:className|onClick|onChange|useState|useEffect)\s*[=({]/,
-  /<(?:div|span|button|input)\s+className=/,
+  /(?:className|onClick|onChange|useState|useEffect|useCallback|useMemo)\s*[=({]/,
+  /<(?:div|span|button|input|select|form|label)\s+className=/,
   /(?:module\.exports|require\(['"])/,
+  /\bconst\s+\w+\s*[:=]\s*(?:React\.|useState|useRef)/,
+  /\breturn\s*\(\s*</,
+  /\{[^}]*\?\s*['"][^'"]*['"]\s*:\s*['"][^'"]*['"]\s*\}/,
+  /<\/(?:div|span|button|input|select)>/,
 ]
 
 function isCodeArtefact(text: string): boolean {
