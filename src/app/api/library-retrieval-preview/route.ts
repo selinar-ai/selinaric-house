@@ -18,6 +18,7 @@ import {
 } from '@/lib/library/authority'
 import type { AuthorityStatus, PresenceScope, RetrievedContextItem } from '@/lib/library/authority'
 import { hybridLibrarySearch } from '@/lib/library/hybrid-library-search'
+import { composeLibraryRagContext } from '@/lib/library/rag-context-composer'
 
 function getSupabase() {
   return createClient(
@@ -382,6 +383,7 @@ export async function POST(request: NextRequest) {
   const includeAttachments = body.include_attachments !== false
   const saveRun = body.save_run === true
   const mode = (body.mode as string) ?? 'keyword'
+  const compose = body.compose === true
 
   // ─── Hybrid mode (Phase 33J) ─────────────────────────────────────────
   if (mode === 'hybrid' || mode === 'semantic') {
@@ -398,6 +400,44 @@ export async function POST(request: NextRequest) {
         authorityStatuses: filters.authority_status ? [filters.authority_status] : undefined,
       })
 
+      let ragContext = undefined
+      if (compose) {
+        try {
+          ragContext = composeLibraryRagContext({
+            query,
+            mode: mode as 'hybrid' | 'semantic',
+            results: hybridResult.results,
+            maxItems: Number(body.maxItems) || undefined,
+            maxChunksPerItem: Number(body.maxChunksPerItem) || undefined,
+            maxTotalChunks: Number(body.maxTotalChunks) || undefined,
+            maxChars: Number(body.maxChars) || undefined,
+            includeLowConfidence: body.includeLowConfidence === true,
+            source: 'retrieval_lab',
+          })
+        } catch (composeErr) {
+          console.error('[library-retrieval-preview] Composer error:', composeErr)
+          ragContext = {
+            status: 'composition_error' as const,
+            confidence: 'none' as const,
+            query,
+            mode: mode as 'hybrid' | 'semantic',
+            selectedChunks: [],
+            rejectedChunks: [],
+            selectedItemCount: 0,
+            selectedChunkCount: 0,
+            rejectedChunkCount: 0,
+            contextBlock: '',
+            attributionMap: {},
+            diagnostics: {
+              composerRulesApplied: [],
+              leakageFlags: [],
+              memoryLanguageFlags: [],
+              lowConfidenceReason: composeErr instanceof Error ? composeErr.message : 'Composer threw an error.',
+            },
+          }
+        }
+      }
+
       const durationMs = Date.now() - startTime
       return NextResponse.json({
         query,
@@ -405,6 +445,7 @@ export async function POST(request: NextRequest) {
         result_count: hybridResult.results.length,
         results: hybridResult.results,
         diagnostics: hybridResult.diagnostics,
+        ragContext,
         duration_ms: durationMs,
       })
     } catch (err) {

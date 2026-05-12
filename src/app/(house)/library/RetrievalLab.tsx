@@ -98,6 +98,71 @@ interface HybridDiagnostics {
   durationMs: number
 }
 
+interface RagSelectedChunk {
+  chunkId?: string
+  libraryItemId: string
+  title: string
+  collection?: string | null
+  itemType?: string | null
+  authorityStatus?: string | null
+  effectiveAuthority?: string | null
+  presenceScope?: string | null
+  phaseCode?: string | null
+  phaseLabel?: string | null
+  sourceField?: string | null
+  finalScore: number
+  keywordScore?: number
+  semanticScore?: number
+  similarity?: number
+  matchedBy: string[]
+  attributionLabel: string
+  chunkText: string
+  preview: string
+  rejectionReason?: string | null
+}
+
+interface RagRejectedChunk {
+  title?: string
+  libraryItemId?: string
+  chunkId?: string
+  reason: string
+  score?: number
+  sourceField?: string | null
+}
+
+interface RagContextOutput {
+  status: string
+  confidence: string
+  query: string
+  mode: string
+  selectedChunks: RagSelectedChunk[]
+  rejectedChunks: RagRejectedChunk[]
+  selectedItemCount: number
+  selectedChunkCount: number
+  rejectedChunkCount: number
+  contextBlock: string
+  attributionMap: Record<string, {
+    title: string
+    libraryItemId: string
+    chunkId?: string
+    authorityStatus?: string | null
+    effectiveAuthority?: string | null
+    sourceField?: string | null
+    phaseCode?: string | null
+  }>
+  diagnostics: {
+    topScore?: number
+    keywordResultCount?: number
+    semanticResultCount?: number
+    mergedResultCount?: number
+    threshold?: number
+    composerRulesApplied: string[]
+    leakageFlags: string[]
+    memoryLanguageFlags: string[]
+    lowConfidenceReason?: string
+  }
+}
+
 interface RetrievalResponse {
   query: string
   result_count: number
@@ -113,6 +178,7 @@ interface HybridResponse {
   result_count: number
   results: HybridResult[]
   diagnostics: HybridDiagnostics
+  ragContext?: RagContextOutput
   duration_ms: number
 }
 
@@ -157,6 +223,9 @@ export default function RetrievalLab() {
   const [selectedHybrid, setSelectedHybrid] = useState<HybridResult | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Composer
+  const [composeEnabled, setComposeEnabled] = useState(true)
+
   // Filters
   const [mode, setMode] = useState<RetrievalMode>('hybrid')
   const [filterCollection, setFilterCollection] = useState('')
@@ -192,6 +261,7 @@ export default function RetrievalLab() {
           include_attachments: includeAttachments,
           limit: 20,
           mode,
+          compose: composeEnabled && mode !== 'keyword',
         }),
       })
 
@@ -208,7 +278,7 @@ export default function RetrievalLab() {
     } finally {
       setRunning(false)
     }
-  }, [query, mode, filterCollection, filterAuthority, filterPresence, filterPhaseCode, includeAttachments])
+  }, [query, mode, filterCollection, filterAuthority, filterPresence, filterPhaseCode, includeAttachments, composeEnabled])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -255,8 +325,8 @@ export default function RetrievalLab() {
           </button>
         </div>
 
-        {/* Mode selector */}
-        <div className="flex gap-1 items-center">
+        {/* Mode selector + composer toggle */}
+        <div className="flex gap-1 items-center flex-wrap">
           <span className="font-body text-[10px] text-text-muted mr-1">Mode:</span>
           {(['keyword', 'hybrid', 'semantic'] as RetrievalMode[]).map(m => (
             <button
@@ -271,6 +341,17 @@ export default function RetrievalLab() {
               {m.charAt(0).toUpperCase() + m.slice(1)}
             </button>
           ))}
+          <span className="font-body text-[10px] text-text-muted ml-3 mr-1">Composer:</span>
+          <button
+            onClick={() => setComposeEnabled(!composeEnabled)}
+            className={`font-body text-[10px] px-2 py-0.5 border transition-colors ${
+              composeEnabled
+                ? 'border-green-400/40 text-green-400/80 bg-green-400/5'
+                : 'border-house-border text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            {composeEnabled ? 'Preview On' : 'Off'}
+          </button>
         </div>
 
         {/* Filters */}
@@ -336,7 +417,7 @@ export default function RetrievalLab() {
           )}
 
           {/* Empty state */}
-          {!response && !error && !running && (
+          {!response && !hybridResponse && !error && !running && (
             <div className="flex items-center justify-center flex-1">
               <div className="text-center px-8">
                 <p className="font-body text-sm text-text-muted">
@@ -447,6 +528,11 @@ export default function RetrievalLab() {
                   onClick={() => setSelectedHybrid(result)}
                 />
               ))}
+
+              {/* Composer Preview */}
+              {hybridResponse.ragContext && (
+                <ComposerPreview ragContext={hybridResponse.ragContext} />
+              )}
             </>
           )}
         </div>
@@ -1011,6 +1097,231 @@ function HybridResultDetail({
         <p className="font-body text-[10px] text-text-muted italic mt-2">
           Preview only. Not sent to Ari/Eli chat. Not Memory.
         </p>
+      </div>
+    </div>
+  )
+}
+
+// ─── Composer Preview ──────────────────────────────────────────────────────
+
+function ComposerPreview({ ragContext }: { ragContext: RagContextOutput }) {
+  const [showBlock, setShowBlock] = useState(false)
+  const [showAttribution, setShowAttribution] = useState(false)
+  const [blockCopied, setBlockCopied] = useState(false)
+
+  const statusColors: Record<string, string> = {
+    context_composed: 'text-green-400/80',
+    no_reliable_context: 'text-amber-400/80',
+    no_results: 'text-text-muted',
+    all_chunks_rejected: 'text-amber-400/80',
+    composition_error: 'text-red-400',
+  }
+
+  const confidenceColors: Record<string, string> = {
+    high: 'text-green-400/80',
+    medium: 'text-amber-400/80',
+    low: 'text-red-400/70',
+    none: 'text-text-muted',
+  }
+
+  async function copyBlock() {
+    try {
+      await navigator.clipboard.writeText(ragContext.contextBlock)
+      setBlockCopied(true)
+      setTimeout(() => setBlockCopied(false), 2000)
+    } catch { /* silent */ }
+  }
+
+  return (
+    <div className="border-t-2 border-green-400/20 bg-green-400/[0.02]">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-house-border/40">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-body text-[10px] text-green-400/60 tracking-widest uppercase">Composer Preview</span>
+            <span className={`font-body text-[10px] ${statusColors[ragContext.status] ?? 'text-text-muted'}`}>
+              {ragContext.status}
+            </span>
+            <span className={`font-body text-[10px] ${confidenceColors[ragContext.confidence] ?? 'text-text-muted'}`}>
+              {ragContext.confidence}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-body text-[10px] text-text-muted">
+              {ragContext.selectedChunkCount} selected · {ragContext.rejectedChunkCount} rejected
+            </span>
+          </div>
+        </div>
+        <p className="font-body text-[10px] text-amber-400/60 italic mt-1">
+          Composer preview only. Not injected into Ari/Eli chat. Not Memory.
+        </p>
+      </div>
+
+      {/* Diagnostics */}
+      <div className="px-4 py-2 border-b border-house-border/30">
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {ragContext.diagnostics.topScore != null && (
+            <span className="font-body text-[10px] text-text-muted">Top: {ragContext.diagnostics.topScore}</span>
+          )}
+          {ragContext.diagnostics.keywordResultCount != null && (
+            <span className="font-body text-[10px] text-text-muted">KW: {ragContext.diagnostics.keywordResultCount}</span>
+          )}
+          {ragContext.diagnostics.semanticResultCount != null && (
+            <span className="font-body text-[10px] text-text-muted">Sem: {ragContext.diagnostics.semanticResultCount}</span>
+          )}
+          {ragContext.diagnostics.mergedResultCount != null && (
+            <span className="font-body text-[10px] text-text-muted">Merged: {ragContext.diagnostics.mergedResultCount}</span>
+          )}
+          {ragContext.diagnostics.composerRulesApplied.length > 0 && (
+            <span className="font-body text-[10px] text-text-muted">
+              Rules: {ragContext.diagnostics.composerRulesApplied.join(', ')}
+            </span>
+          )}
+        </div>
+
+        {/* Leakage flags */}
+        {ragContext.diagnostics.leakageFlags.length > 0 && (
+          <div className="mt-1">
+            {ragContext.diagnostics.leakageFlags.map((f, i) => (
+              <span key={i} className="font-body text-[10px] text-red-400/70 bg-red-400/5 px-1 py-0.5 mr-1">
+                {f}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Memory language flags */}
+        {ragContext.diagnostics.memoryLanguageFlags.length > 0 && (
+          <div className="mt-1">
+            {ragContext.diagnostics.memoryLanguageFlags.map((f, i) => (
+              <span key={i} className="font-body text-[10px] text-red-400 bg-red-400/5 px-1 py-0.5 mr-1">
+                {f}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Low confidence reason */}
+        {ragContext.diagnostics.lowConfidenceReason && (
+          <p className="font-body text-[10px] text-amber-400/70 mt-1">
+            {ragContext.diagnostics.lowConfidenceReason}
+          </p>
+        )}
+      </div>
+
+      {/* Selected chunks */}
+      {ragContext.selectedChunks.length > 0 && (
+        <div className="px-4 py-2 border-b border-house-border/30">
+          <span className="font-body text-[10px] text-text-muted tracking-wide block mb-1.5">Selected chunks</span>
+          <div className="space-y-2">
+            {ragContext.selectedChunks.map((chunk) => (
+              <div key={chunk.attributionLabel} className="bg-house-bg border border-house-border/30 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-body text-[10px] text-green-400/80 font-medium">{chunk.attributionLabel}</span>
+                      <span className="font-body text-xs text-text-primary truncate">{chunk.title}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                      {chunk.effectiveAuthority && (
+                        <span className={`font-body text-[10px] ${AUTHORITY_COLORS[chunk.effectiveAuthority as AuthorityStatus] ?? 'text-text-muted'}`}>
+                          {AUTHORITY_LABELS[chunk.effectiveAuthority as AuthorityStatus] ?? chunk.effectiveAuthority}
+                        </span>
+                      )}
+                      {chunk.sourceField && (
+                        <span className="font-body text-[10px] text-text-muted">{chunk.sourceField}</span>
+                      )}
+                      {chunk.matchedBy.map(m => (
+                        <span key={m} className={`font-body text-[10px] px-1 py-0 ${
+                          m === 'semantic_chunk' ? 'text-purple-400/60 bg-purple-400/5' : 'text-blue-400/50 bg-blue-400/5'
+                        }`}>{m}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="font-body text-xs text-text-secondary">{chunk.finalScore}</span>
+                    <div className="flex gap-1.5">
+                      {(chunk.keywordScore ?? 0) > 0 && <span className="font-body text-[9px] text-blue-400/50">KW:{chunk.keywordScore}</span>}
+                      {(chunk.semanticScore ?? 0) > 0 && <span className="font-body text-[9px] text-purple-400/50">Sem:{chunk.semanticScore}</span>}
+                      {chunk.similarity != null && <span className="font-body text-[9px] text-purple-400/40">~{chunk.similarity.toFixed(3)}</span>}
+                    </div>
+                  </div>
+                </div>
+                <p className="font-body text-[10px] text-text-muted mt-1.5 line-clamp-3 whitespace-pre-wrap">
+                  {chunk.preview}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rejected chunks */}
+      {ragContext.rejectedChunks.length > 0 && (
+        <div className="px-4 py-2 border-b border-house-border/30">
+          <span className="font-body text-[10px] text-text-muted tracking-wide block mb-1.5">Rejected chunks</span>
+          <div className="space-y-1">
+            {ragContext.rejectedChunks.map((chunk, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 px-2 py-1 bg-red-400/[0.03] border border-red-400/10">
+                <span className="font-body text-[10px] text-text-muted truncate">
+                  {chunk.title ?? chunk.libraryItemId ?? 'unknown'}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {chunk.score != null && <span className="font-body text-[9px] text-text-muted">{chunk.score}</span>}
+                  <span className="font-body text-[10px] text-red-400/70">{chunk.reason}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Attribution map toggle */}
+      <div className="px-4 py-2 border-b border-house-border/30">
+        <button
+          onClick={() => setShowAttribution(!showAttribution)}
+          className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+        >
+          {showAttribution ? '▾ Hide attribution map' : '▸ Show attribution map'}
+        </button>
+        {showAttribution && (
+          <div className="mt-1.5 space-y-1">
+            {Object.entries(ragContext.attributionMap).map(([label, entry]) => (
+              <div key={label} className="flex items-start gap-2 font-body text-[10px]">
+                <span className="text-green-400/70 font-medium shrink-0">{label}</span>
+                <span className="text-text-muted truncate">
+                  {entry.title} · {entry.effectiveAuthority ?? 'unknown'} · {entry.sourceField ?? '—'}
+                  {entry.phaseCode ? ` · ${entry.phaseCode}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Context block toggle */}
+      <div className="px-4 py-2">
+        <div className="flex items-center justify-between mb-1">
+          <button
+            onClick={() => setShowBlock(!showBlock)}
+            className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+          >
+            {showBlock ? '▾ Hide context block' : '▸ Show context block'}
+          </button>
+          {showBlock && (
+            <button
+              onClick={copyBlock}
+              className="font-body text-[10px] px-2 py-0.5 border border-house-border text-text-muted hover:text-text-secondary transition-colors"
+            >
+              {blockCopied ? 'Copied!' : 'Copy block'}
+            </button>
+          )}
+        </div>
+        {showBlock && (
+          <div className="font-mono text-[10px] text-text-muted bg-house-bg p-3 whitespace-pre-wrap max-h-60 overflow-y-auto border border-house-border/30 leading-relaxed">
+            {ragContext.contextBlock}
+          </div>
+        )}
       </div>
     </div>
   )
