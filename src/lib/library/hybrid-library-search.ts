@@ -138,10 +138,16 @@ function scoreItemKeyword(
   const phaseLabel = (item.phase_label as string) ?? ''
   const tags: string[] = (item.tags as string[]) ?? []
 
+  const titleSubstantiveWords = title.toLowerCase().split(/\s+/).filter(t => t.length >= 2 && !GENERIC_TERMS.has(t))
+  const queryContainsTitle = title.length >= 4 && titleSubstantiveWords.length >= 2
+    && query.toLowerCase().includes(title.toLowerCase())
+
   if (title.toLowerCase() === query.toLowerCase()) {
     score += 100; matchedFields.push('title'); bestSnippet = title; reasons.push('Exact title match')
   } else if (containsQuery(title, query)) {
     score += 80; matchedFields.push('title'); bestSnippet = extractSnippet(title, query); reasons.push('Title contains query')
+  } else if (queryContainsTitle) {
+    score += 80; matchedFields.push('title'); bestSnippet = title; reasons.push('Query contains exact title phrase')
   } else {
     const titleTerms = containsAnyTerm(title, terms)
     if (titleTerms.length > 0) {
