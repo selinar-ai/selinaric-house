@@ -479,6 +479,45 @@ export async function hybridLibrarySearch(
   results.sort((a, b) => b.finalScore - a.finalScore)
   const topResults = results.slice(0, limit)
 
+  // ─── 4. Same-item enrichment for anchor items ────────────────────
+  // High-scoring items with only a title snippet get a substantive chunk
+  // fetched directly from library_chunks to support RAG composition.
+  const needsEnrichment = topResults.filter(r => {
+    if (r.finalScore < 75 || r.bestSemanticChunk) return false
+    if (!r.bestSnippet) return true
+    const snip = r.bestSnippet.replace(/^\.{3}|\.{3}$/g, '').trim()
+    const titleNorm = r.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+    const snipNorm = snip.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+    return snipNorm === titleNorm || titleNorm.includes(snipNorm) || snip.length < 100
+  })
+
+  if (needsEnrichment.length > 0) {
+    const enrichIds = needsEnrichment.map(r => r.libraryItemId)
+    const { data: enrichChunks } = await supabase
+      .from('library_chunks')
+      .select('library_item_id, id, chunk_text, source_field, char_count')
+      .in('library_item_id', enrichIds)
+      .in('source_field', ['content_text', 'description', 'attachment_text', 'transcript_text', 'ocr_text'])
+      .order('char_count', { ascending: false })
+
+    if (enrichChunks && enrichChunks.length > 0) {
+      const bestByItem = new Map<string, typeof enrichChunks[0]>()
+      for (const ec of enrichChunks) {
+        const ecItemId = ec.library_item_id as string
+        if (!bestByItem.has(ecItemId)) bestByItem.set(ecItemId, ec)
+      }
+
+      for (const r of needsEnrichment) {
+        const best = bestByItem.get(r.libraryItemId)
+        if (best) {
+          const text = best.chunk_text as string
+          r.bestSnippet = text.length > 400 ? text.substring(0, 397) + '...' : text
+          r.matchReasons.push(`Same-item enrichment from ${best.source_field}`)
+        }
+      }
+    }
+  }
+
   return {
     query,
     results: topResults,
