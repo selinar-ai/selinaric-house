@@ -483,7 +483,16 @@ export async function hybridLibrarySearch(
   // High-scoring items with only a title snippet get a substantive chunk
   // fetched directly from library_chunks to support RAG composition.
   const needsEnrichment = topResults.filter(r => {
-    if (r.finalScore < 75 || r.bestSemanticChunk) return false
+    if (r.finalScore < 75) return false
+    // If semantic chunk exists but is title-only, still enrich
+    if (r.bestSemanticChunk) {
+      const semText = r.bestSemanticChunk.chunkText.trim()
+      const semIsTitle = r.bestSemanticChunk.sourceField === 'title'
+        || semText.length < 80
+        || semText.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+          === r.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+      if (!semIsTitle) return false
+    }
     if (!r.bestSnippet) return true
     const snip = r.bestSnippet.replace(/^\.{3}|\.{3}$/g, '').trim()
     const titleNorm = r.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()

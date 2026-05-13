@@ -44,7 +44,6 @@ next-env.d.ts
 # Local AI/dev scratch
 .claude/
 .venv-whisper/
-piper-server/
 test-33*.js
 SKILL.md
 tsx.txt
@@ -55,3 +54,8 @@ scripts/package.json
 scripts/package-lock.json
 scripts/eng.traineddata
 scripts/check-phase14.mjs
+
+# Piper server local/generated artifacts
+piper-server/node_modules/
+piper-server/package-lock.json
+piper-server/Piper_Voices/
