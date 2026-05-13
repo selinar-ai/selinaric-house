@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { chunkLibraryItem, type LibraryChunk } from './chunk-library-item'
+import { classifyChunkQuality } from './chunk-quality'
 
 function getSupabase() {
   return createClient(
@@ -119,6 +120,8 @@ export async function indexLibraryItem(libraryItemId: string): Promise<IndexResu
     try {
       const embedding = await generateEmbedding(chunk.chunkText)
 
+      const quality = classifyChunkQuality(chunk.chunkText, chunk.sourceField, item.title as string)
+
       const { error: insertErr } = await supabase.from('library_chunks').insert({
         library_item_id: libraryItemId,
         chunk_index: chunk.chunkIndex,
@@ -139,6 +142,9 @@ export async function indexLibraryItem(libraryItemId: string): Promise<IndexResu
         embedding_dim: 384,
         char_count: chunk.charCount,
         token_estimate: chunk.tokenEstimate,
+        chunk_quality: quality,
+        is_code_artifact: quality === 'code_artifact' || quality === 'ui_artifact' || quality === 'prompt_artifact',
+        is_title_only: quality === 'title_only',
       })
 
       if (insertErr) {

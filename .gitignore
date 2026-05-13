@@ -40,3 +40,22 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# Local AI/dev scratch
+.claude/
+.venv-whisper/
+test-33*.js
+SKILL.md
+tsx.txt
+
+# Accidental script-local installs / scratch
+scripts/node_modules/
+scripts/package.json
+scripts/package-lock.json
+scripts/eng.traineddata
+scripts/check-phase14.mjs
+
+# Piper server local/generated artifacts
+piper-server/node_modules/
+piper-server/package-lock.json
+piper-server/Piper_Voices/
