@@ -236,7 +236,16 @@ export default function ArchivesPage() {
   function applyEntryFilter(filterState: EntryFilterState) {
     return items.filter(i => {
       const q = filterState.search.toLowerCase()
-      if (q && !i.title.toLowerCase().includes(q) && !i.raw_content.toLowerCase().includes(q)) return false
+      if (q) {
+        // Phase 28F: tokenized search — all tokens must appear somewhere across title + content
+        const tokens = q.split(/\s+/).filter(t => t.length > 1)
+        if (tokens.length > 0) {
+          const titleLower = i.title.toLowerCase()
+          const contentLower = i.raw_content.toLowerCase()
+          const allMatch = tokens.every(t => titleLower.includes(t) || contentLower.includes(t))
+          if (!allMatch) return false
+        }
+      }
       if (filterState.canonical_status && i.canonical_status !== filterState.canonical_status) return false
       if (filterState.category && i.category !== filterState.category) return false
       if (filterState.has_linked_source === 'yes' && !i.source_id) return false

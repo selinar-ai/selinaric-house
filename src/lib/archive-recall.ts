@@ -1,9 +1,11 @@
-// Phase 28A + 28B + 28D — Manual and Auto Archive Recall
+// Phase 28A + 28B + 28D + 28F — Manual and Auto Archive Recall
 // Server-side helper. Used by ari-chat and eli-chat routes.
 //
 // Phase 28A: Manual recall, trigger detection, text scoring, prompt formatting.
 // Phase 28B: Event logging, feedback, rank_reason, match quality, score weights.
 // Phase 28D: Auto-recall trial, intent detection, per-presence settings, RecallMode/Options.
+// Phase 28F: Specificity patch — multi-candidate recall, multi-token scoring boost,
+//            conditional elevated-sensitivity pass-through for canonical strong matches.
 //
 // Memory law (canonical_status is the authoritative Memory field):
 //   Manual recall — canonical + canonical_candidate in scope
@@ -87,7 +89,7 @@ export const AUTO_RECALL_OPTIONS: RecallOptions = {
   mode:              'auto',
   includeCandidates: false,
   statuses:          ['canonical'],
-  limit:             1,
+  limit:             5,
   minMatchQuality:   'strong',
   contextCap:        3_000,
 }
@@ -95,15 +97,28 @@ export const AUTO_RECALL_OPTIONS: RecallOptions = {
 // ─── Score weights (Phase 28B) ────────────────────────────────────────────────
 
 const SCORE_WEIGHTS = {
-  title_exact:   100,
-  title_token:    60,
-  excerpt:        40,
-  content:        20,
-  category:       10,
-  source_doc:      5,
-  import_label:    2,
-  memory_bonus:    5,
+  title_exact:        100,
+  title_token:         60,
+  multi_token_title:   30,
+  excerpt:             40,
+  content:             20,
+  category:            10,
+  source_doc:           5,
+  import_label:         2,
+  memory_bonus:         5,
+  qualifier_boost:     50,
+  qualifier_dampen:   -40,
 } as const
+
+// Phase 28F: qualifier-aware intent signals
+const SYMBOLIC_QUERY_SIGNALS  = ['symbolic', 'name', 'seen', 'mirror', 'meaning', 'relational']
+const TANGIBLE_QUERY_SIGNALS  = ['real', 'tangible', 'physical', 'pdf', 'book', 'file', 'overstory']
+const SYMBOLIC_ENTRY_SIGNALS  = ['symbolic', 'first light', 'relational', 'identity', 'poetic', 'being seen', 'mirror']
+const TANGIBLE_ENTRY_SIGNALS  = ['pdf', 'overstory', 'tangible', 'real gift', 'physical', 'document']
+// Gift-act terms: distinguish entries about the act of giving from entries merely mentioning related tokens
+const SYMBOLIC_GIFT_ACT_TERMS = ['gave it a name', 'gave him a name', 'gave her a name', 'being seen', 'bestowed', 'named and']
+const TANGIBLE_GIFT_ACT_TERMS = ['shared the', 'sent the', 'gave the pdf', 'gave the book', 'first real gift', 'tangible gift']
+const GIFT_QUERY_TOKENS       = ['gift', 'gave', 'given', 'present']
 
 // ─── Manual recall trigger detection ─────────────────────────────────────────
 
@@ -199,6 +214,13 @@ const AUTO_RECALL_INTENT_PHRASES = [
   'what was the memory',
   'what do you have about',
   'what do you remember about',
+  // Phase 28F additions
+  'what was my',
+  'what was our',
+  'when did i',
+  'when did we',
+  'did i ever',
+  'did we ever',
 ]
 
 /**
@@ -370,11 +392,11 @@ function scoreItem(
     reasonParts.push('title_exact')
   }
 
-  let titleTokenHit = false, excerptHit = false, contentHit = false
+  let titleTokenHits = 0, excerptHit = false, contentHit = false
   let categoryHit   = false, sourceDocHit = false, importHit = false
 
   for (const token of tokens) {
-    if (titleNorm.includes(token))       { textScore += SCORE_WEIGHTS.title_token;   titleTokenHit = true }
+    if (titleNorm.includes(token))       { textScore += SCORE_WEIGHTS.title_token;   titleTokenHits++ }
     if (excerptNorm.includes(token))     { textScore += SCORE_WEIGHTS.excerpt;        excerptHit    = true }
     if (rawSnippetNorm.includes(token))  { textScore += SCORE_WEIGHTS.content;        contentHit    = true }
     if (categoryNorm.includes(token))    { textScore += SCORE_WEIGHTS.category;       categoryHit   = true }
@@ -382,7 +404,13 @@ function scoreItem(
     if (importLabelNorm.includes(token)) { textScore += SCORE_WEIGHTS.import_label;   importHit     = true }
   }
 
-  if (titleTokenHit && !reasonParts.includes('title_exact')) reasonParts.push('title_token')
+  // Phase 28F: boost entries where 2+ distinct query tokens match in the title
+  if (titleTokenHits >= 2) {
+    textScore += SCORE_WEIGHTS.multi_token_title
+    reasonParts.push('multi_token_title')
+  }
+
+  if (titleTokenHits > 0 && !reasonParts.includes('title_exact')) reasonParts.push('title_token')
   if (excerptHit)   reasonParts.push('excerpt')
   if (contentHit)   reasonParts.push('content')
   if (categoryHit)  reasonParts.push('category')
@@ -393,9 +421,59 @@ function scoreItem(
     textScore > 0 && item.canonical_status === 'canonical' ? SCORE_WEIGHTS.memory_bonus : 0
   if (memoryBonus > 0) reasonParts.push('memory_bonus')
 
+  // Phase 28F: qualifier-aware scoring — distinguish symbolic vs tangible intent
+  let qualifierAdj = 0
+  const queryLower = normalisedQuery.toLowerCase()
+  const hasSymbolicIntent = SYMBOLIC_QUERY_SIGNALS.some(s => queryLower.includes(s))
+  const hasTangibleIntent = TANGIBLE_QUERY_SIGNALS.some(s => queryLower.includes(s))
+
+  if (hasSymbolicIntent !== hasTangibleIntent) {
+    const combined = titleNorm + ' ' + rawSnippetNorm + ' ' + categoryNorm
+    const symHits = SYMBOLIC_ENTRY_SIGNALS.filter(s => combined.includes(s)).length
+    const tanHits = TANGIBLE_ENTRY_SIGNALS.filter(s => combined.includes(s)).length
+    const titleSymHits = SYMBOLIC_ENTRY_SIGNALS.filter(s => titleNorm.includes(s)).length
+    const titleTanHits = TANGIBLE_ENTRY_SIGNALS.filter(s => titleNorm.includes(s)).length
+
+    // Gift-act cross-reference: when query is about giving + qualifier, boost entries
+    // describing the act of giving in the matching qualifier domain
+    const queryHasGiftToken = GIFT_QUERY_TOKENS.some(g => tokens.includes(g) || queryLower.includes(g))
+
+    if (hasSymbolicIntent) {
+      if (symHits > tanHits) {
+        qualifierAdj = SCORE_WEIGHTS.qualifier_boost
+        reasonParts.push('symbolic_boost')
+        if (titleSymHits > 0) { qualifierAdj += SCORE_WEIGHTS.qualifier_boost; reasonParts.push('title_symbolic') }
+        if (queryHasGiftToken && SYMBOLIC_GIFT_ACT_TERMS.some(t => combined.includes(t))) {
+          qualifierAdj += SCORE_WEIGHTS.qualifier_boost
+          reasonParts.push('gift_act_symbolic')
+        }
+      } else if (tanHits > symHits) {
+        qualifierAdj = SCORE_WEIGHTS.qualifier_dampen
+        reasonParts.push('tangible_dampen')
+        if (titleTanHits > 0) { qualifierAdj += SCORE_WEIGHTS.qualifier_dampen; reasonParts.push('title_tangible_dampen') }
+      }
+    } else {
+      if (tanHits > symHits) {
+        qualifierAdj = SCORE_WEIGHTS.qualifier_boost
+        reasonParts.push('tangible_boost')
+        if (titleTanHits > 0) { qualifierAdj += SCORE_WEIGHTS.qualifier_boost; reasonParts.push('title_tangible') }
+        if (queryHasGiftToken && TANGIBLE_GIFT_ACT_TERMS.some(t => combined.includes(t))) {
+          qualifierAdj += SCORE_WEIGHTS.qualifier_boost
+          reasonParts.push('gift_act_tangible')
+        }
+      } else if (symHits > tanHits) {
+        qualifierAdj = SCORE_WEIGHTS.qualifier_dampen
+        reasonParts.push('symbolic_dampen')
+        if (titleSymHits > 0) { qualifierAdj += SCORE_WEIGHTS.qualifier_dampen; reasonParts.push('title_symbolic_dampen') }
+      }
+    }
+  }
+
+  const finalScore = Math.max(0, textScore + memoryBonus + qualifierAdj)
+
   return {
     textScore,
-    totalScore: textScore + memoryBonus,
+    totalScore: finalScore,
     rank_reason: reasonParts.join('+') || 'no_match',
   }
 }
@@ -522,7 +600,7 @@ export async function getRecallableArchiveEntries(
     )
     .is('deleted_at', null)
     .in('canonical_status', statuses)
-    .limit(200)
+    .limit(500)
 
   if (error || !raw) {
     console.error('[archive-recall] fetch error:', error?.message)
@@ -531,20 +609,35 @@ export async function getRecallableArchiveEntries(
 
   let inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
 
-  // Phase 31: elevated sensitivity gate for auto-recall
-  let elevatedSkipped = 0
-  if (options?.excludeElevatedSensitivity) {
-    const before = inScope.length
-    inScope = inScope.filter(item => !ELEVATED_SENSITIVITIES.includes(item.sensitivity))
-    elevatedSkipped = before - inScope.length
-  }
-
   const tokens = stripStopwords(query)
   if (tokens.length === 0) return []
 
-  let candidates = inScope
+  // Phase 28F: two-pass elevated sensitivity gate.
+  // Pass 1: score all entries (including elevated) so we can evaluate match strength.
+  // Pass 2: filter elevated entries unless they meet the conditional pass-through.
+  let allScored = inScope
     .map(item => ({ item, ...scoreItem(item, tokens, query) }))
     .filter(({ textScore }) => textScore > 0)
+
+  let elevatedSkipped = 0
+  if (options?.excludeElevatedSensitivity) {
+    const before = allScored.length
+    allScored = allScored.filter(({ item, totalScore, rank_reason }) => {
+      if (!ELEVATED_SENSITIVITIES.includes(item.sensitivity)) return true
+      // Phase 28F conditional pass-through:
+      // Allow elevated/sacred entries only when ALL of:
+      //   1. canonical (Confirmed Memory)
+      //   2. strong match quality
+      //   3. 2+ distinct query tokens matched in title OR title_exact hit
+      const isCanonical = item.canonical_status === 'canonical'
+      const isStrong = getMatchQuality(totalScore, [totalScore]) === 'strong'
+      const hasMultiTokenTitle = rank_reason.includes('multi_token_title') || rank_reason.includes('title_exact')
+      return isCanonical && isStrong && hasMultiTokenTitle
+    })
+    elevatedSkipped = before - allScored.length
+  }
+
+  let candidates = allScored
 
   // Phase 28D: quality gate for auto-recall (strong matches only)
   if (options?.minMatchQuality === 'strong') {
@@ -657,6 +750,15 @@ Rules:
 - Do not infer that a named archive item was retrieved from the user's query alone.
 - If the query names an item but recall returned adjacent entries instead, say the exact item did not return and list what did.\n`
 
+  // Phase 28F: when multiple entries are returned, instruct presence to compare and distinguish
+  const multiCandidateNote = entries.length > 1
+    ? `\nMultiple archive entries were retrieved. Compare them and distinguish:
+- Which entry is the direct answer to Tara's question (most specific, strongest match).
+- Which entries are related symbolic or contextual memories.
+- If entries cover different facets (e.g. symbolic vs tangible), name both and clarify the distinction.
+Do not collapse multiple entries into one answer — preserve specificity.\n`
+    : ''
+
   const footer = isAuto
     ? `\nInstruction: Use this only if it genuinely helps answer Tara's latest message.
 Do not over-explain the mechanism.
@@ -665,13 +767,13 @@ Do not claim to remember everything.
 If referencing naturally, it is acceptable to say "I have it" or "I remember this from the archive."
 The UI will show transparency — you do not need to announce the mechanism.
 If auto-recall is adjacent but not exact, be honest.
-Never invent beyond the recalled entry.${rules}`
+Never invent beyond the recalled entry.${multiCandidateNote}${rules}`
     : `\nInstruction: Use recalled Archive Entries only as grounded continuity context.
 Attribution: Say "I pulled this from the archives" or "I found this in Velvet/Violet/the archives."
 Do NOT say "these were loaded when you arrived" or "I already had these" — they were retrieved now.
 Do not claim access to raw conversations unless supplied.
 If recall is partial or incomplete, say so plainly.
-Do not invent missing archive details.${rules}`
+Do not invent missing archive details.${multiCandidateNote}${rules}`
 
   let body = ''
   let bodyChars = 0
