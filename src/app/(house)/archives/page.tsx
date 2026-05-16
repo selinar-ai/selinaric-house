@@ -12,8 +12,8 @@
 // Phase 29A: Memory bulk actions, Memory Review tab, audit cards — keyed on canonical_status
 // Phase 29B: Graph extraction panel + candidate review tab (nodes + edges)
 
-import { useState, useEffect, useRef } from 'react'
-import { useArchives } from '@/hooks/useArchives'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useArchives, type ArchiveQueryParams } from '@/hooks/useArchives'
 import { useArchiveSources } from '@/hooks/useArchiveSources'
 import { useArchiveDrafts } from '@/hooks/useArchiveDrafts'
 import ArchiveItemCard from '@/components/ArchiveItemCard'
@@ -123,17 +123,7 @@ export default function ArchivesPage() {
   const [sourceSubmitting, setSourceSubmitting] = useState(false)
   const [sourceSubmitError, setSourceSubmitError] = useState<string | null>(null)
 
-  // Data hooks
-  const { items, loading: itemsLoading, error: itemsError, refresh: refreshItems } = useArchives(activeTab)
-  const { sources, loading: sourcesLoading, error: sourcesError, refresh: refreshSources } = useArchiveSources(activeTab)
-  // Phase 27D: load all statuses so DraftFilters can filter by any status.
-  // pendingDrafts is derived inside the hook for the tab badge.
-  const { drafts: allDrafts, pendingDrafts, loading: draftsLoading, error: draftsError, refresh: refreshDrafts } = useArchiveDrafts({
-    tab: activeTab,
-    allStatuses: true,
-  })
-
-  // Phase 27D — filter state
+  // Phase 27D — filter state (local UI state, drives server-side queries via debounce)
   const [sourceFilters, setSourceFilters] = useState<SourceFilterState>({ ...BLANK_SOURCE_FILTERS })
   const [draftFilters,  setDraftFilters]  = useState<DraftFilterState>({ ...BLANK_DRAFT_FILTERS })
   const [entryFilters,  setEntryFilters]  = useState<EntryFilterState>({ ...BLANK_ENTRY_FILTERS })
@@ -141,6 +131,43 @@ export default function ArchivesPage() {
   const [memoryFilters, setMemoryFilters] = useState<EntryFilterState>({
     ...BLANK_ENTRY_FILTERS,
     canonical_status: 'canonical_candidate',
+  })
+
+  // Phase 28F.1 — debounced server-side query params
+  const [entryQuery, setEntryQuery] = useState<ArchiveQueryParams>({ ...BLANK_ENTRY_FILTERS })
+  const [memoryQuery, setMemoryQuery] = useState<ArchiveQueryParams>({
+    ...BLANK_ENTRY_FILTERS,
+    canonical_status: 'canonical_candidate',
+  })
+  const entryDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const memoryDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const debouncedSetEntryQuery = useCallback((filters: EntryFilterState) => {
+    if (entryDebounceRef.current) clearTimeout(entryDebounceRef.current)
+    entryDebounceRef.current = setTimeout(() => {
+      setEntryQuery({ search: filters.search, canonical_status: filters.canonical_status, category: filters.category, has_linked_source: filters.has_linked_source })
+    }, filters.search !== entryQuery.search ? 300 : 0)
+  }, [entryQuery.search])
+
+  const debouncedSetMemoryQuery = useCallback((filters: EntryFilterState) => {
+    if (memoryDebounceRef.current) clearTimeout(memoryDebounceRef.current)
+    memoryDebounceRef.current = setTimeout(() => {
+      setMemoryQuery({ search: filters.search, canonical_status: filters.canonical_status, category: filters.category, has_linked_source: filters.has_linked_source })
+    }, filters.search !== memoryQuery.search ? 300 : 0)
+  }, [memoryQuery.search])
+
+  useEffect(() => { debouncedSetEntryQuery(entryFilters) }, [entryFilters, debouncedSetEntryQuery])
+  useEffect(() => { debouncedSetMemoryQuery(memoryFilters) }, [memoryFilters, debouncedSetMemoryQuery])
+
+  // Data hooks — server-side filtered
+  const { items, total: itemsTotal, loading: itemsLoading, loadingMore: itemsLoadingMore, error: itemsError, refresh: refreshItems, loadMore: loadMoreItems, hasMore: hasMoreItems } = useArchives(activeTab, entryQuery)
+  const { items: memoryItems, total: memoryTotal, loading: memoryLoading, loadingMore: memoryLoadingMore, error: memoryError2, refresh: refreshMemory, loadMore: loadMoreMemory, hasMore: hasMoreMemory } = useArchives(activeTab, memoryQuery)
+  const { sources, loading: sourcesLoading, error: sourcesError, refresh: refreshSources } = useArchiveSources(activeTab)
+  // Phase 27D: load all statuses so DraftFilters can filter by any status.
+  // pendingDrafts is derived inside the hook for the tab badge.
+  const { drafts: allDrafts, pendingDrafts, loading: draftsLoading, error: draftsError, refresh: refreshDrafts } = useArchiveDrafts({
+    tab: activeTab,
+    allStatuses: true,
   })
 
   // Phase 27D — selection state
@@ -234,29 +261,9 @@ export default function ArchivesPage() {
     return true
   })
 
-  function applyEntryFilter(filterState: EntryFilterState) {
-    return items.filter(i => {
-      const q = filterState.search.toLowerCase()
-      if (q) {
-        // Phase 28F: tokenized search — all tokens must appear somewhere across title + content
-        const tokens = q.split(/\s+/).filter(t => t.length > 1)
-        if (tokens.length > 0) {
-          const titleLower = i.title.toLowerCase()
-          const contentLower = i.raw_content.toLowerCase()
-          const allMatch = tokens.every(t => titleLower.includes(t) || contentLower.includes(t))
-          if (!allMatch) return false
-        }
-      }
-      if (filterState.canonical_status && i.canonical_status !== filterState.canonical_status) return false
-      if (filterState.category && i.category !== filterState.category) return false
-      if (filterState.has_linked_source === 'yes' && !i.source_id) return false
-      if (filterState.has_linked_source === 'no' && i.source_id) return false
-      return true
-    })
-  }
-
-  const filteredItems  = applyEntryFilter(entryFilters)
-  const filteredMemory = applyEntryFilter(memoryFilters)
+  // Phase 28F.1: items and memoryItems are already server-side filtered
+  const filteredItems  = items
+  const filteredMemory = memoryItems
 
   // ─── Phase 27D: selection toggle helpers ───────────────────────────────
 
@@ -442,7 +449,7 @@ export default function ArchivesPage() {
         throw new Error(data.error ?? 'Memory bulk action failed')
       }
       setIds([])
-      await refreshItems()
+      await Promise.all([refreshItems(), refreshMemory()])
     } catch (err) {
       setMemoryBulkError(err instanceof Error ? err.message : 'Memory action failed')
     } finally {
@@ -557,14 +564,11 @@ export default function ArchivesPage() {
                 {pendingDrafts.length}
               </span>
             )}
-            {tab.id === 'memory' && (() => {
-              const candidateCount = items.filter(i => i.canonical_status === 'canonical_candidate').length
-              return candidateCount > 0 ? (
-                <span className="ml-1.5 font-body text-[10px] text-amber-400">
-                  {candidateCount}
-                </span>
-              ) : null
-            })()}
+            {tab.id === 'memory' && memoryTotal > 0 && memoryQuery.canonical_status === 'canonical_candidate' && (
+              <span className="ml-1.5 font-body text-[10px] text-amber-400">
+                {memoryTotal}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -696,7 +700,7 @@ export default function ArchivesPage() {
             </div>
 
             {/* Entry filters */}
-            {!itemsLoading && !itemsError && items.length > 0 && (
+            {!itemsLoading && !itemsError && (
               <EntryFilters value={entryFilters} onChange={setEntryFilters} />
             )}
 
@@ -786,17 +790,16 @@ export default function ArchivesPage() {
                   />
                 )}
                 <span className="font-body text-xs text-text-muted">
-                  {filteredItems.length === 0
+                  {itemsTotal === 0
                     ? 'No entries'
-                    : `${filteredItems.length} entr${filteredItems.length === 1 ? 'y' : 'ies'}`}
-                  {items.length !== filteredItems.length && ` of ${items.length}`}
+                    : `Showing ${filteredItems.length} of ${itemsTotal} entr${itemsTotal === 1 ? 'y' : 'ies'}`}
                 </span>
               </div>
             )}
 
             <LoadingState loading={itemsLoading} error={itemsError} />
 
-            {!itemsLoading && !itemsError && items.length === 0 && (
+            {!itemsLoading && !itemsError && itemsTotal === 0 && !entryFilters.search && !entryFilters.canonical_status && !entryFilters.category && (
               <div className="px-4 py-12 text-center">
                 <p className="font-body text-sm text-text-muted">No entries in {activeTabConfig.label} Archives yet.</p>
                 <p className="font-body text-xs text-text-muted mt-1">
@@ -807,7 +810,7 @@ export default function ArchivesPage() {
               </div>
             )}
 
-            {!itemsLoading && !itemsError && filteredItems.length === 0 && items.length > 0 && (
+            {!itemsLoading && !itemsError && itemsTotal === 0 && (entryFilters.search || entryFilters.canonical_status || entryFilters.category) && (
               <div className="px-4 py-8 text-center">
                 <p className="font-body text-sm text-text-muted">No entries match the current filters.</p>
               </div>
@@ -824,6 +827,17 @@ export default function ArchivesPage() {
                     onToggleSelect={toggleEntrySelect}
                   />
                 ))}
+                {hasMoreItems && (
+                  <div className="px-4 py-3 border-t border-house-border/40 text-center">
+                    <button
+                      onClick={loadMoreItems}
+                      disabled={itemsLoadingMore}
+                      className="font-body text-xs px-4 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                    >
+                      {itemsLoadingMore ? 'Loading…' : `Load more (${itemsTotal - filteredItems.length} remaining)`}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -1180,19 +1194,17 @@ export default function ArchivesPage() {
             </div>
 
             {/* Audit summary cards */}
-            {!itemsLoading && !itemsError && items.length > 0 && (
-              <MemoryAuditCards items={items} />
+            {!memoryLoading && !memoryError2 && (
+              <MemoryAuditCards items={memoryItems} />
             )}
 
             {/* Phase 30B: Eligibility governance panel */}
-            {!itemsLoading && !itemsError && items.length > 0 && (
+            {!memoryLoading && !memoryError2 && (
               <EligibilityGovernancePanel />
             )}
 
             {/* Memory Review filters */}
-            {!itemsLoading && !itemsError && items.length > 0 && (
-              <EntryFilters value={memoryFilters} onChange={setMemoryFilters} />
-            )}
+            <EntryFilters value={memoryFilters} onChange={setMemoryFilters} />
 
             {/* Memory Review bulk action bar */}
             {selectedMemoryIds.length > 0 && (
@@ -1258,7 +1270,7 @@ export default function ArchivesPage() {
             )}
 
             {/* Count + select-all */}
-            {!itemsLoading && !itemsError && (
+            {!memoryLoading && !memoryError2 && (
               <div className="px-4 py-2 border-b border-house-border/40 flex items-center gap-3">
                 {filteredMemory.length > 0 && (
                   <input
@@ -1270,23 +1282,17 @@ export default function ArchivesPage() {
                   />
                 )}
                 <span className="font-body text-xs text-text-muted">
-                  {filteredMemory.length === 0
+                  {memoryTotal === 0
                     ? 'No entries'
-                    : `${filteredMemory.length} entr${filteredMemory.length === 1 ? 'y' : 'ies'}`}
-                  {items.length !== filteredMemory.length && ` of ${items.length}`}
+                    : `Showing ${filteredMemory.length} of ${memoryTotal} entr${memoryTotal === 1 ? 'y' : 'ies'}`}
                 </span>
               </div>
             )}
 
-            <LoadingState loading={itemsLoading} error={itemsError} />
+            <LoadingState loading={memoryLoading} error={memoryError2} />
 
             {/* Empty states */}
-            {!itemsLoading && !itemsError && items.length === 0 && (
-              <div className="px-4 py-12 text-center">
-                <p className="font-body text-sm text-text-muted">No entries in {activeTabConfig.label} Archives yet.</p>
-              </div>
-            )}
-            {!itemsLoading && !itemsError && filteredMemory.length === 0 && items.length > 0 && (
+            {!memoryLoading && !memoryError2 && memoryTotal === 0 && (
               <div className="px-4 py-10 text-center space-y-1">
                 {memoryFilters.canonical_status === 'canonical_candidate' && (
                   <>
@@ -1308,17 +1314,28 @@ export default function ArchivesPage() {
               </div>
             )}
 
-            {!itemsLoading && !itemsError && filteredMemory.length > 0 && (
+            {!memoryLoading && !memoryError2 && filteredMemory.length > 0 && (
               <div>
                 {filteredMemory.map(item => (
                   <ArchiveItemCard
                     key={item.id}
                     item={item}
-                    onRefresh={refreshItems}
+                    onRefresh={refreshMemory}
                     selected={selectedMemoryIds.includes(item.id)}
                     onToggleSelect={toggleMemorySelect}
                   />
                 ))}
+                {hasMoreMemory && (
+                  <div className="px-4 py-3 border-t border-house-border/40 text-center">
+                    <button
+                      onClick={loadMoreMemory}
+                      disabled={memoryLoadingMore}
+                      className="font-body text-xs px-4 py-1.5 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                    >
+                      {memoryLoadingMore ? 'Loading…' : `Load more (${memoryTotal - filteredMemory.length} remaining)`}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </>

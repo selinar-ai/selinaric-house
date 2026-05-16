@@ -32,7 +32,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const archiveName = searchParams.get('archive_name')
   const visibility = searchParams.get('visibility')
-  const limit = Math.min(parseInt(searchParams.get('limit') ?? '100', 10), 200)
+  const limit = Math.min(parseInt(searchParams.get('limit') ?? '50', 10), 200)
+  const offset = Math.max(parseInt(searchParams.get('offset') ?? '0', 10), 0)
+  const search = searchParams.get('search')?.trim() || null
+  const canonicalStatus = searchParams.get('canonical_status') || null
+  const category = searchParams.get('category') || null
+  const hasLinkedSource = searchParams.get('has_linked_source') || null
 
   // Validate filters
   if (archiveName && !VALID_ARCHIVE_NAMES.includes(archiveName as ArchiveName)) {
@@ -44,18 +49,30 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('archive_items')
-    .select('*')
+    .select('*', { count: 'exact' })
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .range(offset, offset + limit - 1)
 
   if (archiveName) query = query.eq('archive_name', archiveName)
   if (visibility) query = query.eq('visibility', visibility)
+  if (canonicalStatus) query = query.eq('canonical_status', canonicalStatus)
+  if (category) query = query.eq('category', category)
+  if (hasLinkedSource === 'yes') query = query.not('source_id', 'is', null)
+  if (hasLinkedSource === 'no') query = query.is('source_id', null)
 
-  const { data, error } = await query
+  // Server-side text search: tokenized, all tokens must match across title/raw_content/excerpt
+  if (search) {
+    const tokens = search.toLowerCase().split(/\s+/).filter(t => t.length > 1)
+    for (const token of tokens) {
+      query = query.or(`title.ilike.%${token}%,raw_content.ilike.%${token}%,excerpt.ilike.%${token}%`)
+    }
+  }
+
+  const { data, error, count } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ items: data ?? [] })
+  return NextResponse.json({ items: data ?? [], total: count ?? 0 })
 }
 
 export async function POST(request: NextRequest) {
