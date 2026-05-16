@@ -131,6 +131,10 @@ const EXPLICIT_TRIGGERS = [
   /\blook\s*up\s+the\s+phase\b/i,
   /\buse\s+the\s+uploaded\s+docs?\b/i,
   /\blibrary\s+search\b/i,
+  // Phase 33L.3: Broader explicit triggers for all-collection queries
+  /\bfrom\s+(?:the\s+)?library\b/i,
+  /\bin\s+(?:the\s+)?library\b/i,
+  /\buse\s+the\s+library\b/i,
 ]
 
 const AUTO_TRIGGER_PATTERNS = [
@@ -170,32 +174,58 @@ export function shouldSearchLibrary(message: string): { shouldSearch: boolean; i
  * For auto triggers, uses the full message or the key reference.
  */
 export function extractLibraryQuery(message: string): string {
-  // Try stripping explicit trigger phrases to get the actual query
+  // Phase 33L.3: Strip presence addressing prefix ("Eli, ...", "Ari, ...")
+  let cleaned = message.trim()
+  cleaned = cleaned.replace(/^(?:eli|ari)\s*[,:]?\s*/i, '').trim()
+
+  // Phase 33L.3: Strip suffix patterns ("from the library", "from the library?", "in the library")
+  const suffixPatterns = [
+    /\s+(?:from|in|using)\s+(?:the\s+)?library\s*[?.!]?\s*$/i,
+    /\s+(?:from|in)\s+(?:the\s+)?(?:house\s+)?library\s*[?.!]?\s*$/i,
+  ]
+  for (const sp of suffixPatterns) {
+    cleaned = cleaned.replace(sp, '').trim()
+  }
+
+  // Try stripping explicit trigger phrases (prefix patterns) to get the actual query
   const stripPatterns = [
     /^(?:search|check|look\s*(?:in|up)?)\s+(?:the\s+)?library\s+(?:for\s+)?/i,
     /^(?:find|look)\s+(?:in\s+)?(?:the\s+)?library\s+(?:for\s+)?/i,
     /^what\s+does\s+the\s+library\s+say\s+(?:about\s+)?/i,
+    /^what\s+can\s+you\s+(?:say|tell\s+me)\s+about\s+/i,
+    /^use\s+the\s+library\s+to\s+(?:explain|describe|summarize|summarise|find|show)\s+/i,
     /^check\s+the\s+phase\s+brief\s+(?:for\s+|about\s+)?/i,
     /^look\s*up\s+the\s+phase\s+(?:brief\s+)?(?:for\s+|about\s+)?/i,
     /^use\s+the\s+uploaded\s+docs?\s+(?:for\s+|about\s+|to\s+(?:find|check|look)\s+)?/i,
     /^library\s+search\s+(?:for\s+)?/i,
+    /^tell\s+me\s+(?:about|what)\s+/i,
   ]
 
   for (const p of stripPatterns) {
-    const stripped = message.replace(p, '').trim()
-    if (stripped.length >= 2 && stripped !== message.trim()) {
-      return stripped.substring(0, 200) // cap query length
+    const stripped = cleaned.replace(p, '').trim()
+    if (stripped.length >= 2 && stripped !== cleaned) {
+      cleaned = stripped
+      break
     }
   }
 
+  // Phase 33L.3: Strip leading "the article " / "the book " wrappers
+  const articlePrefix = cleaned.match(/^the\s+(?:article|book|document|transcript|entry)\s+/i)
+  if (articlePrefix) {
+    const inner = cleaned.slice(articlePrefix[0].length).trim()
+    if (inner.length >= 2) cleaned = inner
+  }
+
+  // Strip trailing punctuation
+  cleaned = cleaned.replace(/[?.!]+$/, '').trim()
+
   // For phase references, extract the phase identifier
-  const phaseMatch = message.match(/\bphase\s+(\d+[a-z]?(?:\s*[-–]\s*[^\s,]+)?)/i)
-  if (phaseMatch) {
+  const phaseMatch = cleaned.match(/\bphase\s+(\d+[a-z]*(?:\.\d+)?(?:\s*[-–]\s*[^\s,]+)?)/i)
+  if (phaseMatch && cleaned.toLowerCase().startsWith('phase')) {
     return `Phase ${phaseMatch[1]}`.substring(0, 200)
   }
 
-  // Fall back to full message (trimmed)
-  return message.trim().substring(0, 200)
+  return cleaned.substring(0, 200) || message.trim().substring(0, 200)
 }
 
 // ─── Presence Scope Filtering ───────────────────────────────────────────────
@@ -590,6 +620,11 @@ export function isUsefulLibraryResult(result: LibrarySearchResult, query: string
     return true
   }
 
+  // Phase 33L.3: Exact or near-exact title match is inherently useful (covers all collections)
+  if (result.matchedFields.includes('title') && result.score >= 80) {
+    return true
+  }
+
   const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
   const substantiveTerms = queryTerms.filter(t => !GENERIC_TERMS.has(t))
 
@@ -679,6 +714,33 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
 
   const allItems = items ?? []
   const itemIds = allItems.map(i => i.id as string)
+
+  // ─── 1b. Phase 33L.3: Exact/near-exact title search (bypasses recency limit) ──
+  // This ensures items from all collections are found when title closely matches query
+  if (query.length >= 3) {
+    let titleQuery = supabase
+      .from('library_items')
+      .select('*')
+      .in('presence_scope', allowedScopes)
+      .ilike('title', `%${query}%`)
+      .limit(10)
+
+    if (!includeSuperseded) {
+      titleQuery = titleQuery.neq('authority_status', 'superseded')
+    }
+
+    const { data: titleMatches } = await titleQuery
+
+    if (titleMatches) {
+      for (const tm of titleMatches) {
+        const tmId = tm.id as string
+        if (!itemIds.includes(tmId)) {
+          allItems.push(tm)
+          itemIds.push(tmId)
+        }
+      }
+    }
+  }
 
   // ─── 2. Fetch files for candidate items ────────────────────────────
   let filesByItemId: Record<string, Record<string, unknown>[]> = {}
