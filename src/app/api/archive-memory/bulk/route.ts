@@ -165,13 +165,22 @@ export async function POST(request: NextRequest) {
   }
 
   // ─── Update canonical_status ───────────────────────────────────────────────
+  // Phase 30B: confirm_memory also sets eligible_for_recall=true.
+  // Confirmed Memory should be recall-eligible by default.
+  // eligible_for_recall is a routing flag only — it does not bypass
+  // owner/visibility/sensitivity/scope gates enforced at recall time.
+  const updatePayload: Record<string, unknown> = {
+    canonical_status: toStatus,
+    updated_at:       now,
+    updated_by:       'tara',
+  }
+  if (typedAction === 'confirm_memory') {
+    updatePayload.eligible_for_recall = true
+  }
+
   const { error: updateError } = await supabase
     .from('archive_items')
-    .update({
-      canonical_status: toStatus,
-      updated_at:       now,
-      updated_by:       'tara',
-    })
+    .update(updatePayload)
     .in('id', eligibleIds)
 
   if (updateError) {
