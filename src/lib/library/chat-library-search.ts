@@ -216,6 +216,42 @@ export function userRequestsSuperseded(message: string): boolean {
   return SUPERSEDED_REQUEST_PATTERNS.some(p => p.test(message))
 }
 
+// ─── Phase Reference Detection (Phase 33L.1) ──────────────────────────────
+
+const PHASE_REF_PATTERN = /\bphase\s+(\d+[a-z]*(?:\.\d+)?)\b/i
+
+/**
+ * Extracts a normalized phase code from a query string.
+ * Returns null if no phase reference is found.
+ * Examples: "Phase 9" → "9", "Phase 33L" → "33L", "Phase 7A.1" → "7A.1"
+ */
+export function extractPhaseReference(query: string): string | null {
+  const match = query.match(PHASE_REF_PATTERN)
+  if (!match) return null
+  return match[1].toUpperCase() === match[1] ? match[1] : match[1]
+}
+
+/**
+ * Checks if a phase code is an exact match for a reference.
+ * Handles case-insensitive comparison.
+ */
+function isExactPhaseMatch(itemPhaseCode: string | null, ref: string): boolean {
+  if (!itemPhaseCode) return false
+  return itemPhaseCode.toLowerCase() === ref.toLowerCase()
+}
+
+/**
+ * Checks if a phase code belongs to the same family as a reference.
+ * "33L" belongs to family "33". "9" belongs to family "9".
+ */
+function isSamePhaseFamily(itemPhaseCode: string | null, ref: string): boolean {
+  if (!itemPhaseCode) return false
+  const refFamily = ref.match(/^(\d+)/)?.[1]
+  const itemFamily = itemPhaseCode.match(/^(\d+)/)?.[1]
+  if (!refFamily || !itemFamily) return false
+  return refFamily === itemFamily && itemPhaseCode.toLowerCase() !== ref.toLowerCase()
+}
+
 // ─── Snippet Extraction ────────────────────────────────────────────────────
 
 const MAX_SNIPPET = 300
@@ -255,6 +291,7 @@ function scoreItem(
   query: string,
   terms: string[],
   files: Record<string, unknown>[],
+  phaseRef?: string | null,
 ): { score: number; matchedFields: string[]; matchedFiles: LibraryMatchedFile[]; snippets: LibrarySnippet[]; reason: string } {
   let score = 0
   const matchedFields: string[] = []
@@ -267,10 +304,34 @@ function scoreItem(
   const contentText = (item.content_text as string) ?? ''
   const phaseCode = (item.phase_code as string) ?? ''
   const phaseLabel = (item.phase_label as string) ?? ''
+  const phaseNumber = item.phase_number as number | null
   const tags: string[] = (item.tags as string[]) ?? []
   const collection = (item.collection as string) ?? ''
   const itemType = (item.item_type as string) ?? ''
   const presenceScope = (item.presence_scope as string) ?? ''
+
+  // Phase 33L.1: Phase-reference-specific scoring (bypasses token length filter)
+  if (phaseRef) {
+    if (isExactPhaseMatch(phaseCode, phaseRef)) {
+      score += 120; matchedFields.push('phase_code')
+      snippets.push({ field: 'phase_code', text: phaseCode })
+      reasons.push(`Exact phase_code match (${phaseRef})`)
+    } else if (isSamePhaseFamily(phaseCode, phaseRef)) {
+      score += 20; matchedFields.push('phase_code')
+      snippets.push({ field: 'phase_code', text: phaseCode })
+      reasons.push(`Same phase family (${phaseCode})`)
+    }
+    // phase_number match (for single-digit queries like "9")
+    const refNumMatch = phaseRef.match(/^(\d+)/)
+    if (refNumMatch && phaseNumber !== null && phaseNumber === parseInt(refNumMatch[1], 10)) {
+      if (!isExactPhaseMatch(phaseCode, phaseRef)) {
+        // Only add phase_number bonus if phase_code didn't already exact-match
+        score += 40
+        if (!matchedFields.includes('phase_number')) matchedFields.push('phase_number')
+        reasons.push(`phase_number match (${phaseNumber})`)
+      }
+    }
+  }
 
   // Title scoring
   if (title.toLowerCase() === query.toLowerCase()) {
@@ -290,8 +351,8 @@ function scoreItem(
     }
   }
 
-  // Phase code exact match
-  if (phaseCode && phaseCode.toLowerCase() === query.toLowerCase()) {
+  // Phase code exact match (legacy path — still fires for full-query match like "33L")
+  if (phaseCode && phaseCode.toLowerCase() === query.toLowerCase() && !phaseRef) {
     score += 60; matchedFields.push('phase_code')
     snippets.push({ field: 'phase_code', text: phaseCode })
     reasons.push('Exact phase_code match')
@@ -518,6 +579,11 @@ const MIN_USEFUL_SCORE = 30
 export function isUsefulLibraryResult(result: LibrarySearchResult, query: string): boolean {
   if (result.score < MIN_USEFUL_SCORE) return false
 
+  // Phase 33L.1: phase_code or phase_number match is inherently useful
+  if (result.matchedFields.includes('phase_code') || result.matchedFields.includes('phase_number')) {
+    return true
+  }
+
   const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
   const substantiveTerms = queryTerms.filter(t => !GENERIC_TERMS.has(t))
 
@@ -581,6 +647,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
   const { presenceId, query, reason, limit = CHAT_SEARCH_LIMIT, sessionId, includeSuperseded = false } = params
 
   const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
+  const phaseRef = extractPhaseReference(query)
   const allowedScopes = getAllowedScopes(presenceId)
   const warnings: string[] = []
 
@@ -672,7 +739,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
 
   for (const item of allItems) {
     const itemFiles = filesByItemId[item.id as string] ?? []
-    const { score, matchedFields, matchedFiles, snippets, reason: matchReason } = scoreItem(item, query, terms, itemFiles)
+    const { score, matchedFields, matchedFiles, snippets, reason: matchReason } = scoreItem(item, query, terms, itemFiles, phaseRef)
 
     if (score < MIN_USEFUL_SCORE) continue
 
