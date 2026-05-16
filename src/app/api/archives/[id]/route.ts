@@ -100,6 +100,15 @@ export async function PATCH(
     patch.eligible_for_graph = false
   }
 
+  // Phase 30B: when confirming as canonical via single-item PATCH,
+  // auto-set eligible_for_recall=true (routing flag, not truth flag)
+  if (
+    patch.canonical_status === 'canonical' &&
+    current.canonical_status !== 'canonical'
+  ) {
+    patch.eligible_for_recall = true
+  }
+
   if (Object.keys(patch).length === 1) {
     // Only updated_at — nothing useful to update
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })

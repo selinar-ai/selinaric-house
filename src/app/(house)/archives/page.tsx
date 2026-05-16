@@ -24,6 +24,7 @@ import SourceFilters, { type SourceFilterState, BLANK_SOURCE_FILTERS } from '@/c
 import DraftFilters,  { type DraftFilterState,  BLANK_DRAFT_FILTERS  } from '@/components/archive/DraftFilters'
 import EntryFilters,  { type EntryFilterState,  BLANK_ENTRY_FILTERS  } from '@/components/archive/EntryFilters'
 import MemoryAuditCards from '@/components/archive/MemoryAuditCards'
+import EligibilityGovernancePanel from '@/components/archive/EligibilityGovernancePanel'
 import GraphExtractionPanel from '@/components/archive/GraphExtractionPanel'
 import GraphCandidatesTab from '@/components/archive/GraphCandidatesTab'
 import {
@@ -1181,6 +1182,11 @@ export default function ArchivesPage() {
             {/* Audit summary cards */}
             {!itemsLoading && !itemsError && items.length > 0 && (
               <MemoryAuditCards items={items} />
+            )}
+
+            {/* Phase 30B: Eligibility governance panel */}
+            {!itemsLoading && !itemsError && items.length > 0 && (
+              <EligibilityGovernancePanel />
             )}
 
             {/* Memory Review filters */}
