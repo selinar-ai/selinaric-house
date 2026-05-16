@@ -7,8 +7,10 @@ import ImageLightbox from '@/components/ImageLightbox'
 import EmojiPicker from '@/components/EmojiPicker'
 import VoiceButton from '@/components/VoiceButton'
 import RecallIndicator from '@/components/RecallIndicator'
+import LibraryReferenceIndicator from '@/components/LibraryReferenceIndicator'
 import { stopAllTTS } from '@/lib/tts'
 import type { RecallEntry, MatchQuality, RecallMode } from '@/lib/archive-recall'
+import type { LibraryReference } from '@/lib/library/chat-library-search'
 
 const MAX_IMAGES = 4
 
@@ -46,8 +48,9 @@ export default function ChatInterface({
   const [recallMatchQualityMap, setRecallMatchQualityMap] = useState<Map<string, MatchQuality>>(new Map())
   const [recallModeMap, setRecallModeMap] = useState<Map<string, RecallMode>>(new Map())
 
-  // Phase 33G: Library search state
+  // Phase 33G + 33L: Library search state
   const [librarySearchMessageIds, setLibrarySearchMessageIds] = useState<Set<string>>(new Set())
+  const [libraryReferenceMap, setLibraryReferenceMap] = useState<Map<string, LibraryReference[]>>(new Map())
 
   // Phase 25A: Multi-image upload state
   const [selectedImages, setSelectedImages] = useState<File[]>([])
@@ -246,9 +249,16 @@ export default function ChatInterface({
         setEmotionalContinuityMessageIds(prev => new Set([...prev, savedReply.id!]))
       }
 
-      // Phase 33G: Track Library search usage
+      // Phase 33G + 33L: Track Library search usage and references
       if (data.librarySearchUsed && savedReply?.id) {
         setLibrarySearchMessageIds(prev => new Set([...prev, savedReply.id!]))
+        if (Array.isArray(data.libraryReferences) && data.libraryReferences.length > 0) {
+          setLibraryReferenceMap(prev => {
+            const next = new Map(prev)
+            next.set(savedReply.id!, data.libraryReferences as LibraryReference[])
+            return next
+          })
+        }
       }
 
       // Phase 28A + 28B + 28D: Track recall entries, event ID, match quality, and mode per message
@@ -467,11 +477,11 @@ export default function ChatInterface({
                   />
                 )}
 
-                {/* Phase 33G: Library context used cue */}
+                {/* Phase 33L: Library reference indicator */}
                 {message.role === 'assistant' && message.id && librarySearchMessageIds.has(message.id) && (
-                  <p className="font-body text-xs text-blue-400 mt-1 italic">
-                    library context used
-                  </p>
+                  <LibraryReferenceIndicator
+                    references={libraryReferenceMap.get(message.id) ?? []}
+                  />
                 )}
 
                 {/* Phase 20: Voice button (presence messages only) */}
