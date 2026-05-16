@@ -45,6 +45,7 @@ export interface LibrarySearchResult {
   matchedFiles: LibraryMatchedFile[]
   snippets: LibrarySnippet[]
   retrievalReason: string
+  contentExcerpt?: string          // Phase 33L.2: richer excerpt for exact matches
 }
 
 export interface LibraryMatchedFile {
@@ -511,10 +512,15 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
       }
     }
 
-    // Snippets — limit to top 2 per item
-    const topSnippets = r.snippets.slice(0, 2)
-    for (const s of topSnippets) {
-      entryLines.push(`  Snippet (${s.field}): ${s.text}`)
+    // Phase 33L.2: Prefer contentExcerpt over snippets for exact matches
+    if (r.contentExcerpt) {
+      entryLines.push(`  Content:`)
+      entryLines.push(`  ${r.contentExcerpt}`)
+    } else {
+      const topSnippets = r.snippets.slice(0, 2)
+      for (const s of topSnippets) {
+        entryLines.push(`  Snippet (${s.field}): ${s.text}`)
+      }
     }
 
     // Authority warning
@@ -780,6 +786,42 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
       }
     }
 
+    // Phase 33L.2: Extract richer content excerpt for exact phase/title matches
+    let contentExcerpt: string | undefined
+    const isExactPhaseHit = matchedFields.includes('phase_code') && score >= 120
+    const isExactTitleHit = matchedFields.includes('title') && score >= 80
+
+    if (isExactPhaseHit || isExactTitleHit) {
+      const maxLen = isExactPhaseHit ? 1000 : 400
+      const description = (item.description as string) ?? ''
+      const contentText = (item.content_text as string) ?? ''
+
+      if (description.length > 20) {
+        contentExcerpt = description.length <= maxLen
+          ? description
+          : description.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+      } else if (contentText.length > 20) {
+        contentExcerpt = contentText.length <= maxLen
+          ? contentText
+          : contentText.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+      } else {
+        // Check attached file extracted text as fallback
+        const firstFileWithText = itemFiles.find(f =>
+          ((f.cleaned_extracted_text as string) ?? '').length > 20
+          || ((f.extracted_text as string) ?? '').length > 20
+        )
+        if (firstFileWithText) {
+          const fileText = ((firstFileWithText.cleaned_extracted_text as string) ?? '')
+            || ((firstFileWithText.extracted_text as string) ?? '')
+          contentExcerpt = fileText.length <= maxLen
+            ? fileText
+            : fileText.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+        } else {
+          contentExcerpt = '(Item found but no body content available in Library fields)'
+        }
+      }
+    }
+
     scored.push({
       itemId: item.id as string,
       title: (item.title as string) ?? '',
@@ -797,6 +839,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
       matchedFiles,
       snippets,
       retrievalReason: matchReason,
+      contentExcerpt,
     })
   }
 
