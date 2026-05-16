@@ -1,11 +1,13 @@
-// Phase 27A — Archive item PATCH + DELETE
-// PATCH — update status, visibility, category, eligibility, review_notes, updated_by
+// Phase 27A + 27E — Archive item PATCH + DELETE
+// PATCH — update status, visibility, category, eligibility, review_notes, updated_by,
+//         title, raw_content, excerpt, import_label, source_document, source_date
 //         Eligibility flags blocked if canonical_status !== 'canonical'
 // DELETE — soft delete only: sets deleted_at = now()
 //
 // Phase 27D audit patch: any canonical_status change that constitutes a Memory
 // workflow step (confirm_memory, reject_memory, demote_memory, mark_candidate,
 // restore_candidate) is logged to archive_memory_events after the update.
+// Phase 27E: content/metadata edits are logged to archive_item_edit_events.
 // Audit failure is logged but never causes the PATCH to fail.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -32,10 +34,17 @@ const PATCHABLE_FIELDS = new Set([
   'review_notes',
   'updated_by',
   'title',
+  'raw_content',
   'excerpt',
   'import_label',
   'source_document',
   'source_date',
+])
+
+// Phase 27E: fields that trigger edit audit logging (content/metadata edits, not governance changes)
+const EDIT_AUDIT_FIELDS = new Set([
+  'title', 'raw_content', 'excerpt', 'review_notes',
+  'import_label', 'source_document', 'source_date',
 ])
 
 export async function PATCH(
@@ -54,10 +63,10 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  // Fetch current item to enforce eligibility guard
+  // Fetch current item to enforce eligibility guard + capture before-values for edit audit
   const { data: current, error: fetchError } = await supabase
     .from('archive_items')
-    .select('canonical_status, deleted_at')
+    .select('canonical_status, deleted_at, title, raw_content, excerpt, review_notes, import_label, source_document, source_date')
     .eq('id', id)
     .single()
 
@@ -109,6 +118,11 @@ export async function PATCH(
     patch.eligible_for_recall = true
   }
 
+  // Reject empty raw_content
+  if (patch.raw_content !== undefined && (!(patch.raw_content as string) || !(patch.raw_content as string).trim())) {
+    return NextResponse.json({ error: 'raw_content cannot be empty' }, { status: 400 })
+  }
+
   if (Object.keys(patch).length === 1) {
     // Only updated_at — nothing useful to update
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
@@ -122,6 +136,32 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // ─── Audit log: content/metadata edit ────────────────────────────────────────
+  const editedFields = Object.keys(patch).filter(k => EDIT_AUDIT_FIELDS.has(k) && patch[k] !== current[k as keyof typeof current])
+  if (editedFields.length > 0) {
+    const beforeValues: Record<string, unknown> = {}
+    const afterValues: Record<string, unknown> = {}
+    for (const f of editedFields) {
+      beforeValues[f] = current[f as keyof typeof current] ?? null
+      afterValues[f] = patch[f]
+    }
+    const editReason = typeof body.edit_reason === 'string' ? body.edit_reason : null
+    const { error: editAuditError } = await supabase
+      .from('archive_item_edit_events')
+      .insert({
+        archive_item_id: id,
+        changed_fields:  editedFields,
+        before_values:   beforeValues,
+        after_values:    afterValues,
+        edit_reason:     editReason,
+        created_by:      'tara',
+        created_at:      new Date().toISOString(),
+      })
+    if (editAuditError) {
+      console.error('[archives/id] edit audit insert failed:', editAuditError.message)
+    }
+  }
 
   // ─── Audit log: memory workflow step ────────────────────────────────────────
   // Only fires when canonical_status changed AND the transition is a recognised

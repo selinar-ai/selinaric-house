@@ -40,6 +40,16 @@ interface AuditEvent {
   created_at: string
 }
 
+interface EditEvent {
+  id: string
+  changed_fields: string[]
+  before_values: Record<string, unknown>
+  after_values: Record<string, unknown>
+  edit_reason: string | null
+  created_by: string
+  created_at: string
+}
+
 interface Props {
   item:            ArchiveItem
   onRefresh:       () => void
@@ -60,13 +70,30 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
   const [showReasonFor, setShowReasonFor] = useState<MemoryBulkAction | null>(null)
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(false)
+  const [editEvents, setEditEvents] = useState<EditEvent[]>([])
+  const [editing, setEditing] = useState(false)
+  const [editFields, setEditFields] = useState({
+    title: item.title,
+    raw_content: item.raw_content,
+    excerpt: item.excerpt ?? '',
+    import_label: item.import_label ?? '',
+    source_document: item.source_document ?? '',
+    source_date: item.source_date ?? '',
+  })
+  const [editReason, setEditReason] = useState('')
+  const [editError, setEditError] = useState<string | null>(null)
 
   const fetchAuditEvents = useCallback(async () => {
     setAuditLoading(true)
     try {
-      const res = await fetch(`/api/archive-memory/events?item_id=${item.id}`)
-      const data = await res.json()
-      if (res.ok && data.events) setAuditEvents(data.events)
+      const [memRes, editRes] = await Promise.all([
+        fetch(`/api/archive-memory/events?item_id=${item.id}`),
+        fetch(`/api/archives/${item.id}/edits`),
+      ])
+      const memData = await memRes.json()
+      if (memRes.ok && memData.events) setAuditEvents(memData.events)
+      const editData = await editRes.json()
+      if (editRes.ok && editData.events) setEditEvents(editData.events)
     } catch { /* non-fatal */ }
     finally { setAuditLoading(false) }
   }, [item.id])
@@ -122,6 +149,61 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
   async function handleNotesSave() {
     await patch({ review_notes: notesValue || null })
     setEditingNotes(false)
+  }
+
+  function startEditing() {
+    setEditFields({
+      title: item.title,
+      raw_content: item.raw_content,
+      excerpt: item.excerpt ?? '',
+      import_label: item.import_label ?? '',
+      source_document: item.source_document ?? '',
+      source_date: item.source_date ?? '',
+    })
+    setEditReason('')
+    setEditError(null)
+    setEditing(true)
+  }
+
+  async function handleEditSave() {
+    setEditError(null)
+    const updates: Record<string, unknown> = {}
+    if (editFields.title !== item.title) updates.title = editFields.title
+    if (editFields.raw_content !== item.raw_content) updates.raw_content = editFields.raw_content
+    if ((editFields.excerpt || null) !== (item.excerpt || null)) updates.excerpt = editFields.excerpt || null
+    if ((editFields.import_label || null) !== (item.import_label || null)) updates.import_label = editFields.import_label || null
+    if ((editFields.source_document || null) !== (item.source_document || null)) updates.source_document = editFields.source_document || null
+    if ((editFields.source_date || null) !== (item.source_date || null)) updates.source_date = editFields.source_date || null
+
+    if (Object.keys(updates).length === 0) {
+      setEditing(false)
+      return
+    }
+    if (!editFields.title.trim()) {
+      setEditError('Title cannot be empty')
+      return
+    }
+    if (!editFields.raw_content.trim()) {
+      setEditError('Content cannot be empty')
+      return
+    }
+    if (editReason.trim()) updates.edit_reason = editReason.trim()
+    setPatching(true)
+    try {
+      const res = await fetch(`/api/archives/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...updates, updated_by: 'tara' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Update failed')
+      setEditing(false)
+      onRefresh()
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setPatching(false)
+    }
   }
 
   // Phase 30 — Memory action with optional reason capture.
@@ -248,41 +330,149 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
       {expanded && (
         <div className="border-t border-house-border/40 bg-house-bg/30 px-4 py-4 space-y-5">
 
-          {/* Content */}
-          <section>
-            <div className="flex items-center gap-2 mb-2">
-              <p className="font-body text-xs text-text-muted uppercase tracking-widest">Content</p>
-              {/* Voice icon — reads the full archive entry content. Detail view only, never in collapsed rows. */}
-              <VoiceButton
-                text={contentFull}
-                presenceId={voicePresenceId}
-                buttonClass="min-w-[28px] min-h-[28px] text-xs"
-              />
-            </div>
-            <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
-              {showFullContent ? contentFull : contentPreview}
-              {hasMoreContent && !showFullContent && '…'}
-            </p>
-            {hasMoreContent && (
-              <button
-                onClick={() => setShowFullContent(s => !s)}
-                className="font-body text-xs text-text-muted hover:text-text-secondary mt-2 transition-colors"
-              >
-                {showFullContent ? 'Collapse' : 'Show full content'}
-              </button>
-            )}
-          </section>
+          {/* Content + Metadata — view or edit mode */}
+          {editing ? (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="font-body text-xs text-text-muted uppercase tracking-widest">Edit Entry</p>
+              </div>
 
-          {/* Metadata */}
-          <section className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-            <MetaRow label="Owner" value={item.owner_presence} />
-            <MetaRow label="Sensitivity" value={SENSITIVITY_LABELS[item.sensitivity]} />
-            {item.source_document && <MetaRow label="Source doc" value={item.source_document} />}
-            {item.import_label && <MetaRow label="Import label" value={item.import_label} />}
-            {item.duplicate_of && <MetaRow label="Duplicate of" value={item.duplicate_of.slice(0, 8) + '…'} />}
-            {item.superseded_by && <MetaRow label="Superseded by" value={item.superseded_by.slice(0, 8) + '…'} />}
-            <MetaRow label="Added" value={new Date(item.created_at).toLocaleDateString('en-AU')} />
-          </section>
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Title</label>
+                <input
+                  type="text"
+                  value={editFields.title}
+                  onChange={e => setEditFields(f => ({ ...f, title: e.target.value }))}
+                  className="w-full font-body text-sm bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted"
+                />
+              </div>
+
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Content</label>
+                <textarea
+                  value={editFields.raw_content}
+                  onChange={e => setEditFields(f => ({ ...f, raw_content: e.target.value }))}
+                  rows={8}
+                  className="w-full font-body text-sm bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted resize-y"
+                />
+              </div>
+
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Excerpt <span className="text-text-muted/50">(optional)</span></label>
+                <textarea
+                  value={editFields.excerpt}
+                  onChange={e => setEditFields(f => ({ ...f, excerpt: e.target.value }))}
+                  rows={2}
+                  className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted resize-none"
+                  placeholder="Short excerpt…"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Import label</label>
+                  <input
+                    type="text"
+                    value={editFields.import_label}
+                    onChange={e => setEditFields(f => ({ ...f, import_label: e.target.value }))}
+                    className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted"
+                  />
+                </div>
+                <div>
+                  <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Source date</label>
+                  <input
+                    type="text"
+                    value={editFields.source_date}
+                    onChange={e => setEditFields(f => ({ ...f, source_date: e.target.value }))}
+                    className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted"
+                    placeholder="e.g. 2026-01-15"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Source document</label>
+                <input
+                  type="text"
+                  value={editFields.source_document}
+                  onChange={e => setEditFields(f => ({ ...f, source_document: e.target.value }))}
+                  className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted"
+                />
+              </div>
+
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Edit reason <span className="text-text-muted/50">(optional)</span></label>
+                <input
+                  type="text"
+                  value={editReason}
+                  onChange={e => setEditReason(e.target.value)}
+                  className="w-full font-body text-xs bg-house-surface border border-house-border text-text-primary px-3 py-2 outline-none focus:border-house-muted"
+                  placeholder="Why this edit…"
+                />
+              </div>
+
+              {editError && <p className="font-body text-xs text-red-400">{editError}</p>}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleEditSave}
+                  disabled={patching}
+                  className="font-body text-xs px-3 py-1 border border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted transition-all disabled:opacity-40"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="font-body text-xs px-3 py-1 text-text-muted hover:text-text-secondary transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </section>
+          ) : (
+            <>
+              {/* Content */}
+              <section>
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="font-body text-xs text-text-muted uppercase tracking-widest">Content</p>
+                  <VoiceButton
+                    text={contentFull}
+                    presenceId={voicePresenceId}
+                    buttonClass="min-w-[28px] min-h-[28px] text-xs"
+                  />
+                  <button
+                    onClick={startEditing}
+                    className="font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors ml-auto"
+                  >
+                    Edit
+                  </button>
+                </div>
+                <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+                  {showFullContent ? contentFull : contentPreview}
+                  {hasMoreContent && !showFullContent && '…'}
+                </p>
+                {hasMoreContent && (
+                  <button
+                    onClick={() => setShowFullContent(s => !s)}
+                    className="font-body text-xs text-text-muted hover:text-text-secondary mt-2 transition-colors"
+                  >
+                    {showFullContent ? 'Collapse' : 'Show full content'}
+                  </button>
+                )}
+              </section>
+
+              {/* Metadata */}
+              <section className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                <MetaRow label="Owner" value={item.owner_presence} />
+                <MetaRow label="Sensitivity" value={SENSITIVITY_LABELS[item.sensitivity]} />
+                {item.source_document && <MetaRow label="Source doc" value={item.source_document} />}
+                {item.import_label && <MetaRow label="Import label" value={item.import_label} />}
+                {item.duplicate_of && <MetaRow label="Duplicate of" value={item.duplicate_of.slice(0, 8) + '…'} />}
+                {item.superseded_by && <MetaRow label="Superseded by" value={item.superseded_by.slice(0, 8) + '…'} />}
+                <MetaRow label="Added" value={new Date(item.created_at).toLocaleDateString('en-AU')} />
+              </section>
+            </>
+          )}
 
           {/* Review notes */}
           <section>
@@ -468,8 +658,8 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
           <section>
             <p className="font-body text-xs text-text-muted uppercase tracking-widest mb-2">History</p>
             {auditLoading && <p className="font-body text-xs text-text-muted">Loading…</p>}
-            {!auditLoading && auditEvents.length === 0 && (
-              <p className="font-body text-xs text-text-muted italic">No memory events recorded.</p>
+            {!auditLoading && auditEvents.length === 0 && editEvents.length === 0 && (
+              <p className="font-body text-xs text-text-muted italic">No events recorded.</p>
             )}
             {!auditLoading && auditEvents.length > 0 && (
               <div className="space-y-1.5">
@@ -489,6 +679,24 @@ export default function ArchiveItemCard({ item, onRefresh, selected = false, onT
                     </div>
                     {evt.reason && (
                       <p className="text-text-muted pl-2 italic">{evt.reason}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Edit events */}
+            {!auditLoading && editEvents.length > 0 && (
+              <div className="space-y-1.5 mt-3">
+                <p className="font-body text-[10px] text-text-muted/60 uppercase tracking-widest">Edits</p>
+                {editEvents.map(evt => (
+                  <div key={evt.id} className="font-body text-xs text-text-secondary flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-text-muted">{new Date(evt.created_at).toLocaleDateString('en-AU')}</span>
+                      <span>Edited {evt.changed_fields.join(', ')}</span>
+                    </div>
+                    {evt.edit_reason && (
+                      <p className="text-text-muted pl-2 italic">{evt.edit_reason}</p>
                     )}
                   </div>
                 ))}
