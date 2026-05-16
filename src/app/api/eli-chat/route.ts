@@ -37,6 +37,9 @@ import {
   logLibrarySearch,
   formatLibraryResultSummary,
   buildLibrarySearchStatusBlock,
+  extractLibraryReferences,
+  userRequestsSuperseded,
+  type LibraryReference,
 } from '@/lib/library/chat-library-search'
 import {
   maybeTriggerTimelineDraft,
@@ -233,11 +236,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Phase 33G: Library Search — open-book context, not Memory
+    // Phase 33G + 33L: Library Search — open-book context, not Memory
     let libraryContextBlock = ''
     let librarySearchStatusBlock = ''
     let librarySearchUsed = false
     let librarySearchExplicit = false
+    let libraryReferences: LibraryReference[] = []
     if (message) {
       const { shouldSearch, isExplicit } = shouldSearchLibrary(message)
       librarySearchExplicit = isExplicit
@@ -253,12 +257,16 @@ export async function POST(request: NextRequest) {
           query: libraryQuery,
           reason: libraryReason,
           sessionId,
+          includeSuperseded: userRequestsSuperseded(message),
         })
 
         if (libraryResult.resultCount > 0) {
           libraryContextBlock = libraryResult.contextBlock
           librarySearchUsed = true
           libraryResult.usedInResponse = true
+          libraryReferences = extractLibraryReferences(
+            libraryResult.results.filter(r => r.rank > 0 && r.score >= 30)
+          )
         }
 
         // Phase 33G.1: build search status block for failed searches
@@ -522,7 +530,7 @@ If an image is present in this message:
     )
 
     const recallUsed = recallIntent || (recallEntries.length > 0 && recallMode === 'auto')
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed, libraryReferences })
   } catch (error: unknown) {
     console.error('Eli chat error:', error)
 

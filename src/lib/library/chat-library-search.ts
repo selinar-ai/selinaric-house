@@ -25,6 +25,7 @@ export interface LibrarySearchParams {
   reason: string
   limit?: number
   sessionId?: string | null
+  includeSuperseded?: boolean
 }
 
 export interface LibrarySearchResult {
@@ -60,6 +61,33 @@ export interface LibraryMatchedFile {
 export interface LibrarySnippet {
   field: string
   text: string
+}
+
+// Phase 33L: compact metadata for chat response (no raw content)
+export interface LibraryReference {
+  id: string
+  title: string
+  effectiveAuthorityStatus: string
+  collection: string
+  itemType: string
+  presenceScope: string
+  phaseCode: string | null
+  phaseLabel: string | null
+  retrievalReason: string
+}
+
+export function extractLibraryReferences(results: LibrarySearchResult[]): LibraryReference[] {
+  return results.map(r => ({
+    id: r.itemId,
+    title: r.title,
+    effectiveAuthorityStatus: r.authorityStatus,
+    collection: r.collection,
+    itemType: r.itemType,
+    presenceScope: r.presenceScope,
+    phaseCode: r.phaseCode,
+    phaseLabel: r.phaseLabel,
+    retrievalReason: r.retrievalReason,
+  }))
 }
 
 export type LibrarySearchStatusReason =
@@ -174,6 +202,18 @@ export function extractLibraryQuery(message: string): string {
 function getAllowedScopes(presenceId: 'ari' | 'eli'): PresenceScope[] {
   if (presenceId === 'ari') return ['ari', 'shared', 'house', 'none']
   return ['eli', 'shared', 'house', 'none']
+}
+
+// Phase 33L: Superseded request detection
+const SUPERSEDED_REQUEST_PATTERNS = [
+  /\b(?:old|older|previous|former|original|superseded|historical|earlier|deprecated)\b/i,
+  /\bwhat\s+(?:was|were)\s+the\s+(?:old|original|previous|earlier)\b/i,
+  /\bshow\s+(?:me\s+)?(?:the\s+)?superseded\b/i,
+  /\b(?:compare|diff)\s+(?:with\s+)?(?:the\s+)?(?:old|previous|original)\b/i,
+]
+
+export function userRequestsSuperseded(message: string): boolean {
+  return SUPERSEDED_REQUEST_PATTERNS.some(p => p.test(message))
 }
 
 // ─── Snippet Extraction ────────────────────────────────────────────────────
@@ -538,19 +578,26 @@ const CHAT_SEARCH_LIMIT = 5
 
 export async function searchLibraryForPresence(params: LibrarySearchParams): Promise<LibrarySearchOutput> {
   const startTime = Date.now()
-  const { presenceId, query, reason, limit = CHAT_SEARCH_LIMIT, sessionId } = params
+  const { presenceId, query, reason, limit = CHAT_SEARCH_LIMIT, sessionId, includeSuperseded = false } = params
 
   const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
   const allowedScopes = getAllowedScopes(presenceId)
   const warnings: string[] = []
 
   // ─── 1. Fetch candidate items with presence scope filtering ────────
-  const { data: items, error: itemsErr } = await supabase
+  let itemQuery = supabase
     .from('library_items')
     .select('*')
     .in('presence_scope', allowedScopes)
     .order('created_at', { ascending: false })
     .limit(200)
+
+  // Phase 33L: exclude superseded by default
+  if (!includeSuperseded) {
+    itemQuery = itemQuery.neq('authority_status', 'superseded')
+  }
+
+  const { data: items, error: itemsErr } = await itemQuery
 
   if (itemsErr) {
     console.error(`[chat-library-search] Items query error:`, itemsErr.message)
