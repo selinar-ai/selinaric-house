@@ -197,17 +197,36 @@ export default function ChatInterface({
     e.target.value = ''
   }
 
+  /** Resolve a reliable MIME type from extension — browsers are unreliable for .md, .csv, etc. */
+  function resolveContentType(file: File): string {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    const map: Record<string, string> = {
+      txt: 'text/plain',
+      md: 'text/markdown',
+      csv: 'text/csv',
+      json: 'application/json',
+      pdf: 'application/pdf',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      webp: 'image/webp',
+    }
+    return map[ext ?? ''] || file.type || 'application/octet-stream'
+  }
+
   async function extractAttachment(file: File, localId: string) {
     try {
       // Upload to Supabase chat-attachments bucket (tmp/ prefix required by RLS)
       // Use crypto-random path — no user-visible filename in storage key
       const randomId = crypto.randomUUID()
       const storagePath = `tmp/${randomId}`
+      const contentType = resolveContentType(file)
 
       const formData = new FormData()
       formData.append('storagePaths', storagePath)
       formData.append('fileNames', file.name)
-      formData.append('mimeTypes', file.type || 'application/octet-stream')
+      formData.append('mimeTypes', contentType)
       formData.append('fileSizes', String(file.size))
 
       // First upload file to staging bucket
@@ -217,23 +236,35 @@ export default function ChatInterface({
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       )
 
+      // upsert: false — we only have an INSERT policy (no UPDATE)
+      // contentType must match bucket allowed_mime_types
       const { error: uploadErr } = await supabase.storage
         .from('chat-attachments')
-        .upload(storagePath, file, { upsert: true })
+        .upload(storagePath, file, { contentType })
 
       if (uploadErr) {
+        // Classify the upload error for clearer UI feedback
+        const msg = uploadErr.message ?? ''
+        const reason = msg.includes('mime')  || msg.includes('type')
+          ? `MIME type not allowed: ${contentType}`
+          : msg.includes('size') || msg.includes('limit')
+          ? 'File too large for staging bucket'
+          : msg.includes('policy') || msg.includes('security')
+          ? 'Upload denied by storage policy'
+          : `Upload failed: ${msg || 'unknown error'}`
+
         setPendingAttachments(prev => prev.map(pa =>
           pa.file === file ? {
             ...pa,
             extracting: false,
-            error: `Upload failed: ${uploadErr.message}`,
+            error: reason,
             context: {
               id: localId,
               fileName: file.name,
-              mimeType: file.type || 'application/octet-stream',
+              mimeType: contentType,
               sizeBytes: file.size,
               extractionStatus: 'failed' as const,
-              error: `Upload failed: ${uploadErr.message}`,
+              error: reason,
             },
           } : pa
         ))
@@ -771,17 +802,17 @@ export default function ChatInterface({
               }`}
             >
               <span className="truncate max-w-[140px]">{pa.file.name}</span>
-              <span className="text-[10px] text-text-muted">
+              <span className="text-[10px] text-text-muted" title={pa.error || pa.context?.error || undefined}>
                 {pa.extracting
                   ? 'extracting...'
                   : pa.context?.extractionStatus === 'extracted'
                   ? `${pa.context.charCount?.toLocaleString() ?? '?'} chars`
                   : pa.context?.extractionStatus === 'unsupported'
-                  ? 'unsupported'
+                  ? 'unsupported type'
                   : pa.context?.extractionStatus === 'too_large'
                   ? 'too large'
                   : pa.error
-                  ? 'failed'
+                  ? pa.error.length > 30 ? 'failed' : pa.error
                   : ''}
               </span>
               <button

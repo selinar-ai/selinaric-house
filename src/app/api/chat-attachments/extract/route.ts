@@ -28,13 +28,23 @@ function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) {
+    console.error('[chat-attachments] Missing env:', { hasUrl: !!url, hasKey: !!key })
     throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL')
   }
   return createClient(url, key)
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = getServiceSupabase()
+  let supabase
+  try {
+    supabase = getServiceSupabase()
+  } catch (err) {
+    console.error('[chat-attachments] Service role init failed:', err)
+    return NextResponse.json(
+      { error: 'Server configuration error: service role key missing.' },
+      { status: 500 },
+    )
+  }
 
   let formData: FormData
   try {
@@ -107,6 +117,7 @@ export async function POST(request: NextRequest) {
         .download(path)
 
       if (downloadErr || !downloadData) {
+        console.error(`[chat-attachments] Download failed for ${path}:`, downloadErr?.message)
         results.push({
           id,
           fileName,
@@ -114,7 +125,7 @@ export async function POST(request: NextRequest) {
           sizeBytes,
           extractionStatus: 'failed',
           charCount: 0,
-          error: downloadErr?.message ?? 'Failed to download staged file.',
+          error: `Staged file read failed: ${downloadErr?.message ?? 'no data returned'}`,
         })
         continue
       }
