@@ -69,16 +69,23 @@ export default function LibraryReferenceIndicator({ references }: Props) {
               <p className="font-body text-[10px] text-text-muted/70 italic">
                 {ref.retrievalReason}
               </p>
-              {ref.hasAttachmentText && (
-                <span className="font-body text-[10px] text-blue-400/50">
-                  Includes extracted attachment text
-                </span>
-              )}
-              {ref.attachmentUnavailable && (
-                <span className="font-body text-[10px] text-amber-400/60">
-                  Attachment exists but text not extracted
-                </span>
-              )}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                {ref.contextDepth === 'expanded' && (
+                  <span className="font-body text-[10px] text-blue-400/60">
+                    Expanded body context
+                  </span>
+                )}
+                {ref.hasAttachmentText && (
+                  <span className="font-body text-[10px] text-blue-400/50">
+                    Includes extracted attachment text
+                  </span>
+                )}
+                {ref.attachmentUnavailable && (
+                  <span className="font-body text-[10px] text-amber-400/60">
+                    Attachment exists but text not extracted
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>
