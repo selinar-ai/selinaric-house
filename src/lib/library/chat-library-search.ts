@@ -28,6 +28,56 @@ export interface LibrarySearchParams {
   includeSuperseded?: boolean
 }
 
+// ─── Phase 33L.5: Match Quality + Context Budget ─────────────────────────────
+
+export type LibraryMatchQuality = 'exact_title' | 'exact_phase' | 'strong_direct' | 'secondary'
+
+// Context budget constants (chars)
+const LIBRARY_PRIMARY_BODY_CHAR_LIMIT = 9000
+const LIBRARY_PRIMARY_ATTACHMENT_CHAR_LIMIT = 7000
+const LIBRARY_SECONDARY_SNIPPET_CHAR_LIMIT = 800
+const LIBRARY_TOTAL_CONTEXT_CHAR_LIMIT = 18000
+const LIBRARY_MAX_EXPANDED_ITEMS = 1
+
+/**
+ * Normalizes a title for reliable matching across formatting variants.
+ * "Sin_7: AI" / "Sin 7 AI" / "Sin-7: AI" → "sin 7 ai"
+ */
+export function normalizeLibraryTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/["""]/g, '')
+    .replace(/['']/g, '')
+    .replace(/[–—]/g, '-')
+    .replace(/_/g, ' ')
+    .replace(/[^a-z0-9:\-\s.]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Determines match quality for a scored result.
+ */
+function getMatchQuality(result: LibrarySearchResult, query: string): LibraryMatchQuality {
+  // Exact phase match
+  if (result.matchedFields.includes('phase_code') && result.score >= 120) {
+    return 'exact_phase'
+  }
+  // Exact title — normalized comparison
+  const normQuery = normalizeLibraryTitle(query)
+  const normTitle = normalizeLibraryTitle(result.title)
+  if (normTitle === normQuery || normTitle.includes(normQuery) || normQuery.includes(normTitle)) {
+    if (result.matchedFields.includes('title') && result.score >= 80) {
+      return 'exact_title'
+    }
+  }
+  // Strong direct — title contains query with high score
+  if (result.matchedFields.includes('title') && result.score >= 80) {
+    return 'strong_direct'
+  }
+  return 'secondary'
+}
+
 // Phase 33L.4: Structured attachment excerpt metadata
 export interface AttachmentExcerpt {
   fileName: string
@@ -55,8 +105,10 @@ export interface LibrarySearchResult {
   matchedFiles: LibraryMatchedFile[]
   snippets: LibrarySnippet[]
   retrievalReason: string
-  contentExcerpt?: string          // Phase 33L.2: richer excerpt for exact matches
+  contentExcerpt?: string          // Phase 33L.2/33L.5: body excerpt (expanded for primary)
   attachmentExcerpts?: AttachmentExcerpt[]  // Phase 33L.4: attachment metadata + excerpts
+  matchQuality?: LibraryMatchQuality       // Phase 33L.5
+  contextDepth?: 'expanded' | 'snippet'    // Phase 33L.5
 }
 
 export interface LibraryMatchedFile {
@@ -88,12 +140,15 @@ export interface LibraryReference {
   retrievalReason: string
   hasAttachmentText?: boolean       // Phase 33L.4
   attachmentUnavailable?: boolean   // Phase 33L.4: attachment exists but not extracted
+  contextDepth?: 'expanded' | 'snippet'  // Phase 33L.5
+  attachmentNames?: string[]        // Phase 33L.5
 }
 
 export function extractLibraryReferences(results: LibrarySearchResult[]): LibraryReference[] {
   return results.map(r => {
     const hasExtractedAttachment = r.attachmentExcerpts?.some(a => a.extractionStatus === 'extracted' && a.excerpt) ?? false
     const hasUnextractedAttachment = r.attachmentExcerpts?.some(a => a.extractionStatus !== 'extracted') ?? false
+    const attachmentNames = r.attachmentExcerpts?.map(a => a.fileName).filter(Boolean)
 
     return {
       id: r.itemId,
@@ -107,6 +162,8 @@ export function extractLibraryReferences(results: LibrarySearchResult[]): Librar
       retrievalReason: r.retrievalReason,
       ...(hasExtractedAttachment ? { hasAttachmentText: true } : {}),
       ...(hasUnextractedAttachment && !hasExtractedAttachment ? { attachmentUnavailable: true } : {}),
+      ...(r.contextDepth ? { contextDepth: r.contextDepth } : {}),
+      ...(attachmentNames && attachmentNames.length > 0 ? { attachmentNames } : {}),
     }
   })
 }
@@ -155,6 +212,8 @@ const EXPLICIT_TRIGGERS = [
   /\bfrom\s+(?:the\s+)?library\b/i,
   /\bin\s+(?:the\s+)?library\b/i,
   /\buse\s+the\s+library\b/i,
+  // Phase 33L.5: Explicit title-targeted queries
+  /\blibrary\s+item\s+titled\b/i,
 ]
 
 const AUTO_TRIGGER_PATTERNS = [
@@ -194,6 +253,14 @@ export function shouldSearchLibrary(message: string): { shouldSearch: boolean; i
  * For auto triggers, uses the full message or the key reference.
  */
 export function extractLibraryQuery(message: string): string {
+  // Phase 33L.5: Extract quoted title from "titled exactly" patterns
+  const quotedTitleMatch = message.match(
+    /(?:titled\s+(?:exactly\s+)?|item\s+titled\s+)[""“”]([^""“”]+)[""“”]/i
+  )
+  if (quotedTitleMatch && quotedTitleMatch[1].length >= 2) {
+    return quotedTitleMatch[1].trim().substring(0, 200)
+  }
+
   // Phase 33L.3: Strip presence addressing prefix ("Eli, ...", "Ari, ...")
   let cleaned = message.trim()
   cleaned = cleaned.replace(/^(?:eli|ari)\s*[,:]?\s*/i, '').trim()
@@ -384,15 +451,22 @@ function scoreItem(
     }
   }
 
-  // Title scoring
-  if (title.toLowerCase() === query.toLowerCase()) {
+  // Title scoring (Phase 33L.5: includes normalized comparison)
+  const normTitle = normalizeLibraryTitle(title)
+  const normQuery = normalizeLibraryTitle(query)
+  if (title.toLowerCase() === query.toLowerCase() || (normTitle === normQuery && normQuery.length >= 3)) {
     score += 100; matchedFields.push('title')
     snippets.push({ field: 'title', text: title })
     reasons.push('Exact title match')
-  } else if (containsQuery(title, query)) {
+  } else if (containsQuery(title, query) || (normQuery.length >= 3 && normTitle.includes(normQuery))) {
     score += 80; matchedFields.push('title')
     snippets.push({ field: 'title', text: extractSnippet(title, query) })
     reasons.push('Title contains query')
+  } else if (normQuery.length >= 3 && normQuery.includes(normTitle) && normTitle.length >= 3) {
+    // Query contains full title (e.g. query "Sin_7: AI article" contains title "Sin_7: AI")
+    score += 80; matchedFields.push('title')
+    snippets.push({ field: 'title', text: title })
+    reasons.push('Query contains full title')
   } else {
     const titleTerms = containsAnyTerm(title, terms)
     if (titleTerms.length > 0) {
@@ -489,8 +563,6 @@ function scoreItem(
 
 // ─── Context Block Builder ─────────────────────────────────────────────────
 
-const MAX_CONTEXT_CHARS = 6000 // Token-bounded context block
-
 function getLibraryAuthorityLabel(rawStatus: string, effective: string): string {
   // For Phase 33G: canonical_memory in Library context is deprecated/invalid
   if (rawStatus === 'canonical_memory') {
@@ -507,11 +579,127 @@ function getExtractionMethodLabel(method: string | null, fileType: string): stri
   return method ?? fileType
 }
 
+/**
+ * Phase 33L.5: Builds the expanded context entry for a primary match.
+ */
+function buildExpandedEntry(r: LibrarySearchResult): string {
+  const lines: string[] = []
+  lines.push(`## Primary Library match — expanded context used.`)
+  lines.push('')
+  lines.push(`Title: ${r.title}`)
+  lines.push(`Authority: ${getLibraryAuthorityLabel(r.rawAuthorityStatus, r.authorityStatus)}`)
+  lines.push(`Collection: ${r.collection}`)
+  lines.push(`Item type: ${r.itemType}`)
+  lines.push(`Presence scope: ${r.presenceScope}`)
+  if (r.phaseCode || r.phaseLabel) {
+    lines.push(`Phase: ${r.phaseCode ?? ''}${r.phaseLabel ? ' — ' + r.phaseLabel : ''}`)
+  }
+  lines.push(`Retrieval reason: ${r.retrievalReason}`)
+  lines.push(`Library item ID: ${r.itemId}`)
+  lines.push('')
+
+  // Item body
+  if (r.contentExcerpt && !r.contentExcerpt.startsWith('(')) {
+    lines.push(`### Item body`)
+    lines.push(r.contentExcerpt)
+    lines.push('')
+  } else if (r.contentExcerpt) {
+    lines.push(r.contentExcerpt)
+    lines.push('')
+  }
+
+  // Attachment text
+  if (r.attachmentExcerpts && r.attachmentExcerpts.length > 0) {
+    const extractedAtts = r.attachmentExcerpts.filter(a => a.extractionStatus === 'extracted' && a.excerpt)
+    const unavailableAtts = r.attachmentExcerpts.filter(a => a.extractionStatus !== 'extracted' || !a.excerpt)
+
+    if (extractedAtts.length > 0) {
+      lines.push(`### Extracted attachment text`)
+      for (const att of extractedAtts) {
+        const methodLabel = att.extractionMethod ? ` (${getExtractionMethodLabel(att.extractionMethod, att.fileType)})` : ''
+        lines.push(`Attachment: ${att.fileName}${methodLabel}`)
+        lines.push(`Extraction status: extracted`)
+        lines.push(att.excerpt!)
+        lines.push('')
+      }
+    }
+
+    if (unavailableAtts.length > 0) {
+      lines.push(`### Attachment notes`)
+      for (const att of unavailableAtts) {
+        if (att.extractionStatus === 'failed') {
+          lines.push(`- ${att.fileName}: Extraction failed — text unavailable.`)
+        } else if (att.extractionStatus === 'extracted' && !att.excerpt) {
+          lines.push(`- ${att.fileName}: Extracted but text too short to include.`)
+        } else {
+          lines.push(`- ${att.fileName}: Not yet extracted — text unavailable.`)
+        }
+      }
+      lines.push('')
+    }
+  }
+
+  if (r.authorityWarning) {
+    lines.push(`Authority warning: ${r.authorityWarning}`)
+    lines.push('')
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Phase 33L.5: Builds a compact context entry for secondary matches.
+ */
+function buildCompactEntry(r: LibrarySearchResult): string {
+  const lines: string[] = []
+  lines.push(`## Secondary Library match — compact snippet only.`)
+  lines.push('')
+  lines.push(`Title: ${r.title}`)
+  lines.push(`Collection: ${r.collection}`)
+  lines.push(`Item type: ${r.itemType}`)
+  lines.push(`Source label: ${getLibraryAuthorityLabel(r.rawAuthorityStatus, r.authorityStatus)}`)
+  if (r.phaseCode || r.phaseLabel) {
+    lines.push(`Phase: ${r.phaseCode ?? ''}${r.phaseLabel ? ' — ' + r.phaseLabel : ''}`)
+  }
+  lines.push(`Reason: ${r.retrievalReason}`)
+
+  if (r.contentExcerpt) {
+    lines.push(`Snippet: ${r.contentExcerpt}`)
+  } else {
+    const topSnippets = r.snippets.slice(0, 2)
+    for (const s of topSnippets) {
+      lines.push(`Snippet (${s.field}): ${s.text}`)
+    }
+  }
+
+  // Compact attachment notes (metadata only, no text)
+  if (r.attachmentExcerpts && r.attachmentExcerpts.length > 0) {
+    for (const att of r.attachmentExcerpts) {
+      if (att.extractionStatus === 'extracted') {
+        lines.push(`Attachment: ${att.fileName} (extracted, ${att.charCount ?? '?'} chars)`)
+      } else if (att.extractionStatus === 'failed') {
+        lines.push(`Attachment: ${att.fileName} (extraction failed)`)
+      } else {
+        lines.push(`Attachment: ${att.fileName} (not extracted)`)
+      }
+    }
+  }
+
+  if (r.authorityWarning) {
+    lines.push(`Authority warning: ${r.authorityWarning}`)
+  }
+
+  lines.push(`Library item ID: ${r.itemId}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
 export function buildLibraryContextBlock(query: string, results: LibrarySearchResult[]): string {
   if (results.length === 0) return ''
 
   const lines: string[] = [
-    'Library Context:',
+    '## Library Context',
+    '',
     'The following is open-book Library source material retrieved for this reply.',
     '',
     'Rules:',
@@ -529,84 +717,20 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
   ]
 
   let charCount = lines.join('\n').length
+  let expandedCount = 0
 
   for (const r of results) {
-    const entryLines: string[] = []
-    entryLines.push(`[${r.rank}] ${r.title}`)
-    entryLines.push(`  Collection: ${r.collection}`)
-    entryLines.push(`  Item type: ${r.itemType}`)
-    entryLines.push(`  Presence scope: ${r.presenceScope}`)
-    entryLines.push(`  Source label: ${getLibraryAuthorityLabel(r.rawAuthorityStatus, r.authorityStatus)}`)
+    const isExpanded = r.contextDepth === 'expanded' && expandedCount < LIBRARY_MAX_EXPANDED_ITEMS
+    const entryText = isExpanded ? buildExpandedEntry(r) : buildCompactEntry(r)
 
-    if (r.phaseCode || r.phaseLabel) {
-      entryLines.push(`  Phase: ${r.phaseCode ?? ''}${r.phaseLabel ? ' — ' + r.phaseLabel : ''}`)
-    }
-
-    entryLines.push(`  Matched: ${r.matchedFields.join(', ')}`)
-
-    // File matches
-    for (const mf of r.matchedFiles) {
-      const methodLabel = getExtractionMethodLabel(mf.extractionMethod, mf.fileType)
-      if (mf.fileType === 'video' || mf.extractionMethod === 'video_audio_transcript') {
-        entryLines.push(`  Matched audio transcript (from video): ${mf.fileName}`)
-      } else if (mf.extractionMethod === 'image_ocr') {
-        entryLines.push(`  Matched OCR text: ${mf.fileName}`)
-        if (mf.ocrQuality) entryLines.push(`  OCR quality: ${mf.ocrQuality}`)
-        if (mf.ocrQuality === 'noisy' || mf.needsReview) {
-          entryLines.push(`  Warning: OCR may be incomplete or unreliable.`)
-        }
-      } else if (mf.extractionMethod === 'audio_transcript') {
-        entryLines.push(`  Matched audio transcript: ${mf.fileName}`)
-      } else {
-        entryLines.push(`  Matched file (${methodLabel}): ${mf.fileName}`)
-      }
-    }
-
-    // Phase 33L.2/33L.4: Prefer contentExcerpt over snippets for exact matches
-    if (r.contentExcerpt) {
-      entryLines.push(`  Content:`)
-      entryLines.push(`  ${r.contentExcerpt}`)
-    } else {
-      const topSnippets = r.snippets.slice(0, 2)
-      for (const s of topSnippets) {
-        entryLines.push(`  Snippet (${s.field}): ${s.text}`)
-      }
-    }
-
-    // Phase 33L.4: Attachment excerpts
-    if (r.attachmentExcerpts && r.attachmentExcerpts.length > 0) {
-      for (const att of r.attachmentExcerpts) {
-        if (att.extractionStatus === 'extracted' && att.excerpt) {
-          entryLines.push(`  Attachment (${att.fileName}, ${att.fileType}):`)
-          entryLines.push(`  ${att.excerpt}`)
-        } else if (att.extractionStatus === 'extracted' && !att.excerpt) {
-          entryLines.push(`  Attachment (${att.fileName}): Extracted but text too short to include.`)
-        } else if (att.extractionStatus === 'failed') {
-          entryLines.push(`  Attachment (${att.fileName}): Extraction failed — text unavailable.`)
-        } else {
-          entryLines.push(`  Attachment (${att.fileName}): Not yet extracted — text unavailable.`)
-        }
-      }
-    }
-
-    // Authority warning
-    if (r.authorityWarning) {
-      entryLines.push(`  Authority warning: ${r.authorityWarning}`)
-    }
-
-    entryLines.push(`  Library item ID: ${r.itemId}`)
-    for (const mf of r.matchedFiles) {
-      entryLines.push(`  File ID: ${mf.fileId}`)
-    }
-    entryLines.push('')
-
-    const entryText = entryLines.join('\n')
-    if (charCount + entryText.length > MAX_CONTEXT_CHARS) {
-      lines.push('[Remaining results truncated for context size]')
+    if (charCount + entryText.length > LIBRARY_TOTAL_CONTEXT_CHAR_LIMIT) {
+      lines.push('[Remaining results truncated for context budget]')
       break
     }
+
     lines.push(entryText)
     charCount += entryText.length
+    if (isExpanded) expandedCount++
   }
 
   lines.push('Speech discipline:')
@@ -884,33 +1008,40 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
       }
     }
 
-    // Phase 33L.4: Extract richer content excerpt + attachment metadata for exact matches
+    // Phase 33L.5: Determine match quality and extract context at appropriate depth
+    const matchQuality = getMatchQuality(
+      { itemId: item.id as string, title: (item.title as string) ?? '', collection: '', itemType: '', presenceScope: '', authorityStatus: effectiveAuthority, rawAuthorityStatus: rawAuthority, phaseCode: (item.phase_code as string) ?? null, phaseLabel: null, score, rank: 0, matchedFields, matchedFiles, snippets, retrievalReason: matchReason },
+      query
+    )
+    const isPrimary = matchQuality === 'exact_title' || matchQuality === 'exact_phase' || matchQuality === 'strong_direct'
+
     let contentExcerpt: string | undefined
     let attachmentExcerpts: AttachmentExcerpt[] | undefined
-    const isExactPhaseHit = matchedFields.includes('phase_code') && score >= 120
-    const isExactTitleHit = matchedFields.includes('title') && score >= 80
+    let contextDepth: 'expanded' | 'snippet' = 'snippet'
 
-    if (isExactPhaseHit || isExactTitleHit) {
-      const maxLen = isExactPhaseHit ? 1000 : 800
+    if (isPrimary) {
+      // Phase 33L.5: Expanded context for primary matches
+      const bodyMaxLen = LIBRARY_PRIMARY_BODY_CHAR_LIMIT
+      const attMaxLen = LIBRARY_PRIMARY_ATTACHMENT_CHAR_LIMIT
       const contentText = (item.content_text as string) ?? ''
       const description = (item.description as string) ?? ''
 
-      // Phase 33L.4: Source order — content_text (Library UI field) first, then description
+      // Source order: content_text → description
       if (contentText.length > 20) {
-        contentExcerpt = contentText.length <= maxLen
+        contentExcerpt = contentText.length <= bodyMaxLen
           ? contentText
-          : contentText.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+          : contentText.slice(0, bodyMaxLen).replace(/\s\S*$/, '') + '…'
+        contextDepth = 'expanded'
       } else if (description.length > 20) {
-        contentExcerpt = description.length <= maxLen
+        contentExcerpt = description.length <= bodyMaxLen
           ? description
-          : description.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+          : description.slice(0, bodyMaxLen).replace(/\s\S*$/, '') + '…'
+        contextDepth = 'expanded'
       }
 
-      // Phase 33L.4: Build attachment excerpts for all files on this item
+      // Build attachment excerpts with expanded budget
       if (itemFiles.length > 0) {
-        const attMaxLen = contentExcerpt ? 600 : 1000 // more budget if no body content
         attachmentExcerpts = []
-
         for (const f of itemFiles) {
           const extractionStatus = (f.extraction_status as string) ?? 'not_started'
           const cleanedText = (f.cleaned_extracted_text as string) ?? ''
@@ -937,6 +1068,8 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
           })
         }
 
+        if (attachmentExcerpts.some(a => a.excerpt)) contextDepth = 'expanded'
+
         // If no body content and no extracted attachments, note unavailability
         if (!contentExcerpt && !attachmentExcerpts.some(a => a.excerpt)) {
           if (attachmentExcerpts.some(a => a.extractionStatus !== 'extracted')) {
@@ -947,6 +1080,33 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
         }
       } else if (!contentExcerpt) {
         contentExcerpt = '(Item found but no body content available in Library fields)'
+      }
+    } else if (matchedFields.includes('title') || matchedFields.includes('phase_code')) {
+      // Secondary with some relevance — compact excerpt
+      const maxLen = LIBRARY_SECONDARY_SNIPPET_CHAR_LIMIT
+      const contentText = (item.content_text as string) ?? ''
+      const description = (item.description as string) ?? ''
+
+      if (contentText.length > 20) {
+        contentExcerpt = contentText.length <= maxLen
+          ? contentText
+          : contentText.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+      } else if (description.length > 20) {
+        contentExcerpt = description.length <= maxLen
+          ? description
+          : description.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+      }
+
+      // Compact attachment metadata only (no text) for secondary
+      if (itemFiles.length > 0) {
+        attachmentExcerpts = itemFiles.map(f => ({
+          fileName: (f.file_name as string) ?? 'unknown',
+          fileType: (f.file_type as string) ?? 'unknown',
+          extractionStatus: (f.extraction_status as string) ?? 'not_started',
+          extractionMethod: (f.extraction_method as string) ?? null,
+          excerpt: null,
+          charCount: (f.extraction_char_count as number) ?? null,
+        }))
       }
     }
 
@@ -969,6 +1129,8 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
       retrievalReason: matchReason,
       contentExcerpt,
       attachmentExcerpts,
+      matchQuality,
+      contextDepth,
     })
   }
 
