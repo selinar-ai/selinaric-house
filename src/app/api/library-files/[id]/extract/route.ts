@@ -1,4 +1,5 @@
 // Phase 33D + 33E — Document & Media Text Extraction API
+// Phase 34A — Refactored to use shared extraction utilities.
 //
 // POST /api/library-files/[id]/extract
 //
@@ -11,9 +12,14 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  extractFromDocx,
+  extractFromPdf,
+  extractFromPlainText,
+  type ExtractionResult,
+} from '@/lib/files/extract-text'
 
 const STORAGE_BUCKET = 'library-files'
-const MAX_EXTRACTED_CHARS = 200_000
 
 const JOB_TYPE_MAP: Record<string, string> = {
   image: 'image_ocr',
@@ -26,96 +32,6 @@ function getSupabase() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   )
-}
-
-type ExtractionResult = {
-  status: 'extracted' | 'empty' | 'failed' | 'unsupported'
-  text: string | null
-  error: string | null
-  charCount: number
-  truncated: boolean
-}
-
-async function extractFromDocx(buffer: Buffer): Promise<ExtractionResult> {
-  try {
-    const mammoth = await import('mammoth')
-    const result = await mammoth.extractRawText({ buffer })
-    const text = result.value?.trim() ?? ''
-    if (!text) {
-      return { status: 'empty', text: null, error: null, charCount: 0, truncated: false }
-    }
-    const charCount = text.length
-    const truncated = charCount > MAX_EXTRACTED_CHARS
-    return {
-      status: 'extracted',
-      text: truncated ? text.substring(0, MAX_EXTRACTED_CHARS) : text,
-      error: null,
-      charCount,
-      truncated,
-    }
-  } catch (err) {
-    return {
-      status: 'failed',
-      text: null,
-      error: err instanceof Error ? err.message : 'DOCX extraction failed',
-      charCount: 0,
-      truncated: false,
-    }
-  }
-}
-
-async function extractFromPdf(buffer: Buffer): Promise<ExtractionResult> {
-  try {
-    const pdfParse = (await import('pdf-parse')).default
-    const result = await pdfParse(buffer)
-    const text = result.text?.trim() ?? ''
-    if (!text) {
-      return { status: 'empty', text: null, error: null, charCount: 0, truncated: false }
-    }
-    const charCount = text.length
-    const truncated = charCount > MAX_EXTRACTED_CHARS
-    return {
-      status: 'extracted',
-      text: truncated ? text.substring(0, MAX_EXTRACTED_CHARS) : text,
-      error: null,
-      charCount,
-      truncated,
-    }
-  } catch (err) {
-    return {
-      status: 'failed',
-      text: null,
-      error: err instanceof Error ? err.message : 'PDF extraction failed',
-      charCount: 0,
-      truncated: false,
-    }
-  }
-}
-
-function extractFromMarkdown(buffer: Buffer): ExtractionResult {
-  try {
-    const text = buffer.toString('utf-8').trim()
-    if (!text) {
-      return { status: 'empty', text: null, error: null, charCount: 0, truncated: false }
-    }
-    const charCount = text.length
-    const truncated = charCount > MAX_EXTRACTED_CHARS
-    return {
-      status: 'extracted',
-      text: truncated ? text.substring(0, MAX_EXTRACTED_CHARS) : text,
-      error: null,
-      charCount,
-      truncated,
-    }
-  } catch (err) {
-    return {
-      status: 'failed',
-      text: null,
-      error: err instanceof Error ? err.message : 'Markdown extraction failed',
-      charCount: 0,
-      truncated: false,
-    }
-  }
 }
 
 export async function POST(
@@ -264,7 +180,7 @@ export async function POST(
   // 6. Convert to Buffer
   const buffer = Buffer.from(await downloadData.arrayBuffer())
 
-  // 7. Extract text based on file type
+  // 7. Extract text based on file type (using shared utilities)
   let result: ExtractionResult
 
   switch (fileType) {
@@ -275,10 +191,10 @@ export async function POST(
       result = await extractFromPdf(buffer)
       break
     case 'markdown':
-      result = extractFromMarkdown(buffer)
+      result = extractFromPlainText(buffer, 'markdown_text')
       break
     default:
-      result = { status: 'unsupported', text: null, error: null, charCount: 0, truncated: false }
+      result = { status: 'unsupported', text: null, error: null, charCount: 0, truncated: false, method: 'none' }
   }
 
   // 8. Save extraction result

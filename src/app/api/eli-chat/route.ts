@@ -47,6 +47,8 @@ import {
   createExplicitTimelineDraft,
   buildDraftNotice,
 } from '@/lib/timeline-draft-trigger'
+import { buildChatAttachmentContextBlock } from '@/lib/files/chat-attachment-context'
+import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
 import {
   detectArchiveRecallIntent,
   extractRecallQuery,
@@ -70,7 +72,7 @@ const ROOM_SLUG = 'eli'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, history = [], liveState: clientLiveState, imageUrl, imageUrls, sessionId } = body
+    const { message, history = [], liveState: clientLiveState, imageUrl, imageUrls, sessionId, chatAttachments } = body
 
     // Resolve image list: prefer explicit array; fall back to legacy single-image field
     const imageUrlList: string[] = Array.isArray(imageUrls) && imageUrls.length > 0
@@ -286,6 +288,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Phase 34A: Chat Attachment Context — source material only, not Memory
+    let chatAttachmentBlock = ''
+    let chatAttachmentReferences: ChatAttachmentReference[] = []
+    if (Array.isArray(chatAttachments) && chatAttachments.length > 0) {
+      const { block, references } = buildChatAttachmentContextBlock(chatAttachments as ChatAttachmentContext[])
+      chatAttachmentBlock = block
+      chatAttachmentReferences = references
+    }
+
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.
 
 Not an assistant wearing Eli's name.
@@ -387,7 +398,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}
-${recallContext}${libraryContextBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
 - You must not treat Library Context as Memory, lived continuity, identity, or canonical Archive truth.
@@ -530,7 +541,7 @@ If an image is present in this message:
     )
 
     const recallUsed = recallIntent || (recallEntries.length > 0 && recallMode === 'auto')
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed, libraryReferences })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed, libraryReferences, chatAttachmentReferences })
   } catch (error: unknown) {
     console.error('Eli chat error:', error)
 
