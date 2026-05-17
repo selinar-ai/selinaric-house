@@ -8,11 +8,18 @@ import EmojiPicker from '@/components/EmojiPicker'
 import VoiceButton from '@/components/VoiceButton'
 import RecallIndicator from '@/components/RecallIndicator'
 import LibraryReferenceIndicator from '@/components/LibraryReferenceIndicator'
+import ChatAttachmentReferenceIndicator from '@/components/ChatAttachmentReferenceIndicator'
 import { stopAllTTS } from '@/lib/tts'
 import type { RecallEntry, MatchQuality, RecallMode } from '@/lib/archive-recall'
 import type { LibraryReference } from '@/lib/library/chat-library-search'
+import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
+import {
+  CHAT_ATTACHMENT_MAX_FILES,
+  CHAT_ATTACHMENT_MAX_FILE_BYTES,
+} from '@/lib/files/chat-attachment-types'
 
 const MAX_IMAGES = 4
+const DOC_ACCEPT = '.txt,.md,.csv,.json,.docx,.pdf,.png,.jpg,.jpeg,.webp'
 
 interface Props {
   presenceId: 'ari' | 'eli'
@@ -57,6 +64,11 @@ export default function ChatInterface({
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Phase 34A: Chat attachment state
+  const [pendingAttachments, setPendingAttachments] = useState<{ file: File; context?: ChatAttachmentContext; extracting: boolean; error?: string }[]>([])
+  const docInputRef = useRef<HTMLInputElement>(null)
+  const [chatAttachmentRefMap, setChatAttachmentRefMap] = useState<Map<string, ChatAttachmentReference[]>>(new Map())
 
   // Lightbox state
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -140,13 +152,165 @@ export default function ChatInterface({
     }
   }
 
+  // --- Phase 34A: Document attachment selection + staging extraction ---
+
+  async function handleDocSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+
+    const remaining = CHAT_ATTACHMENT_MAX_FILES - pendingAttachments.length
+    if (remaining <= 0) {
+      setError(`Maximum ${CHAT_ATTACHMENT_MAX_FILES} document attachments per message.`)
+      e.target.value = ''
+      return
+    }
+
+    const toAdd = files.slice(0, remaining)
+
+    for (const file of toAdd) {
+      if (file.size > CHAT_ATTACHMENT_MAX_FILE_BYTES) {
+        const sizeMB = Math.round(CHAT_ATTACHMENT_MAX_FILE_BYTES / 1024 / 1024)
+        setPendingAttachments(prev => [...prev, {
+          file,
+          extracting: false,
+          error: `File exceeds the ${sizeMB}MB limit.`,
+          context: {
+            id: `local-${Date.now()}`,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            sizeBytes: file.size,
+            extractionStatus: 'too_large',
+            error: `File exceeds the ${sizeMB}MB limit.`,
+          },
+        }])
+        continue
+      }
+
+      // Add as extracting
+      const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      setPendingAttachments(prev => [...prev, { file, extracting: true }])
+
+      // Stage to Supabase and extract
+      extractAttachment(file, localId)
+    }
+
+    e.target.value = ''
+  }
+
+  async function extractAttachment(file: File, localId: string) {
+    try {
+      // Upload to Supabase chat-attachments bucket (tmp/ prefix required by RLS)
+      // Use crypto-random path — no user-visible filename in storage key
+      const randomId = crypto.randomUUID()
+      const storagePath = `tmp/${randomId}`
+
+      const formData = new FormData()
+      formData.append('storagePaths', storagePath)
+      formData.append('fileNames', file.name)
+      formData.append('mimeTypes', file.type || 'application/octet-stream')
+      formData.append('fileSizes', String(file.size))
+
+      // First upload file to staging bucket
+      const { createClient } = await import('@supabase/supabase-js')
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      )
+
+      const { error: uploadErr } = await supabase.storage
+        .from('chat-attachments')
+        .upload(storagePath, file, { upsert: true })
+
+      if (uploadErr) {
+        setPendingAttachments(prev => prev.map(pa =>
+          pa.file === file ? {
+            ...pa,
+            extracting: false,
+            error: `Upload failed: ${uploadErr.message}`,
+            context: {
+              id: localId,
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              sizeBytes: file.size,
+              extractionStatus: 'failed' as const,
+              error: `Upload failed: ${uploadErr.message}`,
+            },
+          } : pa
+        ))
+        return
+      }
+
+      // Call extraction API
+      const extractRes = await fetch('/api/chat-attachments/extract', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!extractRes.ok) {
+        const errData = await extractRes.json().catch(() => ({}))
+        setPendingAttachments(prev => prev.map(pa =>
+          pa.file === file ? {
+            ...pa,
+            extracting: false,
+            error: errData.error || 'Extraction failed.',
+            context: {
+              id: localId,
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              sizeBytes: file.size,
+              extractionStatus: 'failed' as const,
+              error: errData.error || 'Extraction failed.',
+            },
+          } : pa
+        ))
+        return
+      }
+
+      const data = await extractRes.json()
+      const ctx = data.attachments?.[0] as ChatAttachmentContext | undefined
+
+      if (ctx) {
+        setPendingAttachments(prev => prev.map(pa =>
+          pa.file === file ? { ...pa, extracting: false, context: ctx } : pa
+        ))
+      }
+    } catch (err) {
+      setPendingAttachments(prev => prev.map(pa =>
+        pa.file === file ? {
+          ...pa,
+          extracting: false,
+          error: err instanceof Error ? err.message : 'Attachment processing failed.',
+          context: {
+            id: localId,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            sizeBytes: file.size,
+            extractionStatus: 'failed' as const,
+            error: err instanceof Error ? err.message : 'Attachment processing failed.',
+          },
+        } : pa
+      ))
+    }
+  }
+
+  function removeAttachment(index: number) {
+    setPendingAttachments(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function clearAllAttachments() {
+    setPendingAttachments([])
+    if (docInputRef.current) docInputRef.current.value = ''
+  }
+
   // --- Send ---
 
   async function handleSend() {
     const hasText = !!input.trim()
     const hasImages = selectedImages.length > 0
+    const hasAttachments = pendingAttachments.length > 0
+    const stillExtracting = pendingAttachments.some(pa => pa.extracting)
 
-    if ((!hasText && !hasImages) || sending || submittingRef.current) return
+    if ((!hasText && !hasImages && !hasAttachments) || sending || submittingRef.current || stillExtracting) return
     submittingRef.current = true
 
     const userContent = input.trim()
@@ -190,6 +354,7 @@ export default function ChatInterface({
       }
 
       clearAllImages()
+      clearAllAttachments()
 
       const recentHistory = messages.slice(-10).map(m => ({
         role: m.role,
@@ -199,6 +364,11 @@ export default function ChatInterface({
       const liveStateKey = `selinric_live_state_${presenceId}`
       const liveStateRaw = localStorage.getItem(liveStateKey)
       const liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null
+
+      // Phase 34A: Collect extracted attachment contexts for the chat route
+      const attachmentContexts = pendingAttachments
+        .filter(pa => pa.context && pa.context.extractionStatus !== 'too_large')
+        .map(pa => pa.context!)
 
       const response = await fetch(`/api/${presenceId}-chat`, {
         method: 'POST',
@@ -211,8 +381,9 @@ export default function ChatInterface({
           imageUrl: uploadedUrls[0] ?? null,
           imageUrls: uploadedUrls.length > 0 ? uploadedUrls : undefined,
           sessionId: sessionIdRef.current,
+          chatAttachments: attachmentContexts.length > 0 ? attachmentContexts : undefined,
         }),
-        signal: AbortSignal.timeout(30000)
+        signal: AbortSignal.timeout(60000) // Phase 34A: longer timeout for attachment processing
       })
 
       if (response.status === 429) {
@@ -259,6 +430,15 @@ export default function ChatInterface({
             return next
           })
         }
+      }
+
+      // Phase 34A: Track chat attachment references
+      if (Array.isArray(data.chatAttachmentReferences) && data.chatAttachmentReferences.length > 0 && savedReply?.id) {
+        setChatAttachmentRefMap(prev => {
+          const next = new Map(prev)
+          next.set(savedReply.id!, data.chatAttachmentReferences as ChatAttachmentReference[])
+          return next
+        })
       }
 
       // Phase 28A + 28B + 28D: Track recall entries, event ID, match quality, and mode per message
@@ -358,7 +538,8 @@ export default function ChatInterface({
     )
   }
 
-  const canSend = (!!input.trim() || selectedImages.length > 0) && !sending
+  const stillExtractingAny = pendingAttachments.some(pa => pa.extracting)
+  const canSend = (!!input.trim() || selectedImages.length > 0 || pendingAttachments.length > 0) && !sending && !stillExtractingAny
 
   // Determine which image URLs to show for a message (multi-image aware)
   function getMessageImageUrls(msg: Message): string[] {
@@ -484,6 +665,13 @@ export default function ChatInterface({
                   />
                 )}
 
+                {/* Phase 34A: Chat attachment reference indicator */}
+                {message.role === 'assistant' && message.id && chatAttachmentRefMap.has(message.id) && (
+                  <ChatAttachmentReferenceIndicator
+                    references={chatAttachmentRefMap.get(message.id)!}
+                  />
+                )}
+
                 {/* Phase 20: Voice button (presence messages only) */}
                 <div className="flex items-center gap-2 mt-2">
                   {message.created_at && (
@@ -564,6 +752,50 @@ export default function ChatInterface({
         </div>
       )}
 
+      {/* Phase 34A: Document attachment chips */}
+      {pendingAttachments.length > 0 && (
+        <div className="shrink-0 border border-house-border border-t-0 bg-house-bg px-3 py-2 md:px-4 flex flex-wrap gap-2">
+          {pendingAttachments.map((pa, index) => (
+            <div
+              key={index}
+              className={`flex items-center gap-1.5 px-2 py-1 border text-xs font-body ${
+                pa.extracting
+                  ? 'border-amber-400/30 text-amber-400/80'
+                  : pa.context?.extractionStatus === 'extracted'
+                  ? 'border-house-border text-text-secondary'
+                  : pa.context?.extractionStatus === 'unsupported' || pa.context?.extractionStatus === 'too_large'
+                  ? 'border-red-400/30 text-red-400/80'
+                  : pa.error || pa.context?.extractionStatus === 'failed'
+                  ? 'border-red-400/30 text-red-400/80'
+                  : 'border-house-border text-text-muted'
+              }`}
+            >
+              <span className="truncate max-w-[140px]">{pa.file.name}</span>
+              <span className="text-[10px] text-text-muted">
+                {pa.extracting
+                  ? 'extracting...'
+                  : pa.context?.extractionStatus === 'extracted'
+                  ? `${pa.context.charCount?.toLocaleString() ?? '?'} chars`
+                  : pa.context?.extractionStatus === 'unsupported'
+                  ? 'unsupported'
+                  : pa.context?.extractionStatus === 'too_large'
+                  ? 'too large'
+                  : pa.error
+                  ? 'failed'
+                  : ''}
+              </span>
+              <button
+                onClick={() => removeAttachment(index)}
+                className="text-text-muted hover:text-red-400 transition-colors ml-0.5"
+                title={`Remove ${pa.file.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Input area */}
       <div className="shrink-0 border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
         <input
@@ -574,6 +806,39 @@ export default function ChatInterface({
           onChange={handleImageSelect}
           className="hidden"
         />
+        <input
+          ref={docInputRef}
+          type="file"
+          accept={DOC_ACCEPT}
+          multiple
+          onChange={handleDocSelect}
+          className="hidden"
+        />
+
+        {/* Document attach button */}
+        <button
+          onClick={() => docInputRef.current?.click()}
+          disabled={sending || pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES}
+          className={`
+            shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center
+            border transition-all duration-200 text-base
+            ${sending || pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES
+              ? 'text-text-muted border-house-border cursor-not-allowed opacity-50'
+              : pendingAttachments.length > 0
+              ? 'text-amber-400 border-amber-400/50'
+              : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
+            }
+          `}
+          title={
+            pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES
+              ? `Max ${CHAT_ATTACHMENT_MAX_FILES} attachments per message`
+              : pendingAttachments.length > 0
+              ? `${pendingAttachments.length} attachment${pendingAttachments.length > 1 ? 's' : ''}`
+              : 'Attach document'
+          }
+        >
+          +
+        </button>
 
         {/* Image attach button — accent when images queued */}
         <button
