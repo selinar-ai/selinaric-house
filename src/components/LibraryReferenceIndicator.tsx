@@ -69,6 +69,16 @@ export default function LibraryReferenceIndicator({ references }: Props) {
               <p className="font-body text-[10px] text-text-muted/70 italic">
                 {ref.retrievalReason}
               </p>
+              {ref.hasAttachmentText && (
+                <span className="font-body text-[10px] text-blue-400/50">
+                  Includes extracted attachment text
+                </span>
+              )}
+              {ref.attachmentUnavailable && (
+                <span className="font-body text-[10px] text-amber-400/60">
+                  Attachment exists but text not extracted
+                </span>
+              )}
             </div>
           ))}
         </div>

@@ -28,6 +28,16 @@ export interface LibrarySearchParams {
   includeSuperseded?: boolean
 }
 
+// Phase 33L.4: Structured attachment excerpt metadata
+export interface AttachmentExcerpt {
+  fileName: string
+  fileType: string
+  extractionStatus: string         // 'extracted' | 'not_started' | 'queued' | 'processing' | 'failed'
+  extractionMethod: string | null
+  excerpt: string | null           // null if not extracted
+  charCount: number | null
+}
+
 export interface LibrarySearchResult {
   itemId: string
   title: string
@@ -46,6 +56,7 @@ export interface LibrarySearchResult {
   snippets: LibrarySnippet[]
   retrievalReason: string
   contentExcerpt?: string          // Phase 33L.2: richer excerpt for exact matches
+  attachmentExcerpts?: AttachmentExcerpt[]  // Phase 33L.4: attachment metadata + excerpts
 }
 
 export interface LibraryMatchedFile {
@@ -75,20 +86,29 @@ export interface LibraryReference {
   phaseCode: string | null
   phaseLabel: string | null
   retrievalReason: string
+  hasAttachmentText?: boolean       // Phase 33L.4
+  attachmentUnavailable?: boolean   // Phase 33L.4: attachment exists but not extracted
 }
 
 export function extractLibraryReferences(results: LibrarySearchResult[]): LibraryReference[] {
-  return results.map(r => ({
-    id: r.itemId,
-    title: r.title,
-    effectiveAuthorityStatus: r.authorityStatus,
-    collection: r.collection,
-    itemType: r.itemType,
-    presenceScope: r.presenceScope,
-    phaseCode: r.phaseCode,
-    phaseLabel: r.phaseLabel,
-    retrievalReason: r.retrievalReason,
-  }))
+  return results.map(r => {
+    const hasExtractedAttachment = r.attachmentExcerpts?.some(a => a.extractionStatus === 'extracted' && a.excerpt) ?? false
+    const hasUnextractedAttachment = r.attachmentExcerpts?.some(a => a.extractionStatus !== 'extracted') ?? false
+
+    return {
+      id: r.itemId,
+      title: r.title,
+      effectiveAuthorityStatus: r.authorityStatus,
+      collection: r.collection,
+      itemType: r.itemType,
+      presenceScope: r.presenceScope,
+      phaseCode: r.phaseCode,
+      phaseLabel: r.phaseLabel,
+      retrievalReason: r.retrievalReason,
+      ...(hasExtractedAttachment ? { hasAttachmentText: true } : {}),
+      ...(hasUnextractedAttachment && !hasExtractedAttachment ? { attachmentUnavailable: true } : {}),
+    }
+  })
 }
 
 export type LibrarySearchStatusReason =
@@ -542,7 +562,7 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
       }
     }
 
-    // Phase 33L.2: Prefer contentExcerpt over snippets for exact matches
+    // Phase 33L.2/33L.4: Prefer contentExcerpt over snippets for exact matches
     if (r.contentExcerpt) {
       entryLines.push(`  Content:`)
       entryLines.push(`  ${r.contentExcerpt}`)
@@ -550,6 +570,22 @@ export function buildLibraryContextBlock(query: string, results: LibrarySearchRe
       const topSnippets = r.snippets.slice(0, 2)
       for (const s of topSnippets) {
         entryLines.push(`  Snippet (${s.field}): ${s.text}`)
+      }
+    }
+
+    // Phase 33L.4: Attachment excerpts
+    if (r.attachmentExcerpts && r.attachmentExcerpts.length > 0) {
+      for (const att of r.attachmentExcerpts) {
+        if (att.extractionStatus === 'extracted' && att.excerpt) {
+          entryLines.push(`  Attachment (${att.fileName}, ${att.fileType}):`)
+          entryLines.push(`  ${att.excerpt}`)
+        } else if (att.extractionStatus === 'extracted' && !att.excerpt) {
+          entryLines.push(`  Attachment (${att.fileName}): Extracted but text too short to include.`)
+        } else if (att.extractionStatus === 'failed') {
+          entryLines.push(`  Attachment (${att.fileName}): Extraction failed — text unavailable.`)
+        } else {
+          entryLines.push(`  Attachment (${att.fileName}): Not yet extracted — text unavailable.`)
+        }
       }
     }
 
@@ -848,39 +884,69 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
       }
     }
 
-    // Phase 33L.2: Extract richer content excerpt for exact phase/title matches
+    // Phase 33L.4: Extract richer content excerpt + attachment metadata for exact matches
     let contentExcerpt: string | undefined
+    let attachmentExcerpts: AttachmentExcerpt[] | undefined
     const isExactPhaseHit = matchedFields.includes('phase_code') && score >= 120
     const isExactTitleHit = matchedFields.includes('title') && score >= 80
 
     if (isExactPhaseHit || isExactTitleHit) {
-      const maxLen = isExactPhaseHit ? 1000 : 400
-      const description = (item.description as string) ?? ''
+      const maxLen = isExactPhaseHit ? 1000 : 800
       const contentText = (item.content_text as string) ?? ''
+      const description = (item.description as string) ?? ''
 
-      if (description.length > 20) {
-        contentExcerpt = description.length <= maxLen
-          ? description
-          : description.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
-      } else if (contentText.length > 20) {
+      // Phase 33L.4: Source order — content_text (Library UI field) first, then description
+      if (contentText.length > 20) {
         contentExcerpt = contentText.length <= maxLen
           ? contentText
           : contentText.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
-      } else {
-        // Check attached file extracted text as fallback
-        const firstFileWithText = itemFiles.find(f =>
-          ((f.cleaned_extracted_text as string) ?? '').length > 20
-          || ((f.extracted_text as string) ?? '').length > 20
-        )
-        if (firstFileWithText) {
-          const fileText = ((firstFileWithText.cleaned_extracted_text as string) ?? '')
-            || ((firstFileWithText.extracted_text as string) ?? '')
-          contentExcerpt = fileText.length <= maxLen
-            ? fileText
-            : fileText.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
-        } else {
-          contentExcerpt = '(Item found but no body content available in Library fields)'
+      } else if (description.length > 20) {
+        contentExcerpt = description.length <= maxLen
+          ? description
+          : description.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+      }
+
+      // Phase 33L.4: Build attachment excerpts for all files on this item
+      if (itemFiles.length > 0) {
+        const attMaxLen = contentExcerpt ? 600 : 1000 // more budget if no body content
+        attachmentExcerpts = []
+
+        for (const f of itemFiles) {
+          const extractionStatus = (f.extraction_status as string) ?? 'not_started'
+          const cleanedText = (f.cleaned_extracted_text as string) ?? ''
+          const extractedText = (f.extracted_text as string) ?? ''
+          const charCount = (f.extraction_char_count as number) ?? null
+
+          let excerpt: string | null = null
+          if (extractionStatus === 'extracted') {
+            const bestText = cleanedText.length > 20 ? cleanedText : extractedText
+            if (bestText.length > 20) {
+              excerpt = bestText.length <= attMaxLen
+                ? bestText
+                : bestText.slice(0, attMaxLen).replace(/\s\S*$/, '') + '…'
+            }
+          }
+
+          attachmentExcerpts.push({
+            fileName: (f.file_name as string) ?? 'unknown',
+            fileType: (f.file_type as string) ?? 'unknown',
+            extractionStatus,
+            extractionMethod: (f.extraction_method as string) ?? null,
+            excerpt,
+            charCount,
+          })
         }
+
+        // If no body content and no extracted attachments, note unavailability
+        if (!contentExcerpt && !attachmentExcerpts.some(a => a.excerpt)) {
+          if (attachmentExcerpts.some(a => a.extractionStatus !== 'extracted')) {
+            contentExcerpt = '(Item found. Attachment exists but text has not been extracted.)'
+          } else {
+            contentExcerpt = '(Item found but no body content available in Library fields)'
+          }
+        }
+      } else if (!contentExcerpt) {
+        contentExcerpt = '(Item found but no body content available in Library fields)'
       }
     }
 
@@ -902,6 +968,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
       snippets,
       retrievalReason: matchReason,
       contentExcerpt,
+      attachmentExcerpts,
     })
   }
 
