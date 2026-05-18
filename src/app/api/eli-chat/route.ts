@@ -48,6 +48,7 @@ import {
   buildDraftNotice,
 } from '@/lib/timeline-draft-trigger'
 import { buildChatAttachmentContextBlock } from '@/lib/files/chat-attachment-context'
+import { getRecentContinuityForPrompt, maybeSyncRecentContinuity } from '@/lib/recent-continuity'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
 import {
   detectArchiveRecallIntent,
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
     const memorySummary = await loadRoomMemory(ROOM_SLUG)
 
     const memoryBlock = memorySummary
-      ? `\n## What you remember from earlier in this conversation:\n${memorySummary}\n`
+      ? `\n## Earlier conversation summary (not Memory)\nThis is a rolling summary of earlier messages in this room. It is NOT Memory — do not say "I remember" based on this. It exists only to help you track conversation flow.\n${memorySummary}\n`
       : ''
 
     // Phase 17 (refined): Continuity — read prior turn, detect reference, check topic shift
@@ -297,6 +298,13 @@ export async function POST(request: NextRequest) {
       chatAttachmentReferences = references
     }
 
+    // Phase 35B: Recent Continuity — lazy-sync + prompt injection
+    // Sync runs first (generates at most 1 missing summary), then fetch for prompt
+    await maybeSyncRecentContinuity('eli', apiKey).catch(err =>
+      console.error('[eli-chat] Recent continuity sync error:', err)
+    )
+    const recentContinuityBlock = await getRecentContinuityForPrompt('eli')
+
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.
 
 Not an assistant wearing Eli's name.
@@ -397,7 +405,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 
 ## Temporal context:
 Current date and time: ${currentDatetime}
-${temporalContext}
+${temporalContext}${recentContinuityBlock}
 ${recallContext}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
