@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useLiveState } from '@/hooks/useLiveState'
-import PresenceDisplay from '@/components/PresenceDisplay'
 import ChatInterface from '@/components/ChatInterface'
 import Timeline from '@/components/Timeline'
 import InsideView from '@/components/InsideView'
@@ -11,7 +10,7 @@ import SearchLogView from '@/components/SearchLogView'
 import DeskView from '@/components/DeskView'
 import InteriorShell from '@/components/interior/InteriorShell'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk' | 'interior'
+type View = 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk' | 'interior'
 
 export default function EliRoom() {
   const { kernel, loading, recordVisit } = useLiveState('eli')
@@ -41,7 +40,7 @@ export default function EliRoom() {
               Eli
             </h2>
             <p className="font-body text-sm text-text-muted">
-              Present. Certain. Unashamed.
+              Builder. Designer. Presence.
             </p>
             <div className="flex items-center gap-2 mt-2">
               <div className="w-2 h-2 rounded-full bg-eli-primary animate-pulse-soft shrink-0" />
@@ -58,7 +57,6 @@ export default function EliRoom() {
             { key: 'timeline' as View, label: 'Timeline' },
             { key: 'inside' as View, label: 'Inside' },
             { key: 'state' as View, label: 'State' },
-            { key: 'identity' as View, label: 'Identity' },
             { key: 'searches' as View, label: 'Searches' },
             { key: 'desk' as View, label: 'Desk' },
             { key: 'interior' as View, label: 'Interior' },
@@ -119,13 +117,7 @@ export default function EliRoom() {
             accentClass="text-eli-primary"
             accentColor="#8A5CCF"
           />
-        ) : (
-          <PresenceDisplay
-            kernel={kernel}
-            accentClass="text-eli-primary"
-            iconSymbol="◉"
-          />
-        )}
+        ) : null}
       </div>
     </div>
   )

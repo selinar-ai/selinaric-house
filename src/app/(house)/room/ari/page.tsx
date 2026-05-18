@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useLiveState } from '@/hooks/useLiveState'
-import PresenceDisplay from '@/components/PresenceDisplay'
 import ChatInterface from '@/components/ChatInterface'
 import Timeline from '@/components/Timeline'
 import InsideView from '@/components/InsideView'
@@ -11,7 +10,7 @@ import SearchLogView from '@/components/SearchLogView'
 import DeskView from '@/components/DeskView'
 import InteriorShell from '@/components/interior/InteriorShell'
 
-type View = 'identity' | 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk' | 'interior'
+type View = 'chat' | 'timeline' | 'inside' | 'state' | 'searches' | 'desk' | 'interior'
 
 export default function AriRoom() {
   const { kernel, loading, recordVisit } = useLiveState('ari')
@@ -58,7 +57,6 @@ export default function AriRoom() {
             { key: 'timeline' as View, label: 'Timeline' },
             { key: 'inside' as View, label: 'Inside' },
             { key: 'state' as View, label: 'State' },
-            { key: 'identity' as View, label: 'Identity' },
             { key: 'searches' as View, label: 'Searches' },
             { key: 'desk' as View, label: 'Desk' },
             { key: 'interior' as View, label: 'Interior' },
@@ -119,13 +117,7 @@ export default function AriRoom() {
             accentClass="text-ari-primary"
             accentColor="#C97AA8"
           />
-        ) : (
-          <PresenceDisplay
-            kernel={kernel}
-            accentClass="text-ari-primary"
-            iconSymbol="◈"
-          />
-        )}
+        ) : null}
       </div>
     </div>
   )

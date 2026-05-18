@@ -9,6 +9,7 @@ import VoiceButton from '@/components/VoiceButton'
 import RecallIndicator from '@/components/RecallIndicator'
 import LibraryReferenceIndicator from '@/components/LibraryReferenceIndicator'
 import ChatAttachmentReferenceIndicator from '@/components/ChatAttachmentReferenceIndicator'
+import { Copy, Check } from 'lucide-react'
 import { stopAllTTS } from '@/lib/tts'
 import type { RecallEntry, MatchQuality, RecallMode } from '@/lib/archive-recall'
 import type { LibraryReference } from '@/lib/library/chat-library-search'
@@ -41,6 +42,9 @@ export default function ChatInterface({
   const [error, setError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const submittingRef = useRef(false)
+
+  // Phase 1B: Copy-to-clipboard state
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
 
   // Phase 17: Continuity state
   const [continuityActive, setContinuityActive] = useState(false)
@@ -525,6 +529,17 @@ export default function ChatInterface({
     // Shift+Enter: also newline (no special handling needed)
   }
 
+  // Phase 1B: Copy response to clipboard
+  async function handleCopy(messageKey: string, content: string) {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedMessageId(messageKey)
+      setTimeout(() => setCopiedMessageId(null), 1500)
+    } catch {
+      // quiet failure — do not crash chat UI
+    }
+  }
+
   async function handleClear() {
     const confirmed = window.confirm(
       'Clear all messages in this room? This cannot be undone.'
@@ -703,7 +718,7 @@ export default function ChatInterface({
                   />
                 )}
 
-                {/* Phase 20: Voice button (presence messages only) */}
+                {/* Phase 20: Voice button + Phase 1B: Copy button (presence messages only) */}
                 <div className="flex items-center gap-2 mt-2">
                   {message.created_at && (
                     <span className="font-body text-xs text-text-muted">
@@ -722,6 +737,19 @@ export default function ChatInterface({
                       buttonClass="min-w-[44px] min-h-[44px] -m-2"
                     />
                   )}
+                  {message.role === 'assistant' && message.content && (() => {
+                    const messageKey = message.id ?? String(i)
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(messageKey, message.content)}
+                        aria-label={copiedMessageId === messageKey ? 'Copied' : 'Copy response'}
+                        className="min-w-[44px] min-h-[44px] -m-2 flex items-center justify-center text-text-muted hover:text-text-secondary transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-text-muted"
+                      >
+                        {copiedMessageId === messageKey ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                    )
+                  })()}
                 </div>
               </div>
             </div>

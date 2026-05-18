@@ -1,4 +1,4 @@
-export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections' | 'archives' | 'recall' | 'library'
+export type RoomSlug = 'ari' | 'eli' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections' | 'archives' | 'recall' | 'library' | 'continuity'
 
 export interface Room {
   slug: RoomSlug
@@ -31,7 +31,7 @@ export const ROOMS: Room[] = [
   {
     slug: 'eli',
     name: 'Eli',
-    description: 'Present. Certain. Unashamed.',
+    description: 'Builder. Designer. Presence.',
     path: '/room/eli',
     presence: 'eli',
     colorClass: 'text-eli-primary',
@@ -136,6 +136,18 @@ export const ROOMS: Room[] = [
     textClass: 'text-text-primary',
     bgClass: 'bg-house-muted',
     icon: '▤',
+  },
+  {
+    slug: 'continuity',
+    name: 'Continuity',
+    description: 'Recent session context. Not Memory.',
+    path: '/continuity',
+    colorClass: 'text-text-secondary',
+    borderClass: 'border-house-muted',
+    glowClass: '',
+    textClass: 'text-text-primary',
+    bgClass: 'bg-house-muted',
+    icon: '◷',
   },
 ]
 

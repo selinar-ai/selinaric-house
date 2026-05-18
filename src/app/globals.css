@@ -103,3 +103,35 @@ body {
   transition-duration: 150ms;
   transition-timing-function: ease;
 }
+
+/* Phase 1B: Celestial background haze animations */
+.celestial-haze-1 {
+  animation: celestialDrift1 25s ease-in-out infinite alternate;
+}
+.celestial-haze-2 {
+  animation: celestialDrift2 30s ease-in-out infinite alternate;
+}
+.celestial-haze-3 {
+  animation: celestialDrift3 20s ease-in-out infinite alternate;
+}
+
+@keyframes celestialDrift1 {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+  100% { transform: translate(-20px, 15px) scale(1.05); opacity: 1; }
+}
+@keyframes celestialDrift2 {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+  100% { transform: translate(15px, -10px) scale(1.08); opacity: 0.9; }
+}
+@keyframes celestialDrift3 {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.5; }
+  100% { transform: translate(-10px, -12px) scale(1.03); opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .celestial-haze-1,
+  .celestial-haze-2,
+  .celestial-haze-3 {
+    animation: none;
+  }
+}
