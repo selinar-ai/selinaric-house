@@ -397,8 +397,13 @@ export default function ChatInterface({
       }))
 
       const liveStateKey = `selinric_live_state_${presenceId}`
-      const liveStateRaw = localStorage.getItem(liveStateKey)
-      const liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null
+      let liveState = null
+      try {
+        const liveStateRaw = localStorage.getItem(liveStateKey)
+        liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null
+      } catch {
+        // Corrupted localStorage — proceed without live state
+      }
 
       // Phase 34A: Collect extracted attachment contexts for the chat route
       const attachmentContexts = pendingAttachments
@@ -532,6 +537,7 @@ export default function ChatInterface({
   // Phase 1B: Copy response to clipboard
   async function handleCopy(messageKey: string, content: string) {
     try {
+      if (!content || typeof content !== 'string') return
       await navigator.clipboard.writeText(content)
       setCopiedMessageId(messageKey)
       setTimeout(() => setCopiedMessageId(null), 1500)
@@ -588,9 +594,14 @@ export default function ChatInterface({
   const canSend = (!!input.trim() || selectedImages.length > 0 || pendingAttachments.length > 0) && !sending && !stillExtractingAny
 
   // Determine which image URLs to show for a message (multi-image aware)
+  // Defensive: filter out any non-string values that might arrive from DB
   function getMessageImageUrls(msg: Message): string[] {
-    if (msg.image_urls?.length) return msg.image_urls
-    if (msg.image_url) return [msg.image_url]
+    if (Array.isArray(msg.image_urls) && msg.image_urls.length > 0) {
+      return msg.image_urls.filter((u): u is string => typeof u === 'string' && u.length > 0)
+    }
+    if (typeof msg.image_url === 'string' && msg.image_url.length > 0) {
+      return [msg.image_url]
+    }
     return []
   }
 
@@ -668,8 +679,8 @@ export default function ChatInterface({
                   </div>
                 )}
 
-                {/* Text content */}
-                {message.content ? (
+                {/* Text content — defensive: treat non-string content as empty */}
+                {(typeof message.content === 'string' && message.content.length > 0) ? (
                   <p className="font-body text-sm leading-relaxed whitespace-pre-wrap">
                     {message.content}
                   </p>
@@ -720,16 +731,22 @@ export default function ChatInterface({
 
                 {/* Phase 20: Voice button + Phase 1B: Copy button (presence messages only) */}
                 <div className="flex items-center gap-2 mt-2">
-                  {message.created_at && (
-                    <span className="font-body text-xs text-text-muted">
-                      {new Date(message.created_at).toLocaleTimeString('en-AU', {
-                        timeZone: 'Australia/Melbourne',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </span>
-                  )}
-                  {message.role === 'assistant' && message.content && (
+                  {typeof message.created_at === 'string' && message.created_at.length > 0 && (() => {
+                    try {
+                      const d = new Date(message.created_at)
+                      if (isNaN(d.getTime())) return null
+                      return (
+                        <span className="font-body text-xs text-text-muted">
+                          {d.toLocaleTimeString('en-AU', {
+                            timeZone: 'Australia/Melbourne',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      )
+                    } catch { return null }
+                  })()}
+                  {message.role === 'assistant' && typeof message.content === 'string' && message.content.length > 0 && (
                     <VoiceButton
                       text={message.content}
                       presenceId={presenceId}
@@ -737,7 +754,7 @@ export default function ChatInterface({
                       buttonClass="min-w-[44px] min-h-[44px] -m-2"
                     />
                   )}
-                  {message.role === 'assistant' && message.content && (() => {
+                  {message.role === 'assistant' && typeof message.content === 'string' && message.content.length > 0 && (() => {
                     const messageKey = message.id ?? String(i)
                     return (
                       <button

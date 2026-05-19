@@ -93,7 +93,12 @@ export default function VoiceButton({
 
     // Check from the browser — not from the API route.
     // This correctly detects local Piper even when the app is on Vercel.
-    const piperUp = await checkBrowserLocalPiperAvailable()
+    let piperUp = false
+    try {
+      piperUp = await checkBrowserLocalPiperAvailable()
+    } catch {
+      // Availability check failed — fall back to browser TTS
+    }
     if (stoppedRef.current) return
 
     setVoicePath(piperUp ? 'piper' : 'browser')

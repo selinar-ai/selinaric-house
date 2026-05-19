@@ -86,22 +86,30 @@ const ENTRY_TYPE_LABELS: Record<string, { label: string; icon: string }> = {
 // --- Helpers ---
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('en-AU', {
-    timeZone: 'Australia/Melbourne',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return ''
+    return d.toLocaleString('en-AU', {
+      timeZone: 'Australia/Melbourne',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch { return '' }
 }
 
 function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const hours = Math.floor(diff / (1000 * 60 * 60))
-  if (hours < 1) return 'just now'
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return ''
+    const diff = Date.now() - d.getTime()
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    if (hours < 1) return 'just now'
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  } catch { return '' }
 }
 
 const ACCUMULATION_THRESHOLD = 5

@@ -12,10 +12,15 @@ export function useLiveState(presence: PresenceId) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getPresenceState(presence).then(k => {
-      setKernel(k)
-      setLoading(false)
-    })
+    getPresenceState(presence)
+      .then(k => {
+        setKernel(k)
+        setLoading(false)
+      })
+      .catch(() => {
+        // Presence state load failed — render with null kernel (loading screen persists)
+        setLoading(false)
+      })
   }, [presence])
 
   const updateState = useCallback(
@@ -28,12 +33,16 @@ export function useLiveState(presence: PresenceId) {
   )
 
   const recordVisit = useCallback(async () => {
-    await updatePresenceLiveState(presence, {
-      energy: 'focused',
-      last_updated: new Date().toISOString()
-    })
-    const updated = await getPresenceState(presence)
-    setKernel(updated)
+    try {
+      await updatePresenceLiveState(presence, {
+        energy: 'focused',
+        last_updated: new Date().toISOString()
+      })
+      const updated = await getPresenceState(presence)
+      setKernel(updated)
+    } catch {
+      // Visit recording failed — non-critical, continue silently
+    }
   }, [presence])
 
   return { kernel, loading, updateState, recordVisit }

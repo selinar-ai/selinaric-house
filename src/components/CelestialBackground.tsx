@@ -92,25 +92,39 @@ export default function CelestialBackground() {
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
-    const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReducedMotion(mql.matches)
-    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches)
-    mql.addEventListener('change', handler)
-    return () => mql.removeEventListener('change', handler)
+    try {
+      const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
+      setReducedMotion(mql.matches)
+      const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches)
+      mql.addEventListener('change', handler)
+      return () => mql.removeEventListener('change', handler)
+    } catch {
+      // matchMedia unavailable — keep default (no reduced motion)
+    }
   }, [])
 
   useEffect(() => {
-    setIsMobile(window.innerWidth < 768)
-    const handler = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', handler)
-    return () => window.removeEventListener('resize', handler)
+    try {
+      setIsMobile(window.innerWidth < 768)
+      const handler = () => setIsMobile(window.innerWidth < 768)
+      window.addEventListener('resize', handler)
+      return () => window.removeEventListener('resize', handler)
+    } catch {
+      // window unavailable — keep default
+    }
   }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || reducedMotion) return
 
-    const ctx = canvas.getContext('2d')
+    let ctx: CanvasRenderingContext2D | null = null
+    try {
+      ctx = canvas.getContext('2d')
+    } catch {
+      // Canvas context unavailable — skip animation
+      return
+    }
     if (!ctx) return
 
     let w = 0

@@ -20,21 +20,31 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
 
   useEffect(() => {
     async function loadMessages() {
-      const { data, error } = await supabase
-        .from('room_messages')
-        .select('id, room_slug, role, content, created_at, message_type, image_url, image_path, image_urls')
-        .eq('room_slug', roomSlug)
-        .order('created_at', { ascending: false })
-        .limit(100)
+      try {
+        const { data, error } = await supabase
+          .from('room_messages')
+          .select('id, room_slug, role, content, created_at, message_type, image_url, image_path, image_urls')
+          .eq('room_slug', roomSlug)
+          .order('created_at', { ascending: false })
+          .limit(100)
 
-      // Reverse to chronological order (we fetched newest-first to get the latest 100)
-      if (data) data.reverse()
+        // Reverse to chronological order (we fetched newest-first to get the latest 100)
+        if (data) data.reverse()
 
-      if (error) {
-        console.error('Failed to load messages:', error)
+        if (error) {
+          console.error('Failed to load messages:', error)
+          setMessages([])
+        } else if (data) {
+          // Defensive: ensure every message has at least a string content field
+          const safeMessages = data.map(m => ({
+            ...m,
+            content: typeof m.content === 'string' ? m.content : (m.content ?? ''),
+          }))
+          setMessages(safeMessages)
+        }
+      } catch (err) {
+        console.error('Message load exception:', err)
         setMessages([])
-      } else if (data) {
-        setMessages(data)
       }
       setLoading(false)
     }
@@ -44,42 +54,49 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
 
   const saveMessage = useCallback(
     async (message: Omit<Message, 'id' | 'created_at'>) => {
-      const row: Record<string, unknown> = {
-        room_slug: roomSlug,
-        role: message.role,
-        content: message.content,
-      }
+      try {
+        const row: Record<string, unknown> = {
+          room_slug: roomSlug,
+          role: message.role,
+          content: typeof message.content === 'string' ? message.content : '',
+        }
 
-      if (message.message_type && message.message_type !== 'text') {
-        row.message_type = message.message_type
-      }
-      if (message.image_url) {
-        row.image_url = message.image_url
-      }
-      if (message.image_path) {
-        row.image_path = message.image_path
-      }
-      if (message.image_urls?.length) {
-        row.image_urls = message.image_urls
-      }
+        if (message.message_type && message.message_type !== 'text') {
+          row.message_type = message.message_type
+        }
+        if (message.image_url) {
+          row.image_url = message.image_url
+        }
+        if (message.image_path) {
+          row.image_path = message.image_path
+        }
+        if (message.image_urls?.length) {
+          row.image_urls = message.image_urls
+        }
 
-      const { data, error } = await supabase
-        .from('room_messages')
-        .insert(row)
-        .select()
-        .single()
+        const { data, error } = await supabase
+          .from('room_messages')
+          .insert(row)
+          .select()
+          .single()
 
-      if (error) {
-        console.error('Failed to save message:', error)
+        if (error) {
+          console.error('Failed to save message:', error)
+          return null
+        }
+
+        if (data) {
+          // Defensive: normalize content
+          const safeData = { ...data, content: typeof data.content === 'string' ? data.content : '' }
+          setMessages(prev => [...prev, safeData])
+          return safeData
+        }
+
+        return null
+      } catch (err) {
+        console.error('Save message exception:', err)
         return null
       }
-
-      if (data) {
-        setMessages(prev => [...prev, data])
-        return data
-      }
-
-      return null
     },
     [roomSlug]
   )
