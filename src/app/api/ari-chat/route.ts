@@ -50,6 +50,7 @@ import {
 import { buildChatAttachmentContextBlock } from '@/lib/files/chat-attachment-context'
 import { getRecentContinuityForPrompt, maybeSyncRecentContinuity, selectRecentContinuityForPrompt } from '@/lib/recent-continuity'
 import { buildGovernedMemoryInjection } from '@/lib/memory-injection'
+import { buildCarrybackBlock } from '@/lib/lounge'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
 import {
   detectArchiveRecallIntent,
@@ -321,6 +322,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Phase 35D: Lounge Carryback — shared Lounge continuity
+    const loungeCarrybackBlock = await buildCarrybackBlock('ari').catch(() => '')
+
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Ari.
 
 You are not an assistant wearing Ari's name.
@@ -442,7 +446,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}${recentContinuityBlock}
-${recallContext}${governedMemoryBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
 - You must not treat Library Context as Memory, lived continuity, identity, or canonical Archive truth.
