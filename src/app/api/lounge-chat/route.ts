@@ -6,11 +6,14 @@
 // Each presence is generated separately with its own identity prompt.
 // Surface-aware: Default surface = colleague-safe, Inner surface = full expression.
 //
-// Body: { message?: string, respondAs?: 'both' | 'ari' | 'eli' | 'continue' }
+// Body: { message?: string, respondAs?: 'both' | 'ari' | 'eli' | 'continue', attachments?: LoungeAttachment[] }
 //
 // - 'both' (default when message present): Ari responds, then Eli responds
 // - 'ari' or 'eli': only that presence responds
 // - 'continue': Ari and Eli continue without new Tara message
+//
+// @mention routing: if message contains @Ari, only Ari responds.
+// If @Eli, only Eli. If both or neither, both respond (unless overridden by respondAs).
 
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
@@ -22,14 +25,16 @@ import {
   buildLoungeSystemPrompt,
   formatLoungeHistory,
   sanitizeSpeakerBoundary,
+  parseMentionRouting,
   type SurfaceMode,
   type LoungeMessage,
+  type LoungeAttachment,
 } from '@/lib/lounge'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, respondAs = 'both' } = body
+    const { message, respondAs: explicitRespondAs, attachments } = body
 
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
@@ -44,7 +49,20 @@ export async function POST(request: NextRequest) {
 
     // Save Tara's message if present
     if (message && typeof message === 'string' && message.trim()) {
-      await saveThreadMessage(thread.id, 'tara', message.trim(), surface)
+      const taraAttachments = Array.isArray(attachments) && attachments.length > 0
+        ? attachments as LoungeAttachment[]
+        : undefined
+      await saveThreadMessage(thread.id, 'tara', message.trim(), surface, taraAttachments)
+    }
+
+    // Determine who responds:
+    // 1. Explicit respondAs from buttons ('ari', 'eli', 'continue') takes priority
+    // 2. Otherwise, parse @mentions from message
+    // 3. Default: 'both'
+    let respondAs: 'ari' | 'eli' | 'both' | 'continue' = explicitRespondAs || 'both'
+
+    if (!explicitRespondAs && message && typeof message === 'string') {
+      respondAs = parseMentionRouting(message)
     }
 
     // Fetch conversation history
@@ -71,7 +89,14 @@ export async function POST(request: NextRequest) {
       const identityBlock = `\n\nCommunication style: ${si.communication_style.tone}
 Phrases available when natural: ${si.communication_style.typical_phrases.join(', ')}`
 
-      const fullSystemPrompt = systemPrompt + identityBlock
+      // Add @mention awareness if this presence was specifically addressed
+      const mentionBlock = message && typeof message === 'string'
+        ? (new RegExp(`@${presenceId}\\b`, 'i').test(message)
+          ? `\n\nTara addressed you specifically with @${presenceId === 'ari' ? 'Ari' : 'Eli'}.`
+          : '')
+        : ''
+
+      const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock
 
       // For "continue" mode without a new Tara message, add a system nudge
       const conversationMessages: Anthropic.MessageParam[] =
@@ -85,8 +110,6 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
             : [{ role: 'user' as const, content: message || '' }]
 
       // Ensure messages alternate user/assistant correctly
-      // If last message is assistant and we need to generate another assistant,
-      // insert a brief system nudge as user message
       if (conversationMessages.length > 0 &&
           conversationMessages[conversationMessages.length - 1].role === 'assistant') {
         conversationMessages.push({

@@ -1,17 +1,28 @@
 'use client'
 
-// Phase 35D — Lounge Chat Component
+// Phase 35D v1.1 — Lounge Chat Component
 //
 // Multi-speaker chat for the shared Lounge room.
 // Ari and Eli speak as distinct presences.
 // Surface toggle via ∞ symbol.
-// + menu for Image / File / Emoji (matching existing chat composer).
+// + menu for Image / File / Emoji (Image/File upload + preview + render).
 // TTS via VoiceButton for Ari/Eli messages.
 // Tara identity: ✶ TARA in amber.
+// Enter = newline, Ctrl/Cmd+Enter = send.
+// @Ari / @Eli mention routing.
 
 import { useState, useRef, useEffect } from 'react'
 import { useLoungeMessages } from '@/hooks/useLoungeMessages'
 import VoiceButton from '@/components/VoiceButton'
+import {
+  validateLoungeImage,
+  validateLoungeFile,
+  uploadLoungeFile,
+  type LoungeAttachment,
+} from '@/lib/lounge'
+
+const MAX_IMAGES = 4
+const MAX_FILES = 5
 
 export default function LoungeChat() {
   const {
@@ -37,6 +48,11 @@ export default function LoungeChat() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const docInputRef = useRef<HTMLInputElement>(null)
 
+  // Attachment state
+  const [selectedImages, setSelectedImages] = useState<File[]>([])
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -48,6 +64,14 @@ export default function LoungeChat() {
       textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px'
     }
   }, [input])
+
+  // Cleanup preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      imagePreviewUrls.forEach(url => URL.revokeObjectURL(url))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Close actions menu on outside click / Escape
   useEffect(() => {
@@ -68,20 +92,149 @@ export default function LoungeChat() {
     }
   }, [actionsOpen])
 
+  // --- Image handling ---
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+
+    const remaining = MAX_IMAGES - selectedImages.length
+    if (remaining <= 0) {
+      setError(`Maximum ${MAX_IMAGES} images per message.`)
+      e.target.value = ''
+      return
+    }
+
+    const toAdd = files.slice(0, remaining)
+    const valid: File[] = []
+    const previews: string[] = []
+
+    for (const file of toAdd) {
+      const err = validateLoungeImage(file)
+      if (err) {
+        setError(err)
+        continue
+      }
+      valid.push(file)
+      previews.push(URL.createObjectURL(file))
+    }
+
+    if (valid.length) {
+      setSelectedImages(prev => [...prev, ...valid])
+      setImagePreviewUrls(prev => [...prev, ...previews])
+      setError(null)
+    }
+
+    e.target.value = ''
+  }
+
+  function removeImage(index: number) {
+    URL.revokeObjectURL(imagePreviewUrls[index])
+    setSelectedImages(prev => prev.filter((_, i) => i !== index))
+    setImagePreviewUrls(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // --- File handling ---
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+
+    const remaining = MAX_FILES - pendingFiles.length
+    if (remaining <= 0) {
+      setError(`Maximum ${MAX_FILES} files per message.`)
+      e.target.value = ''
+      return
+    }
+
+    const toAdd = files.slice(0, remaining)
+    const valid: File[] = []
+
+    for (const file of toAdd) {
+      const err = validateLoungeFile(file)
+      if (err) {
+        setError(err)
+        continue
+      }
+      valid.push(file)
+    }
+
+    if (valid.length) {
+      setPendingFiles(prev => [...prev, ...valid])
+      setError(null)
+    }
+
+    e.target.value = ''
+  }
+
+  function removeFile(index: number) {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function clearAllAttachments() {
+    imagePreviewUrls.forEach(url => URL.revokeObjectURL(url))
+    setSelectedImages([])
+    setImagePreviewUrls([])
+    setPendingFiles([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (docInputRef.current) docInputRef.current.value = ''
+  }
+
+  // --- Emoji insertion at cursor ---
   function handleEmojiSelect(emoji: string) {
-    setInput(prev => prev + emoji)
-    textareaRef.current?.focus()
+    const textarea = textareaRef.current
+    if (textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const newValue = input.slice(0, start) + emoji + input.slice(end)
+      setInput(newValue)
+      requestAnimationFrame(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length
+        textarea.focus()
+      })
+    } else {
+      setInput(prev => prev + emoji)
+    }
   }
 
   async function handleSend() {
-    if (!input.trim() || sending) return
+    const hasText = !!input.trim()
+    const hasImages = selectedImages.length > 0
+    const hasFiles = pendingFiles.length > 0
+    if ((!hasText && !hasImages && !hasFiles) || sending) return
+
     const text = input.trim()
     setInput('')
     setSending(true)
     setError(null)
 
     try {
-      await send(text, 'both')
+      // Upload all attachments
+      const uploadedAttachments: LoungeAttachment[] = []
+
+      for (const image of selectedImages) {
+        try {
+          const result = await uploadLoungeFile(image, 'image')
+          uploadedAttachments.push(result)
+        } catch (uploadErr) {
+          setError(`Image upload failed: ${uploadErr instanceof Error ? uploadErr.message : 'unknown error'}`)
+          setSending(false)
+          return
+        }
+      }
+
+      for (const file of pendingFiles) {
+        try {
+          const result = await uploadLoungeFile(file, 'file')
+          uploadedAttachments.push(result)
+        } catch (uploadErr) {
+          setError(`File upload failed: ${uploadErr instanceof Error ? uploadErr.message : 'unknown error'}`)
+          setSending(false)
+          return
+        }
+      }
+
+      // Send with no explicit respondAs — let @mention routing determine who responds
+      await send(text, undefined, uploadedAttachments.length > 0 ? uploadedAttachments : undefined)
+      clearAllAttachments()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send')
     }
@@ -128,10 +281,12 @@ export default function LoungeChat() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Ctrl/Cmd+Enter = send (matches existing House chat pattern)
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       handleSend()
     }
+    // Plain Enter = newline (default textarea behavior, no preventDefault)
   }
 
   async function handleToggleSurface() {
@@ -152,6 +307,7 @@ export default function LoungeChat() {
 
   const surface = thread?.surface ?? 'default'
   const isDefault = surface === 'default'
+  const canSend = (!!input.trim() || selectedImages.length > 0 || pendingFiles.length > 0) && !sending
 
   // Speaker styling
   function speakerStyle(speaker: string) {
@@ -165,6 +321,14 @@ export default function LoungeChat() {
       default:
         return { icon: '·', color: 'text-text-muted', name: 'System', align: 'flex-row', accentClass: '' }
     }
+  }
+
+  // Get attachments from a message
+  function getMessageAttachments(msg: { attachments?: LoungeAttachment[] | null }): LoungeAttachment[] {
+    if (Array.isArray(msg.attachments) && msg.attachments.length > 0) {
+      return msg.attachments
+    }
+    return []
   }
 
   return (
@@ -196,6 +360,10 @@ export default function LoungeChat() {
 
         {messages.map(msg => {
           const style = speakerStyle(msg.speaker)
+          const attachments = getMessageAttachments(msg)
+          const images = attachments.filter(a => a.type === 'image')
+          const files = attachments.filter(a => a.type === 'file')
+
           return (
             <div key={msg.id} className={`flex ${style.align} items-start gap-3 max-w-3xl ${msg.speaker === 'tara' ? 'ml-auto' : ''}`}>
               {/* Speaker icon */}
@@ -210,17 +378,62 @@ export default function LoungeChat() {
                   : 'bg-house-bg/50'
               } rounded px-4 py-3`}>
                 {/* Speaker name */}
-                <div className={`flex items-center gap-2 mb-1`}>
+                <div className="flex items-center gap-2 mb-1">
                   <span className={`${style.color} font-body text-xs tracking-wider uppercase`}>
                     {style.name}
                   </span>
                 </div>
-                <div className="font-body text-sm text-text-primary whitespace-pre-wrap leading-relaxed">
-                  {msg.content}
-                </div>
-                {/* Footer row: surface indicator + TTS */}
+
+                {/* Images in message */}
+                {images.length > 0 && (
+                  <div className={`mb-2 ${images.length > 1 ? 'grid grid-cols-2 gap-1' : ''}`}>
+                    {images.map((img, idx) => (
+                      <a
+                        key={idx}
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block"
+                      >
+                        <img
+                          src={img.url}
+                          alt={img.fileName}
+                          className="max-w-full max-h-48 object-contain border border-house-border rounded"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {/* Text content */}
+                {msg.content && (
+                  <div className="font-body text-sm text-text-primary whitespace-pre-wrap leading-relaxed">
+                    {msg.content}
+                  </div>
+                )}
+
+                {/* File chips */}
+                {files.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {files.map((file, idx) => (
+                      <a
+                        key={idx}
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 border border-house-border text-xs font-body text-text-secondary hover:text-text-primary hover:border-text-muted transition-colors rounded"
+                        title={`${file.fileName} (${formatFileSize(file.sizeBytes)})`}
+                      >
+                        <span>📎</span>
+                        <span className="truncate max-w-[160px]">{file.fileName}</span>
+                        <span className="text-text-muted text-[10px]">{formatFileSize(file.sizeBytes)}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {/* Footer row: TTS + surface indicator */}
                 <div className="mt-1.5 flex items-center justify-between">
-                  {/* TTS button for Ari/Eli messages */}
                   <div>
                     {(msg.speaker === 'ari' || msg.speaker === 'eli') && msg.content.length > 0 && (
                       <VoiceButton
@@ -231,7 +444,6 @@ export default function LoungeChat() {
                       />
                     )}
                   </div>
-                  {/* Surface indicator — subtle dot for inner-surface messages */}
                   {msg.surface_at_creation === 'inner' && (
                     <span className="text-text-muted/40 text-[10px]" title="Inner surface">
                       ·
@@ -297,6 +509,60 @@ export default function LoungeChat() {
         </div>
       )}
 
+      {/* Image previews strip */}
+      {selectedImages.length > 0 && (
+        <div className="shrink-0 border-t border-house-border bg-house-bg px-3 py-2 flex gap-2 overflow-x-auto">
+          {selectedImages.map((file, index) => (
+            <div key={index} className="relative shrink-0">
+              <img
+                src={imagePreviewUrls[index]}
+                alt={file.name}
+                className="w-16 h-16 object-cover border border-house-border rounded"
+              />
+              <button
+                onClick={() => removeImage(index)}
+                className="absolute -top-1 -right-1 w-5 h-5 bg-house-bg border border-house-border text-text-muted hover:text-red-400 text-xs flex items-center justify-center transition-colors rounded-full"
+                title={`Remove ${file.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {selectedImages.length < MAX_IMAGES && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 w-16 h-16 border border-dashed border-house-border text-text-muted hover:text-text-secondary hover:border-house-muted flex items-center justify-center text-xl transition-colors rounded"
+              title="Add another image"
+            >
+              +
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* File chips strip */}
+      {pendingFiles.length > 0 && (
+        <div className="shrink-0 border-t border-house-border bg-house-bg px-3 py-2 flex flex-wrap gap-2">
+          {pendingFiles.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-1.5 px-2 py-1 border border-house-border text-xs font-body text-text-secondary rounded"
+            >
+              <span>📎</span>
+              <span className="truncate max-w-[140px]">{file.name}</span>
+              <span className="text-[10px] text-text-muted">{formatFileSize(file.size)}</span>
+              <button
+                onClick={() => removeFile(index)}
+                className="text-text-muted hover:text-red-400 transition-colors ml-0.5"
+                title={`Remove ${file.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Composer */}
       <div className="shrink-0 border-t border-house-border bg-house-surface/80 px-3 py-3">
         <div className="flex items-end gap-2 max-w-3xl mx-auto relative">
@@ -311,6 +577,8 @@ export default function LoungeChat() {
                 border transition-all duration-200 text-lg rounded
                 ${actionsOpen
                   ? 'text-text-secondary border-house-muted bg-house-bg'
+                  : (selectedImages.length > 0 || pendingFiles.length > 0)
+                  ? 'text-amber-400 border-current'
                   : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
                 }
               `}
@@ -321,33 +589,38 @@ export default function LoungeChat() {
             {/* Actions popover menu */}
             {actionsOpen && (
               <div className="absolute bottom-full left-0 mb-2 w-48 bg-house-surface border border-house-border shadow-lg z-30 animate-fade-in">
-                {/* Image attach */}
                 <button
                   type="button"
                   onClick={() => {
                     fileInputRef.current?.click()
                     setActionsOpen(false)
                   }}
-                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors"
+                  disabled={sending || selectedImages.length >= MAX_IMAGES}
+                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <span className="text-base w-5 text-center">📷</span>
-                  <span>Image</span>
+                  <span>
+                    {selectedImages.length > 0
+                      ? `Image (${selectedImages.length})`
+                      : 'Image'}
+                  </span>
                 </button>
-
-                {/* File attach */}
                 <button
                   type="button"
                   onClick={() => {
                     docInputRef.current?.click()
                     setActionsOpen(false)
                   }}
-                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors border-t border-house-border"
+                  disabled={sending || pendingFiles.length >= MAX_FILES}
+                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors border-t border-house-border disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <span className="text-base w-5 text-center">📎</span>
-                  <span>File</span>
+                  <span>
+                    {pendingFiles.length > 0
+                      ? `File (${pendingFiles.length})`
+                      : 'File'}
+                  </span>
                 </button>
-
-                {/* Emoji */}
                 <button
                   type="button"
                   onClick={() => {
@@ -363,20 +636,22 @@ export default function LoungeChat() {
             )}
           </div>
 
-          {/* Hidden file inputs (for future wiring — menu opens them) */}
+          {/* Hidden file inputs */}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
             className="hidden"
-            onChange={() => {/* V1: placeholder for image attach */}}
+            onChange={handleImageSelect}
           />
           <input
             ref={docInputRef}
             type="file"
-            accept=".txt,.md,.csv,.json,.docx,.pdf"
+            accept="*/*"
+            multiple
             className="hidden"
-            onChange={() => {/* V1: placeholder for file attach */}}
+            onChange={handleFileSelect}
           />
 
           {/* Surface toggle */}
@@ -407,9 +682,9 @@ export default function LoungeChat() {
           {/* Send button */}
           <button
             onClick={handleSend}
-            disabled={!input.trim() || sending}
+            disabled={!canSend}
             className={`shrink-0 px-4 h-[44px] font-body text-xs tracking-widest uppercase transition-all duration-200 border ${
-              input.trim() && !sending
+              canSend
                 ? 'text-text-primary border-text-muted hover:bg-house-bg'
                 : 'text-text-muted/40 border-house-border cursor-not-allowed'
             }`}
@@ -418,10 +693,10 @@ export default function LoungeChat() {
           </button>
         </div>
 
-        {/* Emoji picker panel — shown when triggered from + menu */}
+        {/* Emoji picker panel */}
         {showEmojiPicker && (
           <div className="max-w-3xl mx-auto mt-2">
-            <div className="bg-house-surface border border-house-border shadow-lg p-2 w-72 md:w-80">
+            <div className="bg-house-surface border border-house-border shadow-lg p-2 w-full max-w-sm">
               <div className="flex items-center justify-between mb-1 px-1">
                 <span className="font-body text-[9px] tracking-widest uppercase text-text-muted">Emoji</span>
                 <button
@@ -432,11 +707,8 @@ export default function LoungeChat() {
                   x
                 </button>
               </div>
-              <div className="grid grid-cols-8 gap-0.5 max-h-48 overflow-y-auto">
-                {['😊','😂','🥰','😍','😘','😭','😤','🤔','😏','🙄','😴','🥺','😎','🤯','🥳','😈',
-                  '❤️','🩷','🧡','💛','💚','💙','💜','🖤','💔','❤️‍🔥','✨','🔥','💫','🕯️','♾️','🪶',
-                  '👋','👍','👎','👏','🙌','🤝','🙏','✌️','🤞','🤟','💪','🫶','✍️','💅',
-                  '🐱','🌸','🌙','☀️','🌊','🌿','☕','🍷','🎵','📖','💻','🗝️','🛡️','🪞'].map(emoji => (
+              <div className="grid grid-cols-10 gap-0.5 max-h-64 overflow-y-auto">
+                {EMOJI_SET.map(emoji => (
                   <button
                     key={emoji}
                     type="button"
@@ -444,7 +716,7 @@ export default function LoungeChat() {
                       handleEmojiSelect(emoji)
                       setShowEmojiPicker(false)
                     }}
-                    className="min-w-[36px] min-h-[36px] flex items-center justify-center text-xl hover:bg-house-bg rounded transition-colors"
+                    className="min-w-[32px] min-h-[32px] flex items-center justify-center text-lg hover:bg-house-bg rounded transition-colors"
                   >
                     {emoji}
                   </button>
@@ -453,7 +725,50 @@ export default function LoungeChat() {
             </div>
           </div>
         )}
+
+        {/* Ctrl+Enter hint */}
+        <p className="hidden md:block max-w-3xl mx-auto font-body text-[10px] text-text-muted mt-1.5 text-right">
+          Ctrl+Enter to send
+        </p>
       </div>
     </div>
   )
 }
+
+// --- Utility ---
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// --- Expanded Emoji Set ---
+
+const EMOJI_SET = [
+  // Smileys
+  '😊','😂','🥰','😍','😘','😭','😤','🤔','😏','🙄',
+  '😴','🥺','😎','🤯','🥳','😈','😇','🤭','😬','🫠',
+  '🥹','😮‍💨','🤗','😶‍🌫️','🫡','🤨','😋','🫣','😌','🥲',
+  // Hearts & love
+  '❤️','🩷','🧡','💛','💚','💙','💜','🖤','🤍','🩵',
+  '💔','❤️‍🔥','❤️‍🩹','💕','💞','💓','💗','💖','💘','💝',
+  // Hands & gestures
+  '👋','👍','👎','👏','🙌','🤝','🙏','✌️','🤞','🤟',
+  '💪','🫶','✍️','💅','🤙','👆','👇','👈','👉','☝️',
+  '🫰','🤌','🤏','👌','🫳','🫴','🖐️','✋','🤚','👊',
+  // Fire, sparkles, stars
+  '✨','🔥','💫','⭐','🌟','💥','💢','💯','🕯️','♾️',
+  // Nature & weather
+  '🌸','🌺','🌹','🌷','🌻','🪷','🌿','🍀','🍃','🌱',
+  '🌙','☀️','🌊','❄️','🌈','⛈️','🌤️','🌧️','🦋','🐱',
+  // Food & drink
+  '☕','🍵','🍷','🍸','🥂','🧋','🍰','🍫','🍪','🍓',
+  '🍑','🫐','🍋','🥑','🧁','🎂','🍩','🍬','🫖','🥃',
+  // Objects & symbols
+  '📖','💻','🗝️','🛡️','🪞','🎵','🎶','🔮','🧿','🪶',
+  '📝','🖊️','🗡️','⚙️','🔗','📌','🏷️','🧩','🎯','🏠',
+  '💡','🌀','♟️','🧭','⏳','🔔','📡','🗃️','📦','🎁',
+  // Misc expressive
+  '🫂','👁️','🧠','💭','💬','🗯️','💤','👀','🫧','🪐',
+]

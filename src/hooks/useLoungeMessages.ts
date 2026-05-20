@@ -5,7 +5,7 @@
 // Manages Lounge thread state, messages, surface mode, and chat interactions.
 
 import { useState, useEffect, useCallback } from 'react'
-import type { SurfaceMode, LoungeMessage } from '@/lib/lounge'
+import type { SurfaceMode, LoungeMessage, LoungeAttachment } from '@/lib/lounge'
 
 interface ThreadInfo {
   id: string
@@ -40,12 +40,17 @@ export function useLoungeMessages() {
   // Send a message and get responses
   const send = useCallback(async (
     message: string,
-    respondAs: 'both' | 'ari' | 'eli' | 'continue' = 'both',
+    respondAs?: 'both' | 'ari' | 'eli' | 'continue',
+    attachments?: LoungeAttachment[],
   ) => {
     const res = await fetch('/api/lounge-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message || undefined, respondAs }),
+      body: JSON.stringify({
+        message: message || undefined,
+        respondAs: respondAs || undefined,
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
+      }),
     })
 
     if (!res.ok) {

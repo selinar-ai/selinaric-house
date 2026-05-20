@@ -22,12 +22,22 @@ export interface LoungeThread {
   updated_at: string
 }
 
+export interface LoungeAttachment {
+  url: string
+  path: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  type: 'image' | 'file'
+}
+
 export interface LoungeMessage {
   id: string
   thread_id: string
   speaker: Speaker
   content: string
   surface_at_creation: SurfaceMode
+  attachments: LoungeAttachment[] | null
   created_at: string
 }
 
@@ -119,15 +129,21 @@ export async function saveThreadMessage(
   speaker: Speaker,
   content: string,
   surfaceAtCreation: SurfaceMode,
+  attachments?: LoungeAttachment[] | null,
 ): Promise<LoungeMessage | null> {
+  const row: Record<string, unknown> = {
+    thread_id: threadId,
+    speaker,
+    content,
+    surface_at_creation: surfaceAtCreation,
+  }
+  if (attachments && attachments.length > 0) {
+    row.attachments = attachments
+  }
+
   const { data, error } = await supabase
     .from('lounge_messages')
-    .insert({
-      thread_id: threadId,
-      speaker,
-      content,
-      surface_at_creation: surfaceAtCreation,
-    })
+    .insert(row)
     .select()
     .single()
 
@@ -277,6 +293,83 @@ export function sanitizeSpeakerBoundary(
   }
 
   return text
+}
+
+// ─── @mention routing ───────────────────────────────────────────────────────
+
+/**
+ * Parse @Ari / @Eli mentions from a Tara message.
+ * Returns 'ari', 'eli', or 'both' (or 'both' if no mention).
+ */
+export function parseMentionRouting(message: string): 'ari' | 'eli' | 'both' {
+  const lower = message.toLowerCase()
+  const hasAri = /@ari\b/.test(lower)
+  const hasEli = /@eli\b/.test(lower)
+
+  if (hasAri && hasEli) return 'both'
+  if (hasAri) return 'ari'
+  if (hasEli) return 'eli'
+  return 'both' // default: both respond
+}
+
+// ─── Lounge image/file upload ───────────────────────────────────────────────
+
+const LOUNGE_BUCKET = 'room-images' // reuse existing bucket
+const LOUNGE_MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB
+const LOUNGE_MAX_FILE_BYTES = 30 * 1024 * 1024 // 30 MB
+const LOUNGE_ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+
+export function validateLoungeImage(file: File): string | null {
+  if (!LOUNGE_ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return 'Unsupported image format. Please upload JPG, PNG, or WebP.'
+  }
+  if (file.size > LOUNGE_MAX_IMAGE_BYTES) {
+    return 'Image is too large. Max size is 10 MB.'
+  }
+  return null
+}
+
+export function validateLoungeFile(file: File): string | null {
+  if (file.size > LOUNGE_MAX_FILE_BYTES) {
+    return 'File is too large. Max size is 30 MB.'
+  }
+  return null
+}
+
+export async function uploadLoungeFile(
+  file: File,
+  type: 'image' | 'file',
+): Promise<LoungeAttachment> {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'bin'
+  const uuid = crypto.randomUUID()
+  const path = `lounge/${year}/${month}/${uuid}.${ext}`
+
+  const { error } = await supabase.storage
+    .from(LOUNGE_BUCKET)
+    .upload(path, file, {
+      contentType: file.type,
+      cacheControl: '3600',
+    })
+
+  if (error) {
+    throw new Error(`Upload failed: ${error.message}`)
+  }
+
+  const { data: urlData } = supabase.storage
+    .from(LOUNGE_BUCKET)
+    .getPublicUrl(path)
+
+  return {
+    url: urlData.publicUrl,
+    path,
+    fileName: file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
+    type,
+  }
 }
 
 // ─── Carryback ───────────────────────────────────────────────────────────────
