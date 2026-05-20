@@ -24,33 +24,38 @@ export default function HomePage() {
               href={room.path}
               className={`
                 group relative p-6 border border-house-border
-                bg-house-surface/80 backdrop-blur-sm hover:bg-house-bg/90
+                bg-house-surface/80 backdrop-blur-sm
+                hover:bg-house-bg/90 active:bg-house-bg/90
                 transition-all duration-300
-                hover:border-current
+                hover:border-current active:border-current
+                focus-visible:border-current focus-visible:outline-none
                 ${room.colorClass}
                 animate-fade-in
               `}
               style={{ animationDelay: `${i * 80}ms` }}
             >
-              <div className="flex items-start gap-4">
-                <span className="text-2xl mt-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+              {/* Decorative hover overlay — behind content */}
+              <div className={`
+                absolute inset-0 opacity-0
+                group-hover:opacity-100 group-active:opacity-100 group-focus-visible:opacity-100
+                transition-opacity duration-300 pointer-events-none
+                ${room.presence ? room.bgClass : 'bg-house-muted/20'}
+              `} />
+
+              {/* Content — above overlay */}
+              <div className="relative z-10 flex items-start gap-4">
+                <span className="text-2xl mt-0.5 opacity-60 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
                   {room.icon}
                 </span>
                 <div>
                   <h3 className="font-display text-xl font-medium text-text-primary mb-1">
                     {room.name}
                   </h3>
-                  <p className="font-body text-xs text-text-muted leading-relaxed">
+                  <p className="font-body text-xs text-text-muted leading-relaxed group-hover:text-text-secondary group-active:text-text-secondary transition-colors">
                     {room.description}
                   </p>
                 </div>
               </div>
-
-              <div className={`
-                absolute inset-0 opacity-0 group-hover:opacity-100
-                transition-opacity duration-300 pointer-events-none
-                ${room.bgClass}
-              `} />
             </Link>
           ))}
         </div>
