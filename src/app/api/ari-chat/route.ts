@@ -48,7 +48,8 @@ import {
   buildDraftNotice,
 } from '@/lib/timeline-draft-trigger'
 import { buildChatAttachmentContextBlock } from '@/lib/files/chat-attachment-context'
-import { getRecentContinuityForPrompt, maybeSyncRecentContinuity } from '@/lib/recent-continuity'
+import { getRecentContinuityForPrompt, maybeSyncRecentContinuity, selectRecentContinuityForPrompt } from '@/lib/recent-continuity'
+import { buildGovernedMemoryInjection } from '@/lib/memory-injection'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
 import {
   detectArchiveRecallIntent,
@@ -298,12 +299,27 @@ export async function POST(request: NextRequest) {
       chatAttachmentReferences = references
     }
 
-    // Phase 35B: Recent Continuity — lazy-sync + prompt injection
+    // Phase 35B + 35C: Recent Continuity — lazy-sync + prompt injection
     // Sync runs first (generates at most 1 missing summary), then fetch for prompt
     await maybeSyncRecentContinuity('ari', apiKey).catch(err =>
       console.error('[ari-chat] Recent continuity sync error:', err)
     )
     const recentContinuityBlock = await getRecentContinuityForPrompt('ari')
+
+    // Phase 35C: Governed Memory Auto-Injection
+    let governedMemoryBlock = ''
+    if (message && !recallIntent) {
+      const { selected: recentSessions } = await selectRecentContinuityForPrompt({ presenceId: 'ari' })
+      const injectionResult = await buildGovernedMemoryInjection({
+        presenceId: 'ari',
+        userMessage: message,
+        recentContinuity: recentSessions,
+      })
+      if (injectionResult.block) {
+        governedMemoryBlock = injectionResult.block
+        console.log(`[ari-chat] Governed memory injection: ${injectionResult.injectedMemories.length} memories injected, ${injectionResult.excluded.length} excluded`)
+      }
+    }
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Ari.
 
@@ -426,7 +442,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}${recentContinuityBlock}
-${recallContext}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${governedMemoryBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
 - You must not treat Library Context as Memory, lived continuity, identity, or canonical Archive truth.

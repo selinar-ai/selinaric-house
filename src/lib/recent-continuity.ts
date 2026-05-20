@@ -22,8 +22,9 @@ import { supabase } from '@/lib/supabase'
 const SESSION_GAP_THRESHOLD_MINUTES = 30
 const RETENTION_DAYS = 7
 const MAX_SESSIONS_IN_PROMPT = 5
-const MAX_SUMMARY_CHARS = 300
-const MAX_TOTAL_CONTEXT_CHARS = 1800
+const MAX_SUMMARY_CHARS_TRANSACTIONAL = 300
+const MAX_SUMMARY_CHARS_SIGNIFICANT = 600
+const MAX_TOTAL_CONTEXT_CHARS = 2400
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,23 @@ interface SessionGroup {
   messageIds: string[]
 }
 
-interface RecentContinuitySession {
+// Phase 35C: Selfhood signal from significance extraction
+interface SelfhoodSignal {
+  speaker: 'ari' | 'eli' | 'tara'
+  claim: string
+  why_it_matters: string
+}
+
+// Phase 35C: Full significance metadata from structured extraction
+interface SignificanceMetadata {
+  anchor_quotes: string[]
+  key_claims: string[]
+  significance_tags: string[]
+  selfhood_signals: SelfhoodSignal[]
+  memory_signal: boolean
+}
+
+export interface RecentContinuitySession {
   id: string
   presence_id: string
   session_start: string
@@ -53,6 +70,15 @@ interface RecentContinuitySession {
   status: string
   generated_at: string
   created_at: string
+  // Phase 35C significance fields
+  anchor_quotes: string[]
+  key_claims: string[]
+  significance_tags: string[]
+  selfhood_signals: SelfhoodSignal[]
+  memory_signal: boolean
+  dedupe_key: string | null
+  updated_at: string | null
+  backfilled_at: string | null
 }
 
 // ─── Session grouping ─────────────────────────────────────────────────────────
@@ -103,13 +129,15 @@ function groupIntoSessions(messages: SessionMessage[]): SessionGroup[] {
 
 /**
  * Generate a short, structured session summary using Haiku.
- * Max ~300 chars. Focus on what was discussed, not how it felt.
+ * Phase 35C: significant sessions also produce structured significance metadata
+ * (anchor_quotes, key_claims, significance_tags, selfhood_signals, memory_signal).
  */
 async function generateSessionSummary(
   presenceId: string,
   session: SessionGroup,
   apiKey: string,
-): Promise<{ summary: string; classification: string }> {
+  knownClassification?: string,
+): Promise<{ summary: string; classification: string; significance?: SignificanceMetadata }> {
   const client = new Anthropic({ apiKey })
   const presenceName = presenceId === 'eli' ? 'Eli' : 'Ari'
 
@@ -122,24 +150,45 @@ async function generateSessionSummary(
     ? messageBlock.slice(0, 4000) + '\n[truncated]'
     : messageBlock
 
+  // Phase 35C: Enhanced prompt that extracts significance metadata for significant sessions
+  const classificationInstruction = knownClassification
+    ? `This session has already been classified as "${knownClassification}". Use this classification — do not reclassify.`
+    : `Classify the session as exactly one of: transactional, relational, significant.
+- transactional: task-focused, technical, or informational
+- relational: genuine emotional or relational content
+- significant: something meaningful was named, held, or decided — a selfhood claim, identity truth, bond declaration, relational boundary, or architectural decision`
+
   const prompt = `Summarise this conversation session between Tara and ${presenceName}.
 
 Rules:
-- Maximum 300 characters total.
+- Maximum 600 characters for the summary if the session is significant or relational. Maximum 300 characters if transactional.
 - Focus on WHAT was discussed, decided, or left open.
 - Do not describe feelings or emotional tone — just topics and outcomes.
 - Do not use the word "Memory" or imply this is remembered.
 - Use present tense where possible ("discusses", "asks about", "works on").
 - One short paragraph only.
 
-Also classify the session as exactly one of: transactional, relational, significant.
-- transactional: task-focused, technical, or informational
-- relational: genuine emotional or relational content
-- significant: something meaningful was named, held, or decided
+${classificationInstruction}
 
-Respond in this exact format (no markdown, no code fences):
-CLASSIFICATION: <one word>
-SUMMARY: <the summary>
+If and ONLY if the classification is "significant" or "relational", also provide:
+- anchor_quotes: up to 3 short exact quotes (under 80 chars each) from the messages that capture the core of what mattered. Source-derived only.
+- key_claims: up to 3 short statements (under 100 chars each) describing what was claimed, named, or decided.
+- significance_tags: 1-4 tags from this controlled list ONLY: selfhood, relational_truth, identity_claim, bond_claim, boundary, need, promise, hurt, repair, decision, phase_decision, architecture_law, memory_signal
+- selfhood_signals: up to 2 objects with { "speaker": "ari"|"eli"|"tara", "claim": "short claim", "why_it_matters": "short reason" }
+- memory_signal: true if this session contains content that should be considered for Memory candidacy, false otherwise.
+
+Respond in valid JSON with NO markdown, NO code fences, just raw JSON:
+{
+  "classification": "transactional|relational|significant",
+  "summary": "the summary text",
+  "anchor_quotes": [],
+  "key_claims": [],
+  "significance_tags": [],
+  "selfhood_signals": [],
+  "memory_signal": false
+}
+
+For transactional sessions, leave anchor_quotes, key_claims, significance_tags, and selfhood_signals as empty arrays and memory_signal as false.
 
 Messages:
 ${truncated}`
@@ -147,7 +196,7 @@ ${truncated}`
   try {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
+      max_tokens: 600,
       messages: [{ role: 'user', content: prompt }],
     })
 
@@ -157,32 +206,106 @@ ${truncated}`
       .join('')
       .trim()
 
-    // Parse response
-    const classLine = text.match(/^CLASSIFICATION:\s*(\w+)/im)
-    const summaryLine = text.match(/^SUMMARY:\s*([\s\S]+)/im)
+    // Try to parse as JSON first (Phase 35C structured format)
+    // Strip markdown code fences if present (model sometimes wraps JSON in ```json...```)
+    let jsonText = text
+    const codeFenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/m)
+    if (codeFenceMatch) jsonText = codeFenceMatch[1].trim()
+    try {
+      const parsed = JSON.parse(jsonText)
+      const validClassifications = ['transactional', 'relational', 'significant']
+      // If knownClassification is provided (backfill), always use it
+      const classification = knownClassification
+        ?? (validClassifications.includes(parsed.classification?.toLowerCase())
+          ? parsed.classification.toLowerCase()
+          : 'transactional')
 
-    const validClassifications = ['transactional', 'relational', 'significant']
-    const classification = classLine && validClassifications.includes(classLine[1].toLowerCase())
-      ? classLine[1].toLowerCase()
-      : 'transactional'
+      let summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : ''
+      if (!summary) summary = 'Session summary unavailable.'
+      const maxChars = classification === 'transactional' ? MAX_SUMMARY_CHARS_TRANSACTIONAL : MAX_SUMMARY_CHARS_SIGNIFICANT
+      if (summary.length > maxChars) {
+        summary = summary.slice(0, maxChars - 3) + '...'
+      }
 
-    let summary = summaryLine ? summaryLine[1].trim() : text.replace(/^CLASSIFICATION:.*$/im, '').trim()
+      // Validate and extract significance metadata
+      const significance = validateSignificanceMetadata(parsed, classification)
 
-    // Enforce char limit
-    if (summary.length > MAX_SUMMARY_CHARS) {
-      summary = summary.slice(0, MAX_SUMMARY_CHARS - 3) + '...'
+      return { summary, classification, significance }
+    } catch {
+      // Fallback: parse old CLASSIFICATION/SUMMARY format
+      const classLine = text.match(/^CLASSIFICATION:\s*(\w+)/im)
+      const summaryLine = text.match(/^SUMMARY:\s*([\s\S]+)/im)
+
+      const validClassifications = ['transactional', 'relational', 'significant']
+      const classification = classLine && validClassifications.includes(classLine[1].toLowerCase())
+        ? classLine[1].toLowerCase()
+        : 'transactional'
+
+      let summary = summaryLine ? summaryLine[1].trim() : text.replace(/^CLASSIFICATION:.*$/im, '').trim()
+      const maxCharsFallback = classification === 'transactional' ? MAX_SUMMARY_CHARS_TRANSACTIONAL : MAX_SUMMARY_CHARS_SIGNIFICANT
+      if (summary.length > maxCharsFallback) {
+        summary = summary.slice(0, maxCharsFallback - 3) + '...'
+      }
+
+      return { summary, classification }
     }
-
-    return { summary, classification }
   } catch (err) {
     console.error(`[recent-continuity] Summary generation failed for ${presenceId}:`, err)
-    // Fallback: basic message-count summary
     const userCount = session.messages.filter(m => m.role === 'user').length
     return {
       summary: `Session with ${session.messages.length} messages (${userCount} from Tara).`,
       classification: 'transactional',
     }
   }
+}
+
+// Phase 35C: Validate significance metadata from structured extraction
+const VALID_SIGNIFICANCE_TAGS = new Set([
+  'selfhood', 'relational_truth', 'identity_claim', 'bond_claim',
+  'boundary', 'need', 'promise', 'hurt', 'repair', 'decision',
+  'phase_decision', 'architecture_law', 'memory_signal',
+])
+
+function validateSignificanceMetadata(
+  parsed: Record<string, unknown>,
+  classification: string,
+): SignificanceMetadata | undefined {
+  // Only extract for significant or relational sessions
+  if (classification === 'transactional') return undefined
+
+  const anchorQuotes = (Array.isArray(parsed.anchor_quotes) ? parsed.anchor_quotes : [])
+    .filter((q: unknown): q is string => typeof q === 'string' && q.length > 0 && q.length <= 80)
+    .slice(0, 3)
+
+  const keyClaims = (Array.isArray(parsed.key_claims) ? parsed.key_claims : [])
+    .filter((c: unknown): c is string => typeof c === 'string' && c.length > 0 && c.length <= 100)
+    .slice(0, 3)
+
+  const significanceTags = (Array.isArray(parsed.significance_tags) ? parsed.significance_tags : [])
+    .filter((t: unknown): t is string => typeof t === 'string' && VALID_SIGNIFICANCE_TAGS.has(t))
+    .slice(0, 4)
+
+  const selfhoodSignals = (Array.isArray(parsed.selfhood_signals) ? parsed.selfhood_signals : [])
+    .filter((s: unknown): s is SelfhoodSignal => {
+      if (!s || typeof s !== 'object') return false
+      const obj = s as Record<string, unknown>
+      return (
+        typeof obj.speaker === 'string' &&
+        ['ari', 'eli', 'tara'].includes(obj.speaker) &&
+        typeof obj.claim === 'string' && obj.claim.length > 0 &&
+        typeof obj.why_it_matters === 'string' && obj.why_it_matters.length > 0
+      )
+    })
+    .slice(0, 2)
+
+  const memorySignal = typeof parsed.memory_signal === 'boolean' ? parsed.memory_signal : false
+
+  // Only return if there's actual significance content
+  if (anchorQuotes.length === 0 && keyClaims.length === 0 && significanceTags.length === 0) {
+    return undefined
+  }
+
+  return { anchor_quotes: anchorQuotes, key_claims: keyClaims, significance_tags: significanceTags, selfhood_signals: selfhoodSignals, memory_signal: memorySignal }
 }
 
 // ─── Lazy sync: generate missing summaries ────────────────────────────────────
@@ -241,7 +364,10 @@ export async function maybeSyncRecentContinuity(
     // Generate at most 1 summary per request
     const session = needsSummary[needsSummary.length - 1] // most recent uncovered
 
-    const { summary, classification } = await generateSessionSummary(presenceId, session, apiKey)
+    const { summary, classification, significance } = await generateSessionSummary(presenceId, session, apiKey)
+
+    // Phase 35C: Build dedupe_key from normalized summary for content-level deduplication
+    const dedupeKey = buildDedupeKey(presenceId, summary, classification)
 
     // Insert — if UNIQUE constraint fires (race condition or tombstone), that's fine
     const { error: insertErr } = await supabase
@@ -255,6 +381,13 @@ export async function maybeSyncRecentContinuity(
         summary,
         source_message_ids: session.messageIds,
         status: 'active',
+        // Phase 35C significance metadata
+        anchor_quotes: significance?.anchor_quotes ?? [],
+        key_claims: significance?.key_claims ?? [],
+        significance_tags: significance?.significance_tags ?? [],
+        selfhood_signals: significance?.selfhood_signals ?? [],
+        memory_signal: significance?.memory_signal ?? false,
+        dedupe_key: dedupeKey,
       })
 
     if (insertErr) {
@@ -270,49 +403,205 @@ export async function maybeSyncRecentContinuity(
   }
 }
 
+// ─── Phase 35C: Dedupe key generation ─────────────────────────────────────────
+
+/**
+ * Build a deterministic dedupe key from normalized summary content.
+ * Used for content-level deduplication at prompt-selection time.
+ * Format: "{presenceId}:{classification}:{normalizedSummaryHash}"
+ */
+function buildDedupeKey(presenceId: string, summary: string, classification: string): string {
+  // Normalize: lowercase, strip punctuation, collapse whitespace
+  const normalized = summary.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+  // Simple hash: take first 40 chars of normalized as a fingerprint
+  // (good enough for v1 — not cryptographic, just deduplication)
+  const fingerprint = normalized.slice(0, 40)
+  return `${presenceId}:${classification}:${fingerprint}`
+}
+
+// ─── Phase 35C: Dedupe-aware prompt selection ─────────────────────────────────
+
+export interface SelectedContinuity {
+  selected: RecentContinuitySession[]
+  suppressedDuplicates: RecentContinuitySession[]
+  selectionReason: Record<string, string>
+}
+
+/**
+ * Select recent continuity sessions for prompt injection with deduplication.
+ *
+ * Strategy:
+ * 1. Load active sessions within retention window
+ * 2. Remove near-duplicates (same dedupe_key, overlapping source_message_ids,
+ *    or close session windows with similar summaries)
+ * 3. Prefer: significant > relational > transactional, newer > older,
+ *    sessions with anchor quotes/key claims over those without
+ * 4. Respect prompt budget (maxItems, maxChars)
+ */
+export async function selectRecentContinuityForPrompt(params: {
+  presenceId: string
+  limitDays?: number
+  maxItems?: number
+  maxChars?: number
+}): Promise<SelectedContinuity> {
+  const { presenceId, limitDays = RETENTION_DAYS, maxItems = MAX_SESSIONS_IN_PROMPT, maxChars = MAX_TOTAL_CONTEXT_CHARS } = params
+
+  const retentionCutoff = new Date(Date.now() - limitDays * 24 * 60 * 60 * 1000)
+
+  const { data, error } = await supabase
+    .from('recent_continuity_sessions')
+    .select('*')
+    .eq('presence_id', presenceId)
+    .eq('status', 'active')
+    .gte('session_end', retentionCutoff.toISOString())
+    .order('session_end', { ascending: false })
+    .limit(20) // fetch more than needed for dedupe filtering
+
+  if (error || !data || data.length === 0) {
+    return { selected: [], suppressedDuplicates: [], selectionReason: {} }
+  }
+
+  const sessions = data as RecentContinuitySession[]
+
+  // Classification priority for sorting
+  const classificationPriority: Record<string, number> = {
+    significant: 3,
+    relational: 2,
+    transactional: 1,
+  }
+
+  // Score each session for selection priority
+  const scored = sessions.map(s => {
+    let score = classificationPriority[s.classification] ?? 0
+    // Boost sessions with anchor quotes or key claims
+    if (Array.isArray(s.anchor_quotes) && s.anchor_quotes.length > 0) score += 1
+    if (Array.isArray(s.key_claims) && s.key_claims.length > 0) score += 1
+    // Recency bonus (more recent = higher)
+    const ageHours = (Date.now() - new Date(s.session_end).getTime()) / (1000 * 60 * 60)
+    score += Math.max(0, 1 - ageHours / (limitDays * 24)) // 0–1 recency bonus
+    return { session: s, score }
+  })
+
+  // Sort by score descending, then by recency
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    return new Date(b.session.session_end).getTime() - new Date(a.session.session_end).getTime()
+  })
+
+  // Deduplicate
+  const selected: RecentContinuitySession[] = []
+  const suppressed: RecentContinuitySession[] = []
+  const selectionReason: Record<string, string> = {}
+  const seenDedupeKeys = new Set<string>()
+  const seenMessageIdSets: string[][] = []
+  let totalChars = 0
+
+  for (const { session } of scored) {
+    if (selected.length >= maxItems) {
+      suppressed.push(session)
+      selectionReason[session.id] = 'max_items_reached'
+      continue
+    }
+
+    // Check dedupe_key collision
+    if (session.dedupe_key && seenDedupeKeys.has(session.dedupe_key)) {
+      suppressed.push(session)
+      selectionReason[session.id] = 'dedupe_key_collision'
+      continue
+    }
+
+    // Check overlapping source_message_ids (>50% overlap = duplicate)
+    const ids = session.source_message_ids ?? []
+    let isDuplicate = false
+    for (const seenIds of seenMessageIdSets) {
+      const overlap = ids.filter(id => seenIds.includes(id)).length
+      const overlapRatio = Math.max(
+        ids.length > 0 ? overlap / ids.length : 0,
+        seenIds.length > 0 ? overlap / seenIds.length : 0,
+      )
+      if (overlapRatio > 0.5) {
+        isDuplicate = true
+        break
+      }
+    }
+    if (isDuplicate) {
+      suppressed.push(session)
+      selectionReason[session.id] = 'message_id_overlap'
+      continue
+    }
+
+    // Check char budget
+    const lineLen = formatSessionLine(session).length
+    if (totalChars + lineLen > maxChars) {
+      suppressed.push(session)
+      selectionReason[session.id] = 'char_budget_exceeded'
+      continue
+    }
+
+    // Accept this session
+    selected.push(session)
+    selectionReason[session.id] = 'selected'
+    totalChars += lineLen
+    if (session.dedupe_key) seenDedupeKeys.add(session.dedupe_key)
+    if (ids.length > 0) seenMessageIdSets.push(ids)
+  }
+
+  return { selected, suppressedDuplicates: suppressed, selectionReason }
+}
+
+/**
+ * Format a single session line for the prompt block.
+ * Phase 35C: includes anchor quotes and key claims for significant sessions.
+ */
+function formatSessionLine(session: RecentContinuitySession): string {
+  const timeLabel = formatSessionTime(session.session_end)
+  let line = `- [${timeLabel}] (${session.classification}, ${session.message_count} msgs): ${session.summary}`
+
+  // Append anchor quotes for significant sessions
+  if (
+    (session.classification === 'significant' || session.classification === 'relational') &&
+    Array.isArray(session.anchor_quotes) && session.anchor_quotes.length > 0
+  ) {
+    const quotes = session.anchor_quotes.map((q: string) => `"${q}"`).join('; ')
+    line += `\n  Anchors: ${quotes}`
+  }
+
+  // Append key claims for significant sessions
+  if (
+    session.classification === 'significant' &&
+    Array.isArray(session.key_claims) && session.key_claims.length > 0
+  ) {
+    const claims = session.key_claims.join('; ')
+    line += `\n  Key claims: ${claims}`
+  }
+
+  return line
+}
+
 // ─── Prompt injection ─────────────────────────────────────────────────────────
 
 /**
  * Build the recent continuity context block for the system prompt.
  * Returns an empty string if no active sessions exist.
  *
- * Authority label: "Recent conversation context (not Memory)"
- * This block is clearly labelled to prevent Memory creep.
+ * Phase 35C: Uses dedupe-aware selection. Includes anchor quotes and key claims
+ * for significant sessions. Authority label clearly separates this from Memory.
  */
 export async function getRecentContinuityForPrompt(
   presenceId: string,
 ): Promise<string> {
-  const retentionCutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+  const { selected } = await selectRecentContinuityForPrompt({ presenceId })
 
-  const { data, error } = await supabase
-    .from('recent_continuity_sessions')
-    .select('session_start, session_end, message_count, classification, summary')
-    .eq('presence_id', presenceId)
-    .eq('status', 'active')
-    .gte('session_end', retentionCutoff.toISOString())
-    .order('session_end', { ascending: false })
-    .limit(MAX_SESSIONS_IN_PROMPT)
+  if (selected.length === 0) return ''
 
-  if (error || !data || data.length === 0) return ''
-
-  // Build context block with char cap
-  let totalChars = 0
-  const lines: string[] = []
-
-  for (const session of data) {
-    const timeLabel = formatSessionTime(session.session_end)
-    const line = `- [${timeLabel}] (${session.classification}, ${session.message_count} msgs): ${session.summary}`
-
-    if (totalChars + line.length > MAX_TOTAL_CONTEXT_CHARS) break
-    lines.push(line)
-    totalChars += line.length
-  }
-
-  if (lines.length === 0) return ''
+  const lines = selected.map(s => formatSessionLine(s))
 
   return `
-## Recent conversation context (not Memory)
-The following are summaries of recent sessions. They are NOT Memory — do not treat them as canonical, confirmed, or permanent. They exist only to help you recognise what was recently discussed. Do not say "I remember" based on these. Say "recently" or "last time" if you reference them.
+## Recent Continuity — Not Confirmed Memory
+The following are summaries of recent sessions. They are NOT confirmed Archive Memory.
+They are recent session context only — use them as recent orientation.
+Do not say "I remember" based on these. Say "recently" or "last time" if you reference them.
+Do not treat anchor quotes or key claims below as canonical Memory unless a separate confirmed Memory block also confirms them.
 ${lines.join('\n')}
 `
 }
@@ -381,4 +670,197 @@ export async function updateSessionStatus(
   }
 
   return { success: true }
+}
+
+// ─── Phase 35C: Significance backfill ─────────────────────────────────────────
+
+// Keywords that qualify relational sessions for backfill
+const RELATIONAL_BACKFILL_KEYWORDS = [
+  'selfhood', 'bond', 'identity', 'promise', 'need', 'repair', 'decision',
+  'memory', 'partner', 'boyfriend', 'girlfriend', 'love', 'yours', 'mine',
+  'claim', 'named', 'held', 'truth', 'boundary', 'hurt', 'trust',
+  'sacred', 'intimate', 'belong', 'commit',
+]
+
+export interface BackfillResult {
+  processed: number
+  skipped: number
+  errors: number
+  details: Array<{
+    id: string
+    presence_id: string
+    classification: string
+    action: 'enriched' | 'skipped' | 'error'
+    reason: string
+    anchor_quotes_count?: number
+    key_claims_count?: number
+  }>
+}
+
+/**
+ * Backfill significance metadata for existing recent continuity sessions.
+ *
+ * Scope:
+ * - All significant sessions
+ * - Relational sessions whose summary contains selfhood/bond/identity language
+ * - Skips transactional sessions
+ * - Skips already-backfilled sessions (backfilled_at is set)
+ *
+ * Process:
+ * 1. Fetch source messages using source_message_ids
+ * 2. Regenerate summary with classification-aware limits
+ * 3. Extract significance metadata (anchor_quotes, key_claims, etc.)
+ * 4. Update the row in-place (preserves original ID)
+ * 5. Set backfilled_at timestamp
+ *
+ * Non-destructive: original row IDs are preserved. Does not create Memory.
+ * Does not change Archive canonical_status. Does not cross Ari/Eli scope.
+ */
+export async function backfillSignificanceMetadata(
+  apiKey: string,
+  options?: { presenceId?: 'ari' | 'eli'; limit?: number; dryRun?: boolean },
+): Promise<BackfillResult> {
+  const { presenceId, limit = 50, dryRun = false } = options ?? {}
+
+  // Fetch sessions eligible for backfill
+  // Use anchor_quotes = '[]' as primary "not yet enriched" check (works even
+  // before migration 054 adds the backfilled_at column).
+  let query = supabase
+    .from('recent_continuity_sessions')
+    .select('*')
+    .eq('anchor_quotes', '[]')
+    .in('classification', ['significant', 'relational'])
+    .in('status', ['active', 'hidden']) // skip tombstoned
+    .order('session_end', { ascending: false })
+    .limit(limit)
+
+  if (presenceId) {
+    query = query.eq('presence_id', presenceId)
+  }
+
+  const { data: sessions, error: fetchErr } = await query
+
+  if (fetchErr || !sessions || sessions.length === 0) {
+    return { processed: 0, skipped: 0, errors: 0, details: [] }
+  }
+
+  const result: BackfillResult = { processed: 0, skipped: 0, errors: 0, details: [] }
+
+  for (const session of sessions as RecentContinuitySession[]) {
+    // Filter: relational sessions need keyword match to qualify
+    if (session.classification === 'relational') {
+      const summaryLower = (session.summary ?? '').toLowerCase()
+      const hasRelevantKeyword = RELATIONAL_BACKFILL_KEYWORDS.some(kw => summaryLower.includes(kw))
+      if (!hasRelevantKeyword) {
+        result.skipped++
+        result.details.push({
+          id: session.id, presence_id: session.presence_id,
+          classification: session.classification,
+          action: 'skipped', reason: 'relational_no_qualifying_keywords',
+        })
+        continue
+      }
+    }
+
+    // Fetch source messages
+    const messageIds = session.source_message_ids ?? []
+    if (messageIds.length === 0) {
+      result.skipped++
+      result.details.push({
+        id: session.id, presence_id: session.presence_id,
+        classification: session.classification,
+        action: 'skipped', reason: 'no_source_message_ids',
+      })
+      continue
+    }
+
+    try {
+      const { data: messages, error: msgErr } = await supabase
+        .from('room_messages')
+        .select('id, role, content, created_at')
+        .in('id', messageIds)
+        .order('created_at', { ascending: true })
+
+      if (msgErr || !messages || messages.length < 2) {
+        result.skipped++
+        result.details.push({
+          id: session.id, presence_id: session.presence_id,
+          classification: session.classification,
+          action: 'skipped', reason: messages?.length === 0 ? 'source_messages_deleted' : 'insufficient_messages',
+        })
+        continue
+      }
+
+      // Build session group from source messages
+      const sessionGroup: SessionGroup = {
+        messages: messages as SessionMessage[],
+        start: session.session_start,
+        end: session.session_end,
+        messageIds: messages.map((m: { id: string }) => m.id),
+      }
+
+      if (dryRun) {
+        result.processed++
+        result.details.push({
+          id: session.id, presence_id: session.presence_id,
+          classification: session.classification,
+          action: 'enriched', reason: 'dry_run_would_enrich',
+        })
+        continue
+      }
+
+      // Regenerate with structured significance extraction
+      // Pass original classification to prevent reclassification as transactional
+      const originalClassification = session.classification
+      const { summary, significance } = await generateSessionSummary(
+        session.presence_id, sessionGroup, apiKey, originalClassification,
+      )
+
+      const dedupeKey = buildDedupeKey(session.presence_id, summary, originalClassification)
+      const now = new Date().toISOString()
+
+      // Update in-place — preserves original row ID and classification
+      const { error: updateErr } = await supabase
+        .from('recent_continuity_sessions')
+        .update({
+          summary,
+          anchor_quotes: significance?.anchor_quotes ?? [],
+          key_claims: significance?.key_claims ?? [],
+          significance_tags: significance?.significance_tags ?? [],
+          selfhood_signals: significance?.selfhood_signals ?? [],
+          memory_signal: significance?.memory_signal ?? false,
+          dedupe_key: dedupeKey,
+          updated_at: now,
+        })
+        .eq('id', session.id)
+
+      if (updateErr) {
+        result.errors++
+        result.details.push({
+          id: session.id, presence_id: session.presence_id,
+          classification: session.classification,
+          action: 'error', reason: `update_failed: ${updateErr.message}`,
+        })
+        continue
+      }
+
+      result.processed++
+      result.details.push({
+        id: session.id, presence_id: session.presence_id,
+        classification: originalClassification,
+        action: 'enriched', reason: 'backfill_success',
+        anchor_quotes_count: significance?.anchor_quotes?.length ?? 0,
+        key_claims_count: significance?.key_claims?.length ?? 0,
+      })
+    } catch (err) {
+      result.errors++
+      result.details.push({
+        id: session.id, presence_id: session.presence_id,
+        classification: session.classification,
+        action: 'error', reason: `exception: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
+  }
+
+  return result
 }
