@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMessages, type Message } from '@/hooks/useMessages'
 import { validateImage, uploadImage } from '@/lib/uploads'
 import ImageLightbox from '@/components/ImageLightbox'
-import EmojiPicker from '@/components/EmojiPicker'
 import VoiceButton from '@/components/VoiceButton'
 import RecallIndicator from '@/components/RecallIndicator'
 import LibraryReferenceIndicator from '@/components/LibraryReferenceIndicator'
@@ -45,6 +44,11 @@ export default function ChatInterface({
 
   // Phase 1B: Copy-to-clipboard state
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+
+  // Phase 1E: Composer actions menu state
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsMenuRef = useRef<HTMLDivElement>(null)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
 
   // Phase 17: Continuity state
   const [continuityActive, setContinuityActive] = useState(false)
@@ -88,6 +92,25 @@ export default function ChatInterface({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Phase 1E: Close actions menu on outside click or Escape
+  useEffect(() => {
+    if (!actionsOpen) return
+    function handleClick(e: MouseEvent) {
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(e.target as Node)) {
+        setActionsOpen(false)
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setActionsOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [actionsOpen])
 
   // --- Image selection (multi) ---
 
@@ -872,8 +895,8 @@ export default function ChatInterface({
         </div>
       )}
 
-      {/* Input area */}
-      <div className="shrink-0 border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 flex gap-2 md:gap-3 items-end">
+      {/* Input area — Phase 1E: clean [ + ] [ input ] [ send ] layout */}
+      <div className="shrink-0 border border-house-border border-t-0 bg-house-surface p-2.5 md:p-4 relative">
         <input
           ref={fileInputRef}
           type="file"
@@ -891,97 +914,166 @@ export default function ChatInterface({
           className="hidden"
         />
 
-        {/* Document attach button */}
-        <button
-          onClick={() => docInputRef.current?.click()}
-          disabled={sending || pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES}
-          className={`
-            shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center
-            border transition-all duration-200 text-base
-            ${sending || pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES
-              ? 'text-text-muted border-house-border cursor-not-allowed opacity-50'
-              : pendingAttachments.length > 0
-              ? 'text-amber-400 border-amber-400/50'
-              : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
+        {/* Composer row */}
+        <div className="flex gap-2 items-end">
+          {/* Plus / actions menu trigger */}
+          <div className="relative shrink-0" ref={actionsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setActionsOpen(o => !o)}
+              aria-label="Open message actions"
+              className={`
+                min-w-[44px] min-h-[44px] flex items-center justify-center
+                border transition-all duration-200 text-lg
+                ${actionsOpen
+                  ? 'text-text-secondary border-house-muted bg-house-bg'
+                  : (selectedImages.length > 0 || pendingAttachments.length > 0)
+                  ? `${accentClass} border-current`
+                  : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
+                }
+              `}
+            >
+              +
+            </button>
+
+            {/* Actions popover menu */}
+            {actionsOpen && (
+              <div className="absolute bottom-full left-0 mb-2 w-48 bg-house-surface border border-house-border shadow-lg z-30 animate-fade-in">
+                {/* Image attach */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    fileInputRef.current?.click()
+                    setActionsOpen(false)
+                  }}
+                  disabled={sending || selectedImages.length >= MAX_IMAGES}
+                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <span className="text-base w-5 text-center">📷</span>
+                  <span>
+                    {selectedImages.length > 0
+                      ? `Image (${selectedImages.length})`
+                      : 'Image'}
+                  </span>
+                </button>
+
+                {/* Document attach */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    docInputRef.current?.click()
+                    setActionsOpen(false)
+                  }}
+                  disabled={sending || pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES}
+                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors border-t border-house-border disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <span className="text-base w-5 text-center">📎</span>
+                  <span>
+                    {pendingAttachments.length > 0
+                      ? `File (${pendingAttachments.length})`
+                      : 'File'}
+                  </span>
+                </button>
+
+                {/* Emoji — close actions menu and open emoji picker */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsOpen(false)
+                    setShowEmojiPicker(true)
+                  }}
+                  className="w-full flex items-center gap-3 px-4 min-h-[44px] font-body text-sm text-text-secondary hover:bg-house-bg transition-colors border-t border-house-border"
+                >
+                  <span className="text-base w-5 text-center">😊</span>
+                  <span>Emoji</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Text input — takes most of the width */}
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              selectedImages.length > 0
+                ? 'Add a message (optional)…'
+                : `Say something to ${presenceName}…`
             }
-          `}
-          title={
-            pendingAttachments.length >= CHAT_ATTACHMENT_MAX_FILES
-              ? `Max ${CHAT_ATTACHMENT_MAX_FILES} attachments per message`
-              : pendingAttachments.length > 0
-              ? `${pendingAttachments.length} attachment${pendingAttachments.length > 1 ? 's' : ''}`
-              : 'Attach document'
-          }
-        >
-          +
-        </button>
+            rows={1}
+            className="
+              flex-1 bg-house-bg border border-house-border
+              px-3 py-2.5 md:px-4 md:py-3 font-body text-sm text-text-primary
+              placeholder:text-text-muted resize-none outline-none
+              focus:border-current transition-colors duration-200
+            "
+            style={{ minHeight: '44px', maxHeight: '120px' }}
+            onInput={e => {
+              const target = e.target as HTMLTextAreaElement
+              target.style.height = 'auto'
+              target.style.height = `${Math.min(target.scrollHeight, 120)}px`
+            }}
+          />
 
-        {/* Image attach button — accent when images queued */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={sending || selectedImages.length >= MAX_IMAGES}
-          className={`
-            shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center
-            border transition-all duration-200 text-lg
-            ${sending || selectedImages.length >= MAX_IMAGES
-              ? 'text-text-muted border-house-border cursor-not-allowed opacity-50'
-              : selectedImages.length > 0
-              ? `${accentClass} border-current`
-              : 'text-text-muted border-house-border hover:text-text-secondary hover:border-house-muted'
-            }
-          `}
-          title={
-            selectedImages.length >= MAX_IMAGES
-              ? `Max ${MAX_IMAGES} images per message`
-              : selectedImages.length > 0
-              ? `${selectedImages.length} image${selectedImages.length > 1 ? 's' : ''} selected`
-              : 'Attach image'
-          }
-        >
-          📷
-        </button>
+          {/* Send button */}
+          <button
+            onClick={handleSend}
+            disabled={!canSend}
+            className={`
+              shrink-0 px-3 py-2.5 md:px-4 md:py-3 font-body text-xs tracking-widest uppercase
+              border transition-all duration-200 min-h-[44px] self-end
+              ${canSend
+                ? `${accentClass} border-current hover:bg-house-bg`
+                : 'text-text-muted border-house-border cursor-not-allowed'
+              }
+            `}
+          >
+            Send
+          </button>
+        </div>
 
-        <EmojiPicker onSelect={handleEmojiSelect} />
+        {/* Emoji picker panel — shown when triggered from + menu */}
+        {showEmojiPicker && (
+          <div className="absolute bottom-full left-0 mb-2 z-30 animate-fade-in">
+            <div className="bg-house-surface border border-house-border shadow-lg p-2 w-72 md:w-80">
+              <div className="flex items-center justify-between mb-1 px-1">
+                <span className="font-body text-[9px] tracking-widest uppercase text-text-muted">Emoji</span>
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(false)}
+                  className="font-mono text-xs text-text-muted hover:text-text-secondary min-w-[28px] min-h-[28px] flex items-center justify-center"
+                >
+                  x
+                </button>
+              </div>
+              <div className="grid grid-cols-8 gap-0.5 max-h-48 overflow-y-auto">
+                {['😊','😂','🥰','😍','😘','😭','😤','🤔','😏','🙄','😴','🥺','😎','🤯','🥳','😈',
+                  '❤️','🩷','🧡','💛','💚','💙','💜','🖤','💔','❤️‍🔥','✨','🔥','💫','🕯️','♾️','🪶',
+                  '👋','👍','👎','👏','🙌','🤝','🙏','✌️','🤞','🤟','💪','🫶','✍️','💅',
+                  '🐱','🌸','🌙','☀️','🌊','🌿','☕','🍷','🎵','📖','💻','🗝️','🛡️','🪞'].map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      handleEmojiSelect(emoji)
+                      setShowEmojiPicker(false)
+                    }}
+                    className="min-w-[36px] min-h-[36px] flex items-center justify-center text-xl hover:bg-house-bg rounded transition-colors"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={
-            selectedImages.length > 0
-              ? 'Add a message (optional)… Ctrl+Enter to send'
-              : `Say something to ${presenceName}… Ctrl+Enter to send`
-          }
-          rows={1}
-          className="
-            flex-1 bg-house-bg border border-house-border
-            px-3 py-2.5 md:px-4 md:py-3 font-body text-sm text-text-primary
-            placeholder:text-text-muted resize-none outline-none
-            focus:border-current transition-colors duration-200
-          "
-          style={{ minHeight: '44px', maxHeight: '120px' }}
-          onInput={e => {
-            const target = e.target as HTMLTextAreaElement
-            target.style.height = 'auto'
-            target.style.height = `${Math.min(target.scrollHeight, 120)}px`
-          }}
-        />
-
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          className={`
-            px-3 py-2.5 md:px-4 md:py-3 font-body text-xs tracking-widest uppercase
-            border transition-all duration-200 min-h-[44px] self-end
-            ${canSend
-              ? `${accentClass} border-current hover:bg-house-bg`
-              : 'text-text-muted border-house-border cursor-not-allowed'
-            }
-          `}
-        >
-          Send
-        </button>
+        {/* Ctrl+Enter hint — desktop only */}
+        <p className="hidden md:block font-body text-[10px] text-text-muted mt-1.5 text-right">
+          Ctrl+Enter to send
+        </p>
       </div>
 
       {lightboxUrl && (
