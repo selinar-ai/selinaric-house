@@ -30,6 +30,7 @@ import {
   type LoungeMessage,
   type LoungeAttachment,
 } from '@/lib/lounge'
+import { getSharedAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,6 +76,9 @@ export async function POST(request: NextRequest) {
       respondAs === 'eli' ? ['eli'] :
       ['ari', 'eli'] // 'both' or 'continue'
 
+    // Phase 11E: Shared autonomy continuity for Lounge context
+    const autonomyContinuityBlock = await getSharedAutonomyContinuityForPrompt().catch(() => '')
+
     const responses: { speaker: string; content: string }[] = []
     let runningHistory = [...history]
 
@@ -96,7 +100,7 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
           : '')
         : ''
 
-      const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock
+      const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock + autonomyContinuityBlock
 
       // For "continue" mode without a new Tara message, add a system nudge
       const conversationMessages: Anthropic.MessageParam[] =
