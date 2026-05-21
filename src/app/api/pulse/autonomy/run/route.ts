@@ -1,7 +1,6 @@
 // Phase 11E — Pulse Hourly Heartbeat (DST-safe)
 //
-// Called by Vercel cron every hour ("0 * * * *").
-// Uses Australia/Melbourne local time to determine actions:
+// Called hourly. Uses Australia/Melbourne local time to determine actions:
 //
 // 1. Autonomy windows (Melbourne local):
 //    6am, 10am, 2pm (14), 6pm (18) — active windows
@@ -10,8 +9,18 @@
 //
 // 2. Journal fallback (Melbourne 23:00 / 11pm):
 //    If no journal entry exists for a presence today, creates a journal_job.
+//    This is invitation-only — no final journal content is written here.
+//    Final journal entries remain presence-authored.
 //    Folded in from former /api/journal/fallback cron to stay within
 //    Vercel Hobby 2-cron limit.
+//
+// DEPLOYMENT NOTE:
+//   Vercel Hobby plan limits crons to once daily. The Vercel cron fires at
+//   "0 20 * * *" (6am Melbourne AEST), covering only the 6am autonomy window.
+//   External hourly cron is required for full autonomy windows (all 5) and
+//   for the 23:00 journal fallback invitation check.
+//   The /api/pulse maintenance cron (interior notes, living state, journal,
+//   graph ingestion) is separate and must not be removed.
 //
 // Also callable via POST for manual triggering (bypasses hour gate).
 //
