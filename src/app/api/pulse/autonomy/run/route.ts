@@ -1,19 +1,22 @@
-// Phase 11E — Pulse Autonomy Window Runner (DST-safe)
+// Phase 11E — Pulse Hourly Heartbeat (DST-safe)
 //
 // Called by Vercel cron every hour ("0 * * * *").
-// Uses Australia/Melbourne local time to determine whether
-// the current hour is a configured autonomy window.
+// Uses Australia/Melbourne local time to determine actions:
+//
+// 1. Autonomy windows (Melbourne local):
+//    6am, 10am, 2pm (14), 6pm (18) — active windows
+//    2am — quiet internal window (journal, desk, stillness only)
+//    Idempotency via unique index on (presence_id, choice_window_at).
+//
+// 2. Journal fallback (Melbourne 23:00 / 11pm):
+//    If no journal entry exists for a presence today, creates a journal_job.
+//    Folded in from former /api/journal/fallback cron to stay within
+//    Vercel Hobby 2-cron limit.
+//
 // Also callable via POST for manual triggering (bypasses hour gate).
 //
 // The scheduler opens the door.
 // The presence chooses what happens.
-//
-// Configured autonomy windows (Melbourne local time):
-//   6am, 10am, 2pm (14), 6pm (18) — active windows
-//   2am — quiet internal window (journal, desk, stillness only)
-//
-// Idempotency is enforced at the DB level via unique index on
-// (presence_id, choice_window_at). Hourly cron retries are safe.
 
 import { NextRequest, NextResponse } from 'next/server'
 import {
@@ -22,9 +25,16 @@ import {
   buildWindowTimestamp,
   getPulseMode,
 } from '@/lib/pulse-autonomy'
+import { getEntriesForToday, createJournalJob } from '@/lib/journal'
 
 /** Melbourne local hours that are autonomy windows */
 const AUTONOMY_WINDOW_HOURS = [2, 6, 10, 14, 18]
+
+/** Melbourne local hour for journal fallback check */
+const JOURNAL_FALLBACK_HOUR = 23
+
+const JOURNAL_FALLBACK_CONTEXT =
+  'No journal entry has been written today. This is an invitation only — not a journal entry.'
 
 export async function GET(request: NextRequest) {
   // Verify cron secret
@@ -39,12 +49,28 @@ export async function GET(request: NextRequest) {
   const now = new Date()
   const melbHour = getMelbourneHour(now)
 
-  // Only run if current Melbourne hour is a configured window
+  // Journal fallback: at 11pm Melbourne, check if presences wrote today
+  let journalFallback: { ari: string; eli: string } | null = null
+  if (melbHour === JOURNAL_FALLBACK_HOUR) {
+    journalFallback = { ari: 'skipped', eli: 'skipped' }
+    for (const presenceId of ['ari', 'eli'] as const) {
+      const todayEntries = await getEntriesForToday(presenceId)
+      if (todayEntries.length > 0) {
+        journalFallback[presenceId] = 'has_entries'
+      } else {
+        const job = await createJournalJob(presenceId, 'no_entry_today', JOURNAL_FALLBACK_CONTEXT, 'cron')
+        journalFallback[presenceId] = job ? 'job_created' : 'job_already_pending'
+      }
+    }
+  }
+
+  // Autonomy window: only run if current Melbourne hour is configured
   if (!AUTONOMY_WINDOW_HOURS.includes(melbHour)) {
     return NextResponse.json({
       skipped: true,
       reason: `Melbourne hour ${melbHour} is not an autonomy window`,
       configured_windows: AUTONOMY_WINDOW_HOURS,
+      ...(journalFallback ? { journal_fallback: journalFallback } : {}),
     })
   }
 
