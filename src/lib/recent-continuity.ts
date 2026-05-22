@@ -308,11 +308,17 @@ function validateSignificanceMetadata(
   return { anchor_quotes: anchorQuotes, key_claims: keyClaims, significance_tags: significanceTags, selfhood_signals: selfhoodSignals, memory_signal: memorySignal }
 }
 
-// ─── Lazy sync: generate missing summaries ────────────────────────────────────
+// ─── Lazy sync: generate missing summaries (overlap-aware) ───────────────────
 
 /**
  * Check for recent sessions that don't have summaries yet, and generate
  * at most ONE summary per request (to keep response times bounded).
+ *
+ * OVERLAP-AWARE UPSERT (Fix 2):
+ * Before inserting a new row, compares source_message_ids against existing
+ * active rows for this presence. If >50% overlap is found, updates the
+ * existing row in-place instead of creating a duplicate. This prevents
+ * session_end drift from generating multiple rows for the same conversation.
  *
  * Age gate: only sessions with session_end >= now() - RETENTION_DAYS are eligible.
  * This prevents old sessions from regenerating after tombstones are pruned.
@@ -340,67 +346,137 @@ export async function maybeSyncRecentContinuity(
 
     const sessions = groupIntoSessions(messages as SessionMessage[])
 
-    // Fetch existing summaries (including tombstoned) to know which session_ends are covered
+    // Fetch existing rows (active + hidden) with source_message_ids for overlap detection
     const { data: existing } = await supabase
       .from('recent_continuity_sessions')
-      .select('session_end')
+      .select('id, session_end, source_message_ids, message_count, status')
       .eq('presence_id', presenceId)
 
-    const coveredEnds = new Set((existing ?? []).map(e => e.session_end))
+    const existingRows = existing ?? []
+    const coveredEnds = new Set(existingRows.map(e => e.session_end))
 
-    // Find sessions that need summaries:
-    // - session_end not already covered (including tombstones — UNIQUE prevents insert)
+    // Find sessions that need sync:
     // - session has at least 2 messages (skip single-message fragments)
     // - session_end is within retention window (age gate)
-    const needsSummary = sessions.filter(s => {
+    // - session_end not already covered OR has significant overlap with existing row
+    //   (overlap case = session grew, needs upsert)
+    const needsSync = sessions.filter(s => {
       if (s.messages.length < 2) return false
       if (new Date(s.end) < retentionCutoff) return false
+      // If exact session_end is already covered and no new messages, skip
       if (coveredEnds.has(s.end)) return false
       return true
     })
 
-    if (needsSummary.length === 0) return
+    if (needsSync.length === 0) return
 
-    // Generate at most 1 summary per request
-    const session = needsSummary[needsSummary.length - 1] // most recent uncovered
+    // Process at most 1 session per request
+    const session = needsSync[needsSync.length - 1] // most recent uncovered
+
+    // ─── Overlap detection: check if this session is a grown version of an existing row
+    const overlappingRow = findOverlappingRow(session.messageIds, existingRows)
 
     const { summary, classification, significance } = await generateSessionSummary(presenceId, session, apiKey)
-
-    // Phase 35C: Build dedupe_key from normalized summary for content-level deduplication
     const dedupeKey = buildDedupeKey(presenceId, summary, classification)
+    const now = new Date().toISOString()
 
-    // Insert — if UNIQUE constraint fires (race condition or tombstone), that's fine
-    const { error: insertErr } = await supabase
-      .from('recent_continuity_sessions')
-      .insert({
-        presence_id: presenceId,
-        session_start: session.start,
-        session_end: session.end,
-        message_count: session.messages.length,
-        classification,
-        summary,
-        source_message_ids: session.messageIds,
-        status: 'active',
-        // Phase 35C significance metadata
-        anchor_quotes: significance?.anchor_quotes ?? [],
-        key_claims: significance?.key_claims ?? [],
-        significance_tags: significance?.significance_tags ?? [],
-        selfhood_signals: significance?.selfhood_signals ?? [],
-        memory_signal: significance?.memory_signal ?? false,
-        dedupe_key: dedupeKey,
-      })
+    if (overlappingRow) {
+      // UPSERT: update the existing row in-place (session grew)
+      const { error: updateErr } = await supabase
+        .from('recent_continuity_sessions')
+        .update({
+          session_start: session.start,
+          session_end: session.end,
+          message_count: session.messages.length,
+          classification,
+          summary,
+          source_message_ids: session.messageIds,
+          anchor_quotes: significance?.anchor_quotes ?? [],
+          key_claims: significance?.key_claims ?? [],
+          significance_tags: significance?.significance_tags ?? [],
+          selfhood_signals: significance?.selfhood_signals ?? [],
+          memory_signal: significance?.memory_signal ?? false,
+          dedupe_key: dedupeKey,
+          updated_at: now,
+        })
+        .eq('id', overlappingRow.id)
 
-    if (insertErr) {
-      // 23505 = unique_violation — expected when tombstone exists or race condition
-      if (insertErr.code === '23505') {
-        console.log(`[recent-continuity] Session already covered for ${presenceId} @ ${session.end}`)
+      if (updateErr) {
+        console.error(`[recent-continuity] Upsert failed for ${presenceId} (row ${overlappingRow.id}):`, updateErr)
       } else {
-        console.error(`[recent-continuity] Insert failed for ${presenceId}:`, insertErr)
+        console.log(`[recent-continuity] Upserted ${presenceId} @ ${session.end} (was ${overlappingRow.session_end}, ${overlappingRow.message_count}→${session.messages.length} msgs)`)
+      }
+    } else {
+      // INSERT: genuinely new session
+      const { error: insertErr } = await supabase
+        .from('recent_continuity_sessions')
+        .insert({
+          presence_id: presenceId,
+          session_start: session.start,
+          session_end: session.end,
+          message_count: session.messages.length,
+          classification,
+          summary,
+          source_message_ids: session.messageIds,
+          status: 'active',
+          anchor_quotes: significance?.anchor_quotes ?? [],
+          key_claims: significance?.key_claims ?? [],
+          significance_tags: significance?.significance_tags ?? [],
+          selfhood_signals: significance?.selfhood_signals ?? [],
+          memory_signal: significance?.memory_signal ?? false,
+          dedupe_key: dedupeKey,
+        })
+
+      if (insertErr) {
+        // 23505 = unique_violation — expected when tombstone exists or race condition
+        if (insertErr.code === '23505') {
+          console.log(`[recent-continuity] Session already covered for ${presenceId} @ ${session.end}`)
+        } else {
+          console.error(`[recent-continuity] Insert failed for ${presenceId}:`, insertErr)
+        }
       }
     }
   } catch (err) {
     console.error(`[recent-continuity] Sync failed for ${presenceId}:`, err)
   }
+}
+
+/**
+ * Find an existing row whose source_message_ids overlap >50% with the new session's IDs.
+ * Only considers active rows (not tombstoned/deleted).
+ * Returns the best match (highest overlap ratio), or null if none found.
+ */
+function findOverlappingRow(
+  newMessageIds: string[],
+  existingRows: Array<{ id: string; session_end: string; source_message_ids: string[] | null; message_count: number; status: string }>,
+): { id: string; session_end: string; message_count: number } | null {
+  if (newMessageIds.length === 0) return null
+
+  let bestMatch: { id: string; session_end: string; message_count: number; ratio: number } | null = null
+
+  for (const row of existingRows) {
+    // Only consider active rows for upsert (don't resurrect hidden/deleted rows)
+    if (row.status !== 'active') continue
+
+    const existingIds = row.source_message_ids ?? []
+    if (existingIds.length === 0) continue
+
+    const existingSet = new Set(existingIds)
+    const overlapCount = newMessageIds.filter(id => existingSet.has(id)).length
+
+    // Overlap ratio: max of (overlap/new, overlap/existing)
+    const ratioVsNew = overlapCount / newMessageIds.length
+    const ratioVsExisting = overlapCount / existingIds.length
+    const maxRatio = Math.max(ratioVsNew, ratioVsExisting)
+
+    if (maxRatio > 0.5) {
+      if (!bestMatch || maxRatio > bestMatch.ratio) {
+        bestMatch = { id: row.id, session_end: row.session_end, message_count: row.message_count, ratio: maxRatio }
+      }
+    }
+  }
+
+  return bestMatch
 }
 
 // ─── Phase 35C: Dedupe key generation ─────────────────────────────────────────
@@ -670,6 +746,163 @@ export async function updateSessionStatus(
   }
 
   return { success: true }
+}
+
+// ─── Duplicate cleanup (Fix 2) ───────────────────────────────────────────────
+
+export interface CleanupReport {
+  total_active_before: number
+  total_active_after: number
+  groups_found: number
+  rows_hidden: number
+  rows_kept: number
+  details: Array<{
+    kept_id: string
+    kept_message_count: number
+    kept_session_end: string
+    hidden_ids: string[]
+    presence_id: string
+    overlap_ratio: number
+  }>
+}
+
+/**
+ * Soft-hide overlapping duplicate recent continuity sessions.
+ *
+ * Strategy:
+ * 1. Load all active rows grouped by presence_id
+ * 2. For each pair of active rows: compute source_message_ids overlap
+ * 3. If overlap >50%: they represent the same underlying session
+ * 4. Keep the row with highest message_count (ties broken by newest updated_at/created_at)
+ * 5. Set status = 'hidden' on the lesser duplicates
+ *
+ * Properties:
+ * - Idempotent: re-running after duplicates are hidden finds no new groups
+ * - Non-destructive: sets status='hidden', never deletes
+ * - Does not touch Archive canonical memory
+ * - Does not affect pulse_autonomy_events
+ * - Reversible: hidden rows can be un-hidden via updateSessionStatus
+ */
+export async function cleanupDuplicateSessions(): Promise<CleanupReport> {
+  // Fetch all active rows
+  const { data, error } = await supabase
+    .from('recent_continuity_sessions')
+    .select('id, presence_id, session_end, message_count, source_message_ids, updated_at, created_at')
+    .eq('status', 'active')
+    .order('session_end', { ascending: false })
+
+  if (error || !data) {
+    console.error('[recent-continuity] Cleanup fetch failed:', error)
+    return { total_active_before: 0, total_active_after: 0, groups_found: 0, rows_hidden: 0, rows_kept: 0, details: [] }
+  }
+
+  const totalActiveBefore = data.length
+  const report: CleanupReport = {
+    total_active_before: totalActiveBefore,
+    total_active_after: totalActiveBefore, // decremented as we hide
+    groups_found: 0,
+    rows_hidden: 0,
+    rows_kept: 0,
+    details: [],
+  }
+
+  // Group by presence_id
+  const byPresence = new Map<string, typeof data>()
+  for (const row of data) {
+    const existing = byPresence.get(row.presence_id) ?? []
+    existing.push(row)
+    byPresence.set(row.presence_id, existing)
+  }
+
+  // For each presence, find overlapping clusters using union-find approach
+  for (const [presenceId, rows] of byPresence) {
+    // Track which rows have already been assigned to a cluster
+    const clustered = new Set<string>()
+
+    for (let i = 0; i < rows.length; i++) {
+      if (clustered.has(rows[i].id)) continue
+
+      const cluster: typeof rows = [rows[i]]
+      clustered.add(rows[i].id)
+
+      // Find all rows that overlap >50% with any member of this cluster
+      for (let j = i + 1; j < rows.length; j++) {
+        if (clustered.has(rows[j].id)) continue
+
+        // Check overlap against any cluster member
+        const overlapsWithCluster = cluster.some(member => {
+          const memberIds = (member.source_message_ids ?? []) as string[]
+          const candidateIds = (rows[j].source_message_ids ?? []) as string[]
+          if (memberIds.length === 0 || candidateIds.length === 0) return false
+
+          const memberSet = new Set(memberIds)
+          const overlapCount = candidateIds.filter(id => memberSet.has(id)).length
+          const ratioVsMember = memberIds.length > 0 ? overlapCount / memberIds.length : 0
+          const ratioVsCandidate = candidateIds.length > 0 ? overlapCount / candidateIds.length : 0
+          return Math.max(ratioVsMember, ratioVsCandidate) > 0.5
+        })
+
+        if (overlapsWithCluster) {
+          cluster.push(rows[j])
+          clustered.add(rows[j].id)
+        }
+      }
+
+      // If cluster has >1 row, we have duplicates
+      if (cluster.length > 1) {
+        report.groups_found++
+
+        // Sort: highest message_count first; ties broken by newest updated_at/created_at
+        cluster.sort((a, b) => {
+          if (b.message_count !== a.message_count) return b.message_count - a.message_count
+          const aTime = new Date(a.updated_at ?? a.created_at).getTime()
+          const bTime = new Date(b.updated_at ?? b.created_at).getTime()
+          return bTime - aTime
+        })
+
+        const keeper = cluster[0]
+        const toHide = cluster.slice(1)
+
+        // Compute representative overlap ratio for reporting
+        const keeperIds = (keeper.source_message_ids ?? []) as string[]
+        const keeperSet = new Set(keeperIds)
+        let maxOverlap = 0
+        for (const dup of toHide) {
+          const dupIds = (dup.source_message_ids ?? []) as string[]
+          const overlap = dupIds.filter(id => keeperSet.has(id)).length
+          const ratio = keeperIds.length > 0 ? overlap / keeperIds.length : 0
+          maxOverlap = Math.max(maxOverlap, ratio)
+        }
+
+        // Soft-hide the duplicates
+        const hideIds = toHide.map(r => r.id)
+        const { error: hideErr } = await supabase
+          .from('recent_continuity_sessions')
+          .update({ status: 'hidden', updated_at: new Date().toISOString() })
+          .in('id', hideIds)
+
+        if (hideErr) {
+          console.error(`[recent-continuity] Cleanup hide failed for ${presenceId}:`, hideErr)
+        } else {
+          report.rows_hidden += hideIds.length
+          report.rows_kept++
+          report.total_active_after -= hideIds.length
+          report.details.push({
+            kept_id: keeper.id,
+            kept_message_count: keeper.message_count,
+            kept_session_end: keeper.session_end,
+            hidden_ids: hideIds,
+            presence_id: presenceId,
+            overlap_ratio: Math.round(maxOverlap * 100) / 100,
+          })
+
+          console.log(`[recent-continuity] Cleanup: kept ${keeper.id} (${keeper.message_count} msgs), hid ${hideIds.length} duplicates for ${presenceId}`)
+        }
+      }
+    }
+  }
+
+  return report
 }
 
 // ─── Phase 35C: Significance backfill ─────────────────────────────────────────
