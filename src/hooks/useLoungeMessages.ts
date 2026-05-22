@@ -94,19 +94,34 @@ export function useLoungeMessages() {
   }, [])
 
   // Capture cross-room event (Phase 36B)
-  const captureEvent = useCallback(async () => {
+  // Supports confirmation flow: first call may return requires_confirmation,
+  // second call with confirmed: true creates the event.
+  const captureEvent = useCallback(async (confirmed?: boolean) => {
     const res = await fetch('/api/lounge-capture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed: confirmed ?? false }),
     })
 
     const data = await res.json()
 
-    if (!res.ok || !data.captured) {
-      return { captured: false, blocked: data.blocked ?? 'Capture failed.' }
+    // Requires confirmation (first capture, no prior boundary)
+    if (data.requires_confirmation) {
+      return {
+        captured: false,
+        requires_confirmation: true,
+        proposal: data.proposal,
+        blocked: null,
+      }
     }
 
-    return { captured: true, event: data.event, blocked: null }
+    // Blocked
+    if (!res.ok || !data.captured) {
+      return { captured: false, requires_confirmation: false, blocked: data.blocked ?? 'Capture failed.', proposal: null }
+    }
+
+    // Success
+    return { captured: true, requires_confirmation: false, event: data.event, blocked: null, proposal: null }
   }, [])
 
   return {

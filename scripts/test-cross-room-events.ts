@@ -137,7 +137,7 @@ async function run() {
 
     assert(!!error, 'Insert with wrong authority_label rejected', error?.message)
     assert(
-      error?.message?.includes('check') || error?.message?.includes('violates') || error?.code === '23514',
+      !!(error?.message?.includes('check') || error?.message?.includes('violates') || error?.code === '23514'),
       'Rejection is check constraint violation',
       `code=${error?.code}, msg=${error?.message}`,
     )

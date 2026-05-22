@@ -2,6 +2,13 @@
 //
 // POST /api/lounge-capture — Capture recent Lounge contact as a cross-room event
 //
+// Confirmation flow:
+// 1. First request (no body or { confirmed: false }):
+//    - If first-ever capture → returns proposal with requires_confirmation: true
+//    - If boundary resolved → creates event immediately
+// 2. Confirmed request ({ confirmed: true }):
+//    - Creates event from proposed boundary
+//
 // This is a governed manual capture path.
 // It creates a cross_room_event using the 36A ledger.
 // authority_label is always forced to 'cross_room_event_not_memory'.
@@ -15,12 +22,21 @@
 // - inject prompt carryforward
 // - interpret emotional impact
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getOrCreateActiveThread, getMessagesForCapture } from '@/lib/lounge'
 import { createCrossRoomEvent } from '@/lib/cross-room-events'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    // Parse optional body for confirmation flag
+    let confirmed = false
+    try {
+      const body = await request.json()
+      confirmed = body?.confirmed === true
+    } catch {
+      // No body or invalid JSON — treat as unconfirmed
+    }
+
     // Get active thread
     const thread = await getOrCreateActiveThread()
 
@@ -32,6 +48,23 @@ export async function POST() {
         captured: false,
         blocked: blocked ?? 'No messages available for capture.',
       }, { status: 409 })
+    }
+
+    // If first capture requires confirmation and not yet confirmed, return proposal
+    if (proposal.requiresConfirmation && !confirmed) {
+      const participantNames = proposal.participants.map(p => p.label ?? p.id).join(', ')
+      return NextResponse.json({
+        captured: false,
+        requires_confirmation: true,
+        proposal: {
+          messageCount: proposal.messageCount,
+          firstTimestamp: proposal.firstTimestamp,
+          lastTimestamp: proposal.lastTimestamp,
+          participants: participantNames,
+          presenceIds: proposal.presenceIds,
+          taraPresent: proposal.taraPresent,
+        },
+      }, { status: 200 })
     }
 
     // Build deterministic neutral summary

@@ -173,17 +173,20 @@ export interface LoungeCaptureProposal {
   participants: { type: string; id: string; label?: string }[]
   presenceIds: string[]
   taraPresent: boolean
+  /** True when this is the first capture and requires explicit confirmation. */
+  requiresConfirmation: boolean
 }
 
 /**
  * Get Lounge messages eligible for capture as a cross-room event.
  *
- * Boundary rule: capture messages since the last Lounge cross_room_event,
- * determined by resolving the prior event's source_message_ids against
- * lounge_messages and using the latest created_at among them.
- *
- * Safety: capped at LOUNGE_CAPTURE_CAP (40) messages.
- * If no prior event exists, captures latest 40 messages only.
+ * Boundary rules (tightened):
+ * 1. If a prior Lounge event exists but its source_message_ids cannot be
+ *    resolved in lounge_messages → BLOCK. Do not silently fall back.
+ * 2. If no prior Lounge event exists → return proposal with
+ *    requires_confirmation: true. First capture must be explicitly confirmed.
+ * 3. If boundary resolves → capture messages after that timestamp, capped at 40.
+ * 4. If proposed messages overlap last event → BLOCK.
  */
 export async function getMessagesForCapture(
   threadId: string,
@@ -198,6 +201,7 @@ export async function getMessagesForCapture(
     .maybeSingle()
 
   let boundaryTimestamp: string | null = null
+  let isFirstCapture = false
 
   if (lastEvent && Array.isArray(lastEvent.source_message_ids) && lastEvent.source_message_ids.length > 0) {
     // Resolve the latest created_at among the prior event's source messages
@@ -210,40 +214,54 @@ export async function getMessagesForCapture(
 
     if (boundaryMsgs && boundaryMsgs.length > 0) {
       boundaryTimestamp = boundaryMsgs[0].created_at
+    } else {
+      // Prior event exists but source_message_ids cannot be resolved → BLOCK
+      return {
+        proposal: null,
+        blocked: 'Latest Lounge event boundary could not be resolved. Capture blocked to avoid accidental backlog capture.',
+      }
     }
+  } else if (!lastEvent) {
+    // No prior event at all — first capture requires confirmation
+    isFirstCapture = true
+  }
+  // else: lastEvent exists but has empty source_message_ids — treat as first capture
+  if (lastEvent && (!Array.isArray(lastEvent.source_message_ids) || lastEvent.source_message_ids.length === 0)) {
+    isFirstCapture = true
   }
 
-  // Fetch messages after the boundary (or latest cap if no boundary)
-  let query = supabase
-    .from('lounge_messages')
-    .select('*')
-    .eq('thread_id', threadId)
-    .order('created_at', { ascending: true })
+  // Fetch messages
+  let messages: LoungeMessage[]
 
   if (boundaryTimestamp) {
-    query = query.gt('created_at', boundaryTimestamp)
-  }
+    // Normal case: capture after resolved boundary
+    const { data, error } = await supabase
+      .from('lounge_messages')
+      .select('*')
+      .eq('thread_id', threadId)
+      .gt('created_at', boundaryTimestamp)
+      .order('created_at', { ascending: true })
+      .limit(LOUNGE_CAPTURE_CAP)
 
-  const { data: candidateMessages, error } = await query.limit(LOUNGE_CAPTURE_CAP)
-
-  if (error) {
-    console.error('[lounge-capture] Failed to fetch candidate messages:', error.message)
-    return { proposal: null, blocked: 'Failed to fetch Lounge messages.' }
-  }
-
-  // If no boundary exists, we're using the latest cap — fetch in reverse to get most recent
-  let messages: LoungeMessage[]
-  if (!boundaryTimestamp) {
-    const { data: recentMsgs } = await supabase
+    if (error) {
+      console.error('[lounge-capture] Failed to fetch candidate messages:', error.message)
+      return { proposal: null, blocked: 'Failed to fetch Lounge messages.' }
+    }
+    messages = (data as LoungeMessage[]) ?? []
+  } else {
+    // First capture (no boundary): use latest cap
+    const { data, error } = await supabase
       .from('lounge_messages')
       .select('*')
       .eq('thread_id', threadId)
       .order('created_at', { ascending: false })
       .limit(LOUNGE_CAPTURE_CAP)
 
-    messages = ((recentMsgs as LoungeMessage[]) ?? []).reverse()
-  } else {
-    messages = (candidateMessages as LoungeMessage[]) ?? []
+    if (error) {
+      console.error('[lounge-capture] Failed to fetch candidate messages:', error.message)
+      return { proposal: null, blocked: 'Failed to fetch Lounge messages.' }
+    }
+    messages = ((data as LoungeMessage[]) ?? []).reverse()
   }
 
   if (messages.length === 0) {
@@ -292,6 +310,7 @@ export async function getMessagesForCapture(
       participants,
       presenceIds,
       taraPresent,
+      requiresConfirmation: isFirstCapture,
     },
     blocked: null,
   }

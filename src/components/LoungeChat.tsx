@@ -282,14 +282,21 @@ export default function LoungeChat() {
     }
   }
 
-  async function handleCaptureEvent() {
-    setCaptureStatus('Capturing...')
+  async function handleCaptureEvent(confirmed?: boolean) {
+    setCaptureStatus(confirmed ? 'Confirming...' : 'Capturing...')
     try {
-      const result = await captureEvent()
+      const result = await captureEvent(confirmed)
       if (result.captured) {
         const count = result.event?.message_count ?? 0
         setCaptureStatus(`Captured: ${count} msgs`)
         setTimeout(() => setCaptureStatus(null), 5000)
+      } else if (result.requires_confirmation) {
+        const p = result.proposal
+        setCaptureStatus(`${p?.messageCount ?? '?'} msgs ready — click again to confirm`)
+        // Clear after 8s if not confirmed
+        setTimeout(() => {
+          setCaptureStatus(current => current?.includes('confirm') ? null : current)
+        }, 8000)
       } else {
         setCaptureStatus(result.blocked ?? 'Blocked')
         setTimeout(() => setCaptureStatus(null), 5000)
@@ -527,9 +534,13 @@ export default function LoungeChat() {
             {carrybackStatus || 'Carryback'}
           </button>
           <button
-            onClick={handleCaptureEvent}
-            className="font-body text-[10px] md:text-xs tracking-wider uppercase px-3 py-1.5 border border-house-border text-text-muted hover:text-house-accent hover:border-house-accent/50 transition-colors min-h-[36px]"
-            disabled={!!captureStatus}
+            onClick={() => handleCaptureEvent(captureStatus?.includes('confirm') ? true : undefined)}
+            className={`font-body text-[10px] md:text-xs tracking-wider uppercase px-3 py-1.5 border transition-colors min-h-[36px] ${
+              captureStatus?.includes('confirm')
+                ? 'border-house-accent text-house-accent'
+                : 'border-house-border text-text-muted hover:text-house-accent hover:border-house-accent/50'
+            }`}
+            disabled={!!captureStatus && !captureStatus.includes('confirm')}
             title="Record this Lounge contact as a cross-room event (not Memory)"
           >
             {captureStatus || 'Record House Contact'}
