@@ -27,6 +27,25 @@ interface CrossRoomEvent {
   updated_at: string
 }
 
+interface CrossRoomEventImpact {
+  id: string
+  cross_room_event_id: string
+  presence_id: string
+  impact_summary: string
+  what_matters: string[]
+  what_changed: string[]
+  what_remains_open: string[]
+  continuity_signal: string | null
+  emotional_signal: string | null
+  future_context_hint: string | null
+  confidence: number
+  impact_status: string
+  authority_label: string
+  extraction_method: string
+  extraction_model: string
+  prompt_version: string
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDateTime(dateStr: string): string {
@@ -51,8 +70,138 @@ function significanceBadge(level: string): string {
 
 // ─── Event Card ──────────────────────────────────────────────────────────────
 
+// ─── Impact Card ────────────────────────────────────────────────────────────
+
+function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
+  const [detailOpen, setDetailOpen] = useState(false)
+  const presenceColor = impact.presence_id === 'eli'
+    ? 'text-eli-primary border-eli-primary/30'
+    : 'text-ari-primary border-ari-primary/30'
+
+  return (
+    <div className="border border-house-border bg-house-bg p-2 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className={`font-mono text-[10px] px-1.5 py-0.5 border ${presenceColor}`}>
+          {impact.presence_id}
+        </span>
+        <span className="font-mono text-[10px] text-text-muted px-1 py-0.5 border border-house-border">
+          {impact.impact_status}
+        </span>
+        <span className="font-mono text-[10px] text-text-muted">
+          conf: {Number(impact.confidence).toFixed(2)}
+        </span>
+      </div>
+
+      <p className="font-body text-xs text-text-secondary leading-relaxed">
+        {impact.impact_summary}
+      </p>
+
+      <button
+        onClick={() => setDetailOpen(!detailOpen)}
+        className="font-mono text-[10px] text-text-muted hover:text-text-secondary"
+      >
+        {detailOpen ? '▾ hide detail' : '▸ show detail'}
+      </button>
+
+      {detailOpen && (
+        <div className="space-y-1.5 pt-1 border-t border-house-border">
+          {impact.what_matters.length > 0 && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">what_matters: </span>
+              <ul className="ml-3">
+                {impact.what_matters.map((item: string, i: number) => (
+                  <li key={i} className="font-body text-[11px] text-text-secondary">· {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {impact.what_changed.length > 0 && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">what_changed: </span>
+              <ul className="ml-3">
+                {impact.what_changed.map((item: string, i: number) => (
+                  <li key={i} className="font-body text-[11px] text-text-secondary">· {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {impact.what_remains_open.length > 0 && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">what_remains_open: </span>
+              <ul className="ml-3">
+                {impact.what_remains_open.map((item: string, i: number) => (
+                  <li key={i} className="font-body text-[11px] text-text-secondary">· {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {impact.continuity_signal && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">continuity_signal: </span>
+              <span className="font-body text-[11px] text-text-secondary">{impact.continuity_signal}</span>
+            </div>
+          )}
+          {impact.emotional_signal && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">emotional_signal: </span>
+              <span className="font-body text-[11px] text-text-secondary">{impact.emotional_signal}</span>
+            </div>
+          )}
+          {impact.future_context_hint && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">future_context_hint: </span>
+              <span className="font-body text-[11px] text-text-secondary">{impact.future_context_hint}</span>
+            </div>
+          )}
+          <div className="font-mono text-[10px] text-text-muted pt-1">
+            {impact.extraction_method} · {impact.extraction_model} · {impact.prompt_version}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Event Card ─────────────────────────────────────────────────────────────
+
 function EventCard({ event }: { event: CrossRoomEvent }) {
   const [expanded, setExpanded] = useState(false)
+  const [impacts, setImpacts] = useState<CrossRoomEventImpact[]>([])
+  const [impactsLoaded, setImpactsLoaded] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
+
+  // Load impacts when expanded
+  useEffect(() => {
+    if (expanded && !impactsLoaded) {
+      fetch(`/api/cross-room-events/${event.id}/impacts`)
+        .then(r => r.json())
+        .then(data => {
+          setImpacts(data.impacts ?? [])
+          setImpactsLoaded(true)
+        })
+        .catch(() => setImpactsLoaded(true))
+    }
+  }, [expanded, impactsLoaded, event.id])
+
+  const handleExtract = async () => {
+    setExtracting(true)
+    setExtractError(null)
+    try {
+      const res = await fetch(`/api/cross-room-events/${event.id}/impacts`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (data.extracted || data.already_exists) {
+        setImpacts(data.impacts ?? [])
+      } else {
+        setExtractError(data.error ?? 'Extraction failed')
+      }
+    } catch {
+      setExtractError('Network error')
+    }
+    setExtracting(false)
+  }
 
   return (
     <div className="border border-house-border border-l-4 border-l-house-accent bg-house-surface">
@@ -163,6 +312,48 @@ function EventCard({ event }: { event: CrossRoomEvent }) {
               </span>
             </div>
           )}
+
+          {/* ─── Impacts Section (Phase 36C) ─── */}
+          <div className="border-t border-house-border pt-2 mt-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-mono text-[10px] text-text-muted uppercase tracking-wider">
+                Impacts
+              </span>
+              {impactsLoaded && impacts.length === 0 && (
+                <button
+                  onClick={handleExtract}
+                  disabled={extracting}
+                  className={`font-mono text-[10px] px-2 py-1 border transition-colors ${
+                    extracting
+                      ? 'border-house-border text-text-muted cursor-wait'
+                      : 'border-house-accent text-house-accent hover:bg-house-accent/10'
+                  }`}
+                >
+                  {extracting ? 'Extracting...' : 'Extract Impact'}
+                </button>
+              )}
+            </div>
+
+            {extractError && (
+              <p className="font-mono text-[10px] text-red-400 mb-2">{extractError}</p>
+            )}
+
+            {!impactsLoaded && (
+              <p className="font-mono text-[10px] text-text-muted">Loading impacts...</p>
+            )}
+
+            {impactsLoaded && impacts.length === 0 && !extracting && (
+              <p className="font-mono text-[10px] text-text-muted">No impacts extracted yet.</p>
+            )}
+
+            {impacts.length > 0 && (
+              <div className="space-y-2">
+                {impacts.map(impact => (
+                  <ImpactCard key={impact.id} impact={impact} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
