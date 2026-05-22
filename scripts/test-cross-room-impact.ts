@@ -161,16 +161,38 @@ async function cleanupFixtures() {
   // Delete unresolvable event if created
   await supabase.from('cross_room_events').delete().match({ room_id: 'lounge', summary: 'Phase 36C unresolvable test event' })
 
-  // Delete test messages
-  if (testMessageIds.length > 0) {
-    await supabase.from('lounge_messages').delete().in('id', testMessageIds)
-    console.log(`  Deleted ${testMessageIds.length} test messages`)
+  // Delete any cross_room_events that reference the test thread
+  if (testThreadId) {
+    await supabase.from('cross_room_events').delete().eq('source_thread_id', testThreadId)
+    console.log(`  Deleted any events referencing test thread`)
   }
 
-  // Delete test thread
+  // Delete ALL messages in the test thread (not just tracked IDs — captures may add more)
+  if (testThreadId) {
+    await supabase.from('lounge_messages').delete().eq('thread_id', testThreadId)
+    console.log(`  Deleted all messages in test thread`)
+  }
+
+  // Delete test thread — CRITICAL: must happen to prevent production thread pointer drift
   if (testThreadId) {
     await supabase.from('lounge_threads').delete().eq('id', testThreadId)
-    console.log(`  Deleted test thread`)
+    console.log(`  Deleted test thread ${testThreadId}`)
+  }
+
+  // Regression guard: verify production thread is still the active one
+  const { data: activeThread } = await supabase
+    .from('lounge_threads')
+    .select('id, title')
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (activeThread && activeThread.title === 'Phase 36C Test Thread') {
+    console.log(`  ⚠ REGRESSION: Test thread is still active! Removing...`)
+    await supabase.from('lounge_threads').delete().eq('id', activeThread.id)
+  } else {
+    console.log(`  ✓ Active thread is production: ${activeThread?.id?.slice(0, 8)}...`)
   }
 }
 
