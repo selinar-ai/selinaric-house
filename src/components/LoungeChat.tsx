@@ -32,12 +32,14 @@ export default function LoungeChat() {
     send,
     toggleSurface,
     generateCarryback,
+    captureEvent,
   } = useLoungeMessages()
 
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [carrybackStatus, setCarrybackStatus] = useState<string | null>(null)
+  const [captureStatus, setCaptureStatus] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -280,6 +282,24 @@ export default function LoungeChat() {
     }
   }
 
+  async function handleCaptureEvent() {
+    setCaptureStatus('Capturing...')
+    try {
+      const result = await captureEvent()
+      if (result.captured) {
+        const count = result.event?.message_count ?? 0
+        setCaptureStatus(`Captured: ${count} msgs`)
+        setTimeout(() => setCaptureStatus(null), 5000)
+      } else {
+        setCaptureStatus(result.blocked ?? 'Blocked')
+        setTimeout(() => setCaptureStatus(null), 5000)
+      }
+    } catch {
+      setCaptureStatus('Failed')
+      setTimeout(() => setCaptureStatus(null), 3000)
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     // Ctrl/Cmd+Enter = send (matches existing House chat pattern)
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -505,6 +525,14 @@ export default function LoungeChat() {
             title="Generate carryback for Ari/Eli rooms"
           >
             {carrybackStatus || 'Carryback'}
+          </button>
+          <button
+            onClick={handleCaptureEvent}
+            className="font-body text-[10px] md:text-xs tracking-wider uppercase px-3 py-1.5 border border-house-border text-text-muted hover:text-house-accent hover:border-house-accent/50 transition-colors min-h-[36px]"
+            disabled={!!captureStatus}
+            title="Record this Lounge contact as a cross-room event (not Memory)"
+          >
+            {captureStatus || 'Record House Contact'}
           </button>
         </div>
       )}

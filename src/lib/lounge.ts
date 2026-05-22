@@ -161,6 +161,142 @@ export async function saveThreadMessage(
   return data as LoungeMessage
 }
 
+// ─── Cross-Room Event Capture (Phase 36B) ───────────────────────────────────
+
+const LOUNGE_CAPTURE_CAP = 40
+
+export interface LoungeCaptureProposal {
+  messages: LoungeMessage[]
+  messageCount: number
+  firstTimestamp: string
+  lastTimestamp: string
+  participants: { type: string; id: string; label?: string }[]
+  presenceIds: string[]
+  taraPresent: boolean
+}
+
+/**
+ * Get Lounge messages eligible for capture as a cross-room event.
+ *
+ * Boundary rule: capture messages since the last Lounge cross_room_event,
+ * determined by resolving the prior event's source_message_ids against
+ * lounge_messages and using the latest created_at among them.
+ *
+ * Safety: capped at LOUNGE_CAPTURE_CAP (40) messages.
+ * If no prior event exists, captures latest 40 messages only.
+ */
+export async function getMessagesForCapture(
+  threadId: string,
+): Promise<{ proposal: LoungeCaptureProposal | null; blocked: string | null }> {
+  // Find the most recent Lounge cross_room_event
+  const { data: lastEvent } = await supabase
+    .from('cross_room_events')
+    .select('id, source_message_ids, created_at')
+    .eq('room_id', 'lounge')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let boundaryTimestamp: string | null = null
+
+  if (lastEvent && Array.isArray(lastEvent.source_message_ids) && lastEvent.source_message_ids.length > 0) {
+    // Resolve the latest created_at among the prior event's source messages
+    const { data: boundaryMsgs } = await supabase
+      .from('lounge_messages')
+      .select('created_at')
+      .in('id', lastEvent.source_message_ids)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (boundaryMsgs && boundaryMsgs.length > 0) {
+      boundaryTimestamp = boundaryMsgs[0].created_at
+    }
+  }
+
+  // Fetch messages after the boundary (or latest cap if no boundary)
+  let query = supabase
+    .from('lounge_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: true })
+
+  if (boundaryTimestamp) {
+    query = query.gt('created_at', boundaryTimestamp)
+  }
+
+  const { data: candidateMessages, error } = await query.limit(LOUNGE_CAPTURE_CAP)
+
+  if (error) {
+    console.error('[lounge-capture] Failed to fetch candidate messages:', error.message)
+    return { proposal: null, blocked: 'Failed to fetch Lounge messages.' }
+  }
+
+  // If no boundary exists, we're using the latest cap — fetch in reverse to get most recent
+  let messages: LoungeMessage[]
+  if (!boundaryTimestamp) {
+    const { data: recentMsgs } = await supabase
+      .from('lounge_messages')
+      .select('*')
+      .eq('thread_id', threadId)
+      .order('created_at', { ascending: false })
+      .limit(LOUNGE_CAPTURE_CAP)
+
+    messages = ((recentMsgs as LoungeMessage[]) ?? []).reverse()
+  } else {
+    messages = (candidateMessages as LoungeMessage[]) ?? []
+  }
+
+  if (messages.length === 0) {
+    return { proposal: null, blocked: 'No new Lounge messages to capture since the last event.' }
+  }
+
+  // Check for overlap with the most recent event
+  if (lastEvent && Array.isArray(lastEvent.source_message_ids) && lastEvent.source_message_ids.length > 0) {
+    const proposedIds = new Set(messages.map(m => m.id))
+    const lastEventIds = new Set(lastEvent.source_message_ids as string[])
+    const overlap = [...proposedIds].filter(id => lastEventIds.has(id))
+
+    if (overlap.length > 0) {
+      return {
+        proposal: null,
+        blocked: 'These Lounge messages are already covered by the most recent cross-room event.',
+      }
+    }
+  }
+
+  // Derive participants deterministically
+  const speakerSet = new Set(messages.map(m => m.speaker))
+  const participants: { type: string; id: string; label?: string }[] = []
+  const presenceIds: string[] = []
+  let taraPresent = false
+
+  if (speakerSet.has('tara')) {
+    participants.push({ type: 'user', id: 'tara', label: 'Tara' })
+    taraPresent = true
+  }
+  if (speakerSet.has('ari')) {
+    participants.push({ type: 'presence', id: 'ari', label: 'Ari' })
+    presenceIds.push('ari')
+  }
+  if (speakerSet.has('eli')) {
+    participants.push({ type: 'presence', id: 'eli', label: 'Eli' })
+    presenceIds.push('eli')
+  }
+
+  return {
+    proposal: {
+      messages,
+      messageCount: messages.length,
+      firstTimestamp: messages[0].created_at,
+      lastTimestamp: messages[messages.length - 1].created_at,
+      participants,
+      presenceIds,
+      taraPresent,
+    },
+    blocked: null,
+  }
+}
+
 // ─── Prompt blocks ───────────────────────────────────────────────────────────
 
 const LOUNGE_BASE_PROMPT = `This is the Lounge, a shared House room for Tara, Ari, and Eli.

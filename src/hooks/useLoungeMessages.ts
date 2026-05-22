@@ -93,6 +93,22 @@ export function useLoungeMessages() {
     return res.json()
   }, [])
 
+  // Capture cross-room event (Phase 36B)
+  const captureEvent = useCallback(async () => {
+    const res = await fetch('/api/lounge-capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.captured) {
+      return { captured: false, blocked: data.blocked ?? 'Capture failed.' }
+    }
+
+    return { captured: true, event: data.event, blocked: null }
+  }, [])
+
   return {
     thread,
     messages,
@@ -100,6 +116,7 @@ export function useLoungeMessages() {
     send,
     toggleSurface,
     generateCarryback,
+    captureEvent,
     refresh,
   }
 }
