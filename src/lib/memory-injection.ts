@@ -24,6 +24,7 @@ import {
 } from '@/lib/archive-recall'
 import { generateArchiveEmbedding, semanticSearch, type SemanticCandidate } from '@/lib/archive-semantic'
 import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
+import { isInArchiveScope } from '@/lib/archive-scope'
 import type { RecentContinuitySession } from '@/lib/recent-continuity'
 
 function getSupabase() {
@@ -81,23 +82,9 @@ const MIN_KEYWORD_SCORE = 60   // Minimum keyword score to consider (title_token
 const MIN_SEMANTIC_SIMILARITY = 0.65  // Higher bar than general semantic search
 const SAFE_MESSAGE_PREVIEW_LENGTH = 80
 
-// ─── Scope guard (mirrors archive-recall.ts isInScope) ────────────────────────
+// ─── Scope guard (single source of truth: archive-scope.ts) ──────────────────
 
-function isInScope(item: { archive_name: string; visibility: string }, presenceId: 'ari' | 'eli'): boolean {
-  if (presenceId === 'ari') {
-    return (
-      (item.archive_name === 'velvet' && ['ari_only', 'shared'].includes(item.visibility)) ||
-      (item.archive_name === 'house' && item.visibility === 'shared') ||
-      (item.archive_name === 'violet' && item.visibility === 'shared')
-    )
-  } else {
-    return (
-      (item.archive_name === 'violet' && ['eli_only', 'shared'].includes(item.visibility)) ||
-      (item.archive_name === 'house' && item.visibility === 'shared') ||
-      (item.archive_name === 'velvet' && item.visibility === 'shared')
-    )
-  }
-}
+const isInScope = isInArchiveScope
 
 // ─── Query term extraction ────────────────────────────────────────────────────
 

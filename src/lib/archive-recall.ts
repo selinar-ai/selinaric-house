@@ -19,6 +19,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { CATEGORY_LABELS } from '@/lib/archives'
 import { ELEVATED_SENSITIVITIES } from '@/lib/archive-memory'
+import { isInArchiveScope } from '@/lib/archive-scope'
 
 function getSupabase() {
   return createClient(
@@ -552,22 +553,10 @@ const STATUS_LABEL: Record<string, string> = {
   canonical_candidate: 'Memory Candidate (not confirmed)',
 }
 
-// ─── Access scope guard ────────────────────────────────────────────────────────
+// ─── Access scope guard (single source of truth: archive-scope.ts) ────────────
 
 function isInScope(item: RawArchiveItem, presenceId: 'ari' | 'eli'): boolean {
-  if (presenceId === 'ari') {
-    return (
-      (item.archive_name === 'velvet' && ['ari_only', 'shared'].includes(item.visibility)) ||
-      (item.archive_name === 'house'  && item.visibility === 'shared') ||
-      (item.archive_name === 'violet' && item.visibility === 'shared')
-    )
-  } else {
-    return (
-      (item.archive_name === 'violet' && ['eli_only', 'shared'].includes(item.visibility)) ||
-      (item.archive_name === 'house'  && item.visibility === 'shared') ||
-      (item.archive_name === 'velvet' && item.visibility === 'shared')
-    )
-  }
+  return isInArchiveScope(item, presenceId)
 }
 
 // ─── Main retrieval function ───────────────────────────────────────────────────
