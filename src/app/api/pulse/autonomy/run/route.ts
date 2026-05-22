@@ -1,8 +1,11 @@
-// Phase 11E — Pulse Hourly Heartbeat (DST-safe)
+// Phase 11E — Pulse Hourly Heartbeat (DST-safe, QStash-verified)
 //
-// Called hourly. Uses Australia/Melbourne local time to determine actions:
+// Called hourly by QStash (POST) or daily by Vercel cron (GET).
+// Uses Australia/Melbourne local time to determine actions.
 //
-// 1. Autonomy windows (Melbourne local):
+// Accepted Melbourne hours: [2, 6, 10, 14, 18, 23]
+//
+// 1. Autonomy choice windows (Melbourne local):
 //    6am, 10am, 2pm (14), 6pm (18) — active windows
 //    2am — quiet internal window (journal, desk, stillness only)
 //    Idempotency via unique index on (presence_id, choice_window_at).
@@ -11,23 +14,24 @@
 //    If no journal entry exists for a presence today, creates a journal_job.
 //    This is invitation-only — no final journal content is written here.
 //    Final journal entries remain presence-authored.
-//    Folded in from former /api/journal/fallback cron to stay within
-//    Vercel Hobby 2-cron limit.
+//
+// Request sources:
+//   - qstash: POST with valid Upstash-Signature header (hourly, all windows)
+//   - vercel_cron: GET with valid CRON_SECRET (daily at 6am AEST, single window)
+//   - manual: POST with valid CRON_SECRET (bypasses hour gate, for testing)
 //
 // DEPLOYMENT NOTE:
 //   Vercel Hobby plan limits crons to once daily. The Vercel cron fires at
 //   "0 20 * * *" (6am Melbourne AEST), covering only the 6am autonomy window.
-//   External hourly cron is required for full autonomy windows (all 5) and
-//   for the 23:00 journal fallback invitation check.
+//   QStash external cron handles all 6 windows and the 23:00 journal fallback.
 //   The /api/pulse maintenance cron (interior notes, living state, journal,
 //   graph ingestion) is separate and must not be removed.
-//
-// Also callable via POST for manual triggering (bypasses hour gate).
 //
 // The scheduler opens the door.
 // The presence chooses what happens.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { Receiver } from '@upstash/qstash'
 import {
   runAutonomyWindow,
   getMelbourneHour,
@@ -36,8 +40,11 @@ import {
 } from '@/lib/pulse-autonomy'
 import { getEntriesForToday, createJournalJob } from '@/lib/journal'
 
-/** Melbourne local hours that are autonomy windows */
-const AUTONOMY_WINDOW_HOURS = [2, 6, 10, 14, 18]
+/** All Melbourne hours at which this endpoint accepts calls */
+const ACCEPTED_HOURS = [2, 6, 10, 14, 18, 23]
+
+/** Melbourne hours where presence autonomy choices run */
+const AUTONOMY_CHOICE_HOURS = [2, 6, 10, 14, 18]
 
 /** Melbourne local hour for journal fallback check */
 const JOURNAL_FALLBACK_HOUR = 23
@@ -45,98 +52,212 @@ const JOURNAL_FALLBACK_HOUR = 23
 const JOURNAL_FALLBACK_CONTEXT =
   'No journal entry has been written today. This is an invitation only — not a journal entry.'
 
-export async function GET(request: NextRequest) {
-  // Verify cron secret
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+type RequestSource = 'qstash' | 'vercel_cron' | 'manual' | 'unknown'
+
+// ─── Request source detection and auth ───────────────────────────────────────
+
+async function verifyQStashSignature(request: NextRequest, body: string): Promise<boolean> {
+  const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
+  const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
+
+  if (!currentSigningKey || !nextSigningKey) {
+    console.warn('[pulse-autonomy] QStash signing keys not configured')
+    return false
   }
 
+  const signature = request.headers.get('upstash-signature')
+  if (!signature) return false
+
+  const receiver = new Receiver({ currentSigningKey, nextSigningKey })
+
+  try {
+    const isValid = await receiver.verify({
+      signature,
+      body,
+      clockTolerance: 60, // 60s tolerance for clock drift
+    })
+    return isValid
+  } catch (err) {
+    console.warn('[pulse-autonomy] QStash signature verification failed:', err instanceof Error ? err.message : 'unknown')
+    return false
+  }
+}
+
+function verifyCronSecret(request: NextRequest): boolean {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) return false
+  const authHeader = request.headers.get('authorization')
+  return authHeader === `Bearer ${cronSecret}`
+}
+
+async function detectSource(request: NextRequest, method: string, body: string): Promise<RequestSource> {
+  if (method === 'GET') {
+    return verifyCronSecret(request) ? 'vercel_cron' : 'unknown'
+  }
+
+  // POST: check QStash signature first (most common hourly path)
+  const hasQStashSig = request.headers.get('upstash-signature') !== null
+  if (hasQStashSig) {
+    const valid = await verifyQStashSignature(request, body)
+    return valid ? 'qstash' : 'unknown'
+  }
+
+  // POST without QStash sig: check CRON_SECRET for manual triggers
+  return verifyCronSecret(request) ? 'manual' : 'unknown'
+}
+
+// ─── Report builder ──────────────────────────────────────────────────────────
+
+interface RunReport {
+  called_at: string
+  source: RequestSource
+  melbourne_hour: number
+  window_matched: boolean
+  skipped?: boolean
+  skipped_reason?: string
+  pulse_mode?: string
+  journal_fallback?: { ari: string; eli: string }
+  autonomy?: {
+    window_at: string
+    quiet_hours_active: boolean
+    ari: { chosen_action: string; status: string; already_existed: boolean; reason?: string }
+    eli: { chosen_action: string; status: string; already_existed: boolean; reason?: string }
+  }
+}
+
+// ─── GET: Vercel cron path ───────────────────────────────────────────────────
+
+export async function GET(request: NextRequest) {
+  const now = new Date()
+  const melbHour = getMelbourneHour(now)
+  const source = await detectSource(request, 'GET', '')
+
+  if (source === 'unknown') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  return handleRequest(now, melbHour, source, false)
+}
+
+// ─── POST: QStash or manual trigger ─────────────────────────────────────────
+
+export async function POST(request: NextRequest) {
   const now = new Date()
   const melbHour = getMelbourneHour(now)
 
+  // Read body for signature verification (QStash may send empty body)
+  const body = await request.text()
+  const source = await detectSource(request, 'POST', body)
+
+  if (source === 'unknown') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Manual triggers bypass the hour gate
+  const bypassHourGate = source === 'manual'
+
+  return handleRequest(now, melbHour, source, bypassHourGate)
+}
+
+// ─── Shared handler ──────────────────────────────────────────────────────────
+
+async function handleRequest(
+  now: Date,
+  melbHour: number,
+  source: RequestSource,
+  bypassHourGate: boolean,
+): Promise<NextResponse> {
+  const report: RunReport = {
+    called_at: now.toISOString(),
+    source,
+    melbourne_hour: melbHour,
+    window_matched: ACCEPTED_HOURS.includes(melbHour),
+  }
+
   // Journal fallback: at 11pm Melbourne, check if presences wrote today
-  let journalFallback: { ari: string; eli: string } | null = null
-  if (melbHour === JOURNAL_FALLBACK_HOUR) {
-    journalFallback = { ari: 'skipped', eli: 'skipped' }
-    for (const presenceId of ['ari', 'eli'] as const) {
-      const todayEntries = await getEntriesForToday(presenceId)
-      if (todayEntries.length > 0) {
-        journalFallback[presenceId] = 'has_entries'
-      } else {
-        const job = await createJournalJob(presenceId, 'no_entry_today', JOURNAL_FALLBACK_CONTEXT, 'cron')
-        journalFallback[presenceId] = job ? 'job_created' : 'job_already_pending'
+  if (melbHour === JOURNAL_FALLBACK_HOUR || bypassHourGate) {
+    if (melbHour === JOURNAL_FALLBACK_HOUR) {
+      report.journal_fallback = { ari: 'skipped', eli: 'skipped' }
+      for (const presenceId of ['ari', 'eli'] as const) {
+        const todayEntries = await getEntriesForToday(presenceId)
+        if (todayEntries.length > 0) {
+          report.journal_fallback[presenceId] = 'has_entries'
+        } else {
+          const job = await createJournalJob(presenceId, 'no_entry_today', JOURNAL_FALLBACK_CONTEXT, 'cron')
+          report.journal_fallback[presenceId] = job ? 'job_created' : 'job_already_pending'
+        }
       }
     }
   }
 
-  // Autonomy window: only run if current Melbourne hour is configured
-  if (!AUTONOMY_WINDOW_HOURS.includes(melbHour)) {
-    return NextResponse.json({
-      skipped: true,
-      reason: `Melbourne hour ${melbHour} is not an autonomy window`,
-      configured_windows: AUTONOMY_WINDOW_HOURS,
-      ...(journalFallback ? { journal_fallback: journalFallback } : {}),
-    })
+  // Hour gate: skip if Melbourne hour is not an accepted window
+  if (!bypassHourGate && !ACCEPTED_HOURS.includes(melbHour)) {
+    report.skipped = true
+    report.skipped_reason = `Melbourne hour ${melbHour} is not an accepted window`
+    console.log(`[pulse-autonomy] ${source}: skipped — hour ${melbHour} not in windows`)
+    return NextResponse.json(report)
   }
 
-  return runWindow(now)
+  // Journal-only window (23): no autonomy choices to run
+  if (melbHour === JOURNAL_FALLBACK_HOUR && !bypassHourGate) {
+    console.log(`[pulse-autonomy] ${source}: journal fallback only at hour ${melbHour}`)
+    return NextResponse.json(report)
+  }
+
+  // Autonomy choice window: run presence decisions
+  return runAutonomyChoices(now, melbHour, source, report)
 }
 
-// POST bypasses the hour gate — used for manual triggering
-export async function POST() {
-  return runWindow(new Date())
-}
-
-async function runWindow(now: Date) {
+async function runAutonomyChoices(
+  now: Date,
+  melbHour: number,
+  source: RequestSource,
+  report: RunReport,
+): Promise<NextResponse> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY missing' }, { status: 500 })
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY missing', ...report }, { status: 500 })
   }
 
   // Check Pulse mode — if paused, do not run
   const mode = await getPulseMode()
+  report.pulse_mode = mode
+
   if (mode === 'paused') {
-    return NextResponse.json({
-      skipped: true,
-      reason: 'Pulse mode is paused',
-      pulse_mode: mode,
-    })
+    report.skipped = true
+    report.skipped_reason = 'Pulse mode is paused'
+    console.log(`[pulse-autonomy] ${source}: skipped — pulse paused`)
+    return NextResponse.json(report)
   }
 
   try {
-    // Build a canonical window timestamp for the current Melbourne hour
     const windowAt = buildWindowTimestamp(now)
-
     const result = await runAutonomyWindow(apiKey, false, windowAt)
 
-    return NextResponse.json({
-      timestamp: now.toISOString(),
-      melbourne_hour: getMelbourneHour(now),
-      quiet_hours_active: result.quiet_hours_active,
+    report.autonomy = {
       window_at: result.window_at,
-      pulse_mode: mode,
+      quiet_hours_active: result.quiet_hours_active,
       ari: {
         chosen_action: result.ari.chosen_action,
         status: result.ari.status,
         already_existed: result.ari.already_existed,
-        reason: result.ari.reason_text,
+        reason: result.ari.reason_text ?? undefined,
       },
       eli: {
         chosen_action: result.eli.chosen_action,
         status: result.eli.status,
         already_existed: result.eli.already_existed,
-        reason: result.eli.reason_text,
+        reason: result.eli.reason_text ?? undefined,
       },
-    })
+    }
+
+    console.log(`[pulse-autonomy] ${source}: window ${melbHour}:00 — ari=${result.ari.chosen_action} eli=${result.eli.chosen_action}`)
+    return NextResponse.json(report)
   } catch (err) {
-    console.error('[pulse-autonomy] Window run error:', err)
+    console.error(`[pulse-autonomy] ${source}: window run error:`, err)
     return NextResponse.json(
-      { error: 'Autonomy window failed', detail: err instanceof Error ? err.message : 'unknown' },
-      { status: 500 }
+      { error: 'Autonomy window failed', detail: err instanceof Error ? err.message : 'unknown', ...report },
+      { status: 500 },
     )
   }
 }
