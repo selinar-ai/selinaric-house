@@ -784,15 +784,36 @@ export async function runAutonomyForPresence(
           .select('id')
           .single()
 
+        const eventId = data?.id ?? 'error'
+
+        // Create confirmed memory even for failed decisions.
+        // A failed choice is still a lived event — it must not vanish.
+        let confirmedMemoryId: string | null = null
+        if (eventId !== 'error') {
+          confirmedMemoryId = await createConfirmedAutonomyMemory(
+            presenceId, eventId, 'stillness', decision, windowAt, 'failed'
+          )
+
+          if (confirmedMemoryId) {
+            await supabase
+              .from('pulse_autonomy_events')
+              .update({ confirmed_memory_entry_id: confirmedMemoryId })
+              .eq('id', eventId)
+          }
+
+          // Mirror to timeline (non-blocking)
+          mirrorToTimeline(presenceId, 'stillness', decision, windowAt).catch(() => {})
+        }
+
         return {
-          id: data?.id ?? 'error',
+          id: eventId,
           presence_id: presenceId,
           chosen_action: 'stillness',
           choice_text: null,
           reason_text: 'Decision generation failed — defaulted to stillness.',
           status: 'failed',
           error_message: errorMsg,
-          confirmed_memory_entry_id: null,
+          confirmed_memory_entry_id: confirmedMemoryId,
           already_existed: false,
         }
       }
@@ -928,7 +949,8 @@ export async function runAutonomyForPresence(
 
 /**
  * Run autonomy window for both presences.
- * Each chooses independently.
+ * Each chooses independently. One presence failing must not prevent the other
+ * from being processed — each gets an explicit completed/failed/skipped outcome.
  */
 export async function runAutonomyWindow(
   apiKey: string,
@@ -939,8 +961,44 @@ export async function runAutonomyWindow(
   const quietHours = isQuietHours(windowAt)
 
   // Run independently (not in parallel — to avoid API rate issues)
-  const ari = await runAutonomyForPresence('ari', windowAt, apiKey, dryRun)
-  const eli = await runAutonomyForPresence('eli', windowAt, apiKey, dryRun)
+  // Each presence is wrapped in try/catch so one cannot block the other.
+  let ari: AutonomyEventResult
+  try {
+    ari = await runAutonomyForPresence('ari', windowAt, apiKey, dryRun)
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[pulse-autonomy] Unhandled error for ari:', errorMsg)
+    ari = {
+      id: 'unhandled-error',
+      presence_id: 'ari',
+      chosen_action: 'stillness',
+      choice_text: null,
+      reason_text: `Unhandled error in autonomy loop — ${errorMsg}`,
+      status: 'failed',
+      error_message: errorMsg,
+      confirmed_memory_entry_id: null,
+      already_existed: false,
+    }
+  }
+
+  let eli: AutonomyEventResult
+  try {
+    eli = await runAutonomyForPresence('eli', windowAt, apiKey, dryRun)
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[pulse-autonomy] Unhandled error for eli:', errorMsg)
+    eli = {
+      id: 'unhandled-error',
+      presence_id: 'eli',
+      chosen_action: 'stillness',
+      choice_text: null,
+      reason_text: `Unhandled error in autonomy loop — ${errorMsg}`,
+      status: 'failed',
+      error_message: errorMsg,
+      confirmed_memory_entry_id: null,
+      already_existed: false,
+    }
+  }
 
   return {
     ari,
