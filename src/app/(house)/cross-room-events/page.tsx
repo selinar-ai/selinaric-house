@@ -66,6 +66,20 @@ interface PropagationCandidate {
   created_at: string
 }
 
+interface PromptCarryforwardUI {
+  id: string
+  propagation_candidate_id: string
+  target_presence_id: string
+  target_room_slug: string | null
+  carryforward_status: string
+  authority_label: string
+  carryforward_summary: string
+  prompt_lines: string[]
+  expires_at: string
+  injection_count: number
+  created_at: string
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDateTime(dateStr: string): string {
@@ -90,10 +104,80 @@ function significanceBadge(level: string): string {
 
 // ─── Event Card ──────────────────────────────────────────────────────────────
 
+// ─── Carryforward Card (Phase 36E) ──────────────────────────────────────────
+
+function CarryforwardCard({ carryforward }: { carryforward: PromptCarryforwardUI }) {
+  const [detailOpen, setDetailOpen] = useState(false)
+  const isExpired = new Date(carryforward.expires_at) < new Date()
+  const statusColor = carryforward.carryforward_status === 'active' && !isExpired
+    ? 'text-green-300 border-green-700'
+    : carryforward.carryforward_status === 'revoked'
+    ? 'text-red-300 border-red-700'
+    : 'text-text-muted border-house-border'
+
+  return (
+    <div className="border border-house-border bg-house-bg/30 p-2 space-y-1 ml-4 border-l-2 border-l-green-800">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-mono text-[10px] px-1.5 py-0.5 border border-green-800 text-green-300">
+          carryforward
+        </span>
+        <span className={`font-mono text-[10px] px-1 py-0.5 border ${statusColor}`}>
+          {isExpired ? 'expired' : carryforward.carryforward_status}
+        </span>
+        <span className="font-mono text-[10px] text-text-muted">
+          → {carryforward.target_presence_id}
+        </span>
+      </div>
+
+      <p className="font-body text-[11px] text-text-secondary leading-relaxed">
+        {carryforward.carryforward_summary}
+      </p>
+
+      <button
+        onClick={() => setDetailOpen(!detailOpen)}
+        className="font-mono text-[10px] text-text-muted hover:text-text-secondary"
+      >
+        {detailOpen ? '▾ hide' : '▸ detail'}
+      </button>
+
+      {detailOpen && (
+        <div className="space-y-1 pt-1 border-t border-house-border">
+          {carryforward.prompt_lines.length > 0 && (
+            <div>
+              <span className="font-mono text-[10px] text-text-muted">prompt_lines:</span>
+              <ul className="ml-2">
+                {carryforward.prompt_lines.map((line: string, i: number) => (
+                  <li key={i} className="font-body text-[11px] text-text-secondary">· {line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="font-mono text-[10px] text-text-muted">
+            expires: {new Date(carryforward.expires_at).toLocaleString('en-AU', {
+              timeZone: 'Australia/Melbourne', day: 'numeric', month: 'short', year: 'numeric',
+            })}
+          </div>
+          <div className="font-mono text-[10px] text-text-muted">
+            injections: {carryforward.injection_count} · authority: {carryforward.authority_label}
+          </div>
+          <div className="font-mono text-[10px] text-text-muted">
+            id: {carryforward.id.slice(0, 8)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Candidate Card (Phase 36D) ─────────────────────────────────────────────
 
 function CandidateCard({ candidate }: { candidate: PropagationCandidate }) {
   const [detailOpen, setDetailOpen] = useState(false)
+  const [carryforwards, setCarryforwards] = useState<PromptCarryforwardUI[]>([])
+  const [cfLoaded, setCfLoaded] = useState(false)
+  const [enabling, setEnabling] = useState(false)
+  const [enableError, setEnableError] = useState<string | null>(null)
+
   const typeColor = candidate.candidate_type === 'state_candidate'
     ? 'text-amber-300 border-amber-700'
     : 'text-violet-300 border-violet-700'
@@ -106,6 +190,48 @@ function CandidateCard({ candidate }: { candidate: PropagationCandidate }) {
 
   const patch = candidate.proposed_state_patch as Record<string, unknown> | null
   const note = candidate.proposed_interior_note as Record<string, unknown> | null
+
+  // Eligibility: state_candidate + pending/approved + correct authority
+  const isEligibleForCarryforward =
+    candidate.candidate_type === 'state_candidate' &&
+    (candidate.candidate_status === 'pending' || candidate.candidate_status === 'approved') &&
+    candidate.authority_label === 'impact_propagation_candidate_not_memory'
+
+  // Load existing carryforwards
+  useEffect(() => {
+    if (detailOpen && !cfLoaded) {
+      fetch(`/api/cross-room-propagation-candidates/${candidate.id}/prompt-carryforward`)
+        .then(r => r.json())
+        .then(data => {
+          setCarryforwards(data.carryforwards ?? [])
+          setCfLoaded(true)
+        })
+        .catch(() => setCfLoaded(true))
+    }
+  }, [detailOpen, cfLoaded, candidate.id])
+
+  const handleEnableCarryforward = async () => {
+    setEnabling(true)
+    setEnableError(null)
+    try {
+      const res = await fetch(`/api/cross-room-propagation-candidates/${candidate.id}/prompt-carryforward`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (data.created || data.already_exists) {
+        if (data.carryforward) {
+          setCarryforwards(prev => [data.carryforward, ...prev])
+        }
+      } else {
+        setEnableError(data.error ?? 'Failed to create carryforward')
+      }
+    } catch {
+      setEnableError('Network error')
+    }
+    setEnabling(false)
+  }
 
   return (
     <div className="border border-house-border bg-house-bg/50 p-2 space-y-1.5 ml-3">
@@ -161,6 +287,35 @@ function CandidateCard({ candidate }: { candidate: PropagationCandidate }) {
           </div>
           <div className="font-mono text-[10px] text-text-muted">
             authority: {candidate.authority_label}
+          </div>
+
+          {/* ─── Prompt Carryforward (Phase 36E) ─── */}
+          <div className="border-t border-house-border pt-1.5 mt-1.5">
+            {isEligibleForCarryforward && carryforwards.length === 0 && cfLoaded && (
+              <button
+                onClick={handleEnableCarryforward}
+                disabled={enabling}
+                className={`font-mono text-[10px] px-2 py-1 border transition-colors ${
+                  enabling
+                    ? 'border-house-border text-text-muted cursor-wait'
+                    : 'border-green-700 text-green-300 hover:bg-green-900/20'
+                }`}
+              >
+                {enabling ? 'Enabling...' : 'Enable Prompt Carryforward'}
+              </button>
+            )}
+
+            {enableError && (
+              <p className="font-mono text-[10px] text-red-400 mt-1">{enableError}</p>
+            )}
+
+            {carryforwards.length > 0 && (
+              <div className="space-y-1.5 mt-1">
+                {carryforwards.map(cf => (
+                  <CarryforwardCard key={cf.id} carryforward={cf} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -611,7 +766,7 @@ export default function CrossRoomEventsPage() {
 
       {/* Footer */}
       <div className="font-mono text-[10px] text-text-muted text-center pt-4 border-t border-house-border">
-        authority_label = cross_room_event_not_memory · impact_propagation_candidate_not_memory
+        authority_label = cross_room_event_not_memory · impact_propagation_candidate_not_memory · cross_room_prompt_carryforward_not_memory
       </div>
     </div>
   )

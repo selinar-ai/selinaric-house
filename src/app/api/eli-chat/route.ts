@@ -51,6 +51,7 @@ import { buildChatAttachmentContextBlock } from '@/lib/files/chat-attachment-con
 import { getRecentContinuityForPrompt, maybeSyncRecentContinuity, selectRecentContinuityForPrompt } from '@/lib/recent-continuity'
 import { buildGovernedMemoryInjection } from '@/lib/memory-injection'
 import { buildCarrybackBlock } from '@/lib/lounge'
+import { getCrossRoomCarryforwardBlock } from '@/lib/cross-room-prompt-carryforward'
 import { getAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
 import {
@@ -328,6 +329,9 @@ export async function POST(request: NextRequest) {
     // Phase 35D: Lounge Carryback — shared Lounge continuity
     const loungeCarrybackBlock = await buildCarrybackBlock('eli').catch(() => '')
 
+    // Phase 36E: Cross-Room Prompt Carryforward — recent cross-room context
+    const crossRoomCarryforwardBlock = await getCrossRoomCarryforwardBlock('eli', ROOM_SLUG).catch(() => '')
+
     // Phase 11E: Autonomy continuity — recent autonomous choices + Tara responses
     const autonomyContinuityBlock = await getAutonomyContinuityForPrompt('eli').catch(() => '')
 
@@ -432,7 +436,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}${recentContinuityBlock}
-${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${autonomyContinuityBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${crossRoomCarryforwardBlock}${autonomyContinuityBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
 - You must not treat Library Context as Memory, lived continuity, identity, or canonical Archive truth.
