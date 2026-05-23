@@ -1,10 +1,14 @@
-// Phase 35D — Lounge Chat API
+// Phase 35D + 36F.1 — Lounge Chat API
 //
 // POST /api/lounge-chat
 //
 // Generates Ari and/or Eli responses in the Lounge.
 // Each presence is generated separately with its own identity prompt.
 // Surface-aware: Default surface = colleague-safe, Inner surface = full expression.
+//
+// Phase 36F.1: Per-presence context layers added inside the presence loop.
+// Each presence receives ONLY its own Living State, Recent Continuity,
+// Temporal Context, and manual Archive Recall. No cross-presence leakage.
 //
 // Body: { message?: string, respondAs?: 'both' | 'ari' | 'eli' | 'continue', attachments?: LoungeAttachment[] }
 //
@@ -14,6 +18,13 @@
 //
 // @mention routing: if message contains @Ari, only Ari responds.
 // If @Eli, only Eli. If both or neither, both respond (unless overridden by respondAs).
+//
+// This route does NOT:
+// - inject Interior/Journal/Inner Context
+// - perform auto-recall or Governed Memory injection
+// - add Library/RAG or Web Search
+// - pass attachments as multimodal content
+// - write to State, Interior, Memory, Archive, Pulse, Journal, graph, carryback, or carryforward
 
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
@@ -31,6 +42,19 @@ import {
   type LoungeAttachment,
 } from '@/lib/lounge'
 import { getSharedAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
+// Phase 36F.1: Per-presence context layers
+import { getLivingStateForPrompt } from '@/lib/living-state'
+import { getRecentContinuityForPrompt } from '@/lib/recent-continuity'
+import {
+  detectArchiveRecallIntent,
+  extractRecallQuery,
+  getRecallableArchiveEntries,
+  formatArchiveRecallContext,
+  getMatchQuality,
+  logRecallEvent,
+  MANUAL_RECALL_OPTIONS,
+  type RecallEntry,
+} from '@/lib/archive-recall'
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,6 +106,24 @@ export async function POST(request: NextRequest) {
     const responses: { speaker: string; content: string }[] = []
     let runningHistory = [...history]
 
+    // Phase 36F.1: Temporal context — current datetime for session awareness
+    const currentDatetime = new Date().toLocaleString('en-AU', {
+      timeZone: 'Australia/Melbourne',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
+
+    // Phase 36F.1: Detect manual archive recall intent from Tara's message
+    // This is detected once; actual recall is per-presence inside the loop
+    const recallIntent = message && typeof message === 'string'
+      ? detectArchiveRecallIntent(message) : false
+    const recallQuery = recallIntent && message ? extractRecallQuery(message) : ''
+
     for (const presenceId of presences) {
       const kernel = loadPresenceForRoom(presenceId)
       if (!kernel) continue
@@ -100,7 +142,49 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
           : '')
         : ''
 
-      const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock + autonomyContinuityBlock
+      // ─── Phase 36F.1: Per-presence context (isolated to this presence) ───
+
+      // Living State — where this presence is right now
+      const livingStateBlock = await getLivingStateForPrompt(presenceId).catch(() => '')
+
+      // Recent Continuity — recent session summaries for this presence
+      const recentContinuityBlock = await getRecentContinuityForPrompt(presenceId).catch(() => '')
+
+      // Temporal context block
+      const temporalBlock = `\n\n## Temporal context:\nCurrent date and time: ${currentDatetime}\n`
+
+      // Manual Archive Recall — per-presence, scoped by archive visibility
+      let recallContextBlock = ''
+      if (recallIntent && recallQuery) {
+        const recallEntries: RecallEntry[] = await getRecallableArchiveEntries(
+          presenceId, recallQuery, MANUAL_RECALL_OPTIONS.limit, {
+            statuses: MANUAL_RECALL_OPTIONS.statuses,
+            excludeElevatedSensitivity: false,
+          }
+        )
+        const matchQuality = getMatchQuality(
+          recallEntries[0]?.rank_score ?? 0,
+          recallEntries.map(e => e.rank_score)
+        )
+        recallContextBlock = formatArchiveRecallContext(presenceId, recallQuery, recallEntries, matchQuality, 'manual')
+        // Log the recall event (non-blocking)
+        logRecallEvent({
+          presence_id:      presenceId,
+          session_id:       null,
+          query:            message,
+          normalised_query: recallQuery,
+          match_quality:    matchQuality,
+          entries_returned: recallEntries.length,
+          entry_ids:        recallEntries.map(e => e.id),
+          recall_mode:      'manual',
+        }).catch(err => console.error(`[lounge-chat] Recall log error (${presenceId}):`, err))
+      } else if (recallIntent && !recallQuery) {
+        recallContextBlock = '\nARCHIVE RECALL CONTEXT\nRecall was triggered but no search query was provided.\nInstruction: Ask Tara what she wants you to search for in the archives. Keep it direct and brief — one line is enough.\n'
+      }
+
+      const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock
+        + temporalBlock + recentContinuityBlock + recallContextBlock
+        + livingStateBlock + autonomyContinuityBlock
 
       // For "continue" mode without a new Tara message, add a system nudge
       const conversationMessages: Anthropic.MessageParam[] =
