@@ -128,11 +128,19 @@ export type WebSearchStatus = {
 // Phase 36F.4: Attachment status and reference types
 export type AttachmentStatus = {
   attempted: boolean
+  source: 'attachments'
+  attachmentCount: number
   imageCount: number
   fileCount: number
   extractedCount: number
   failedCount: number
-  source: 'attachment'
+  contextInjected: boolean
+  reason:
+    | 'attachments_available'
+    | 'no_attachments'
+    | 'unsupported_file_type'
+    | 'too_large'
+    | 'extraction_error'
 }
 
 export type AttachmentReference = ChatAttachmentReference & {
@@ -275,15 +283,19 @@ export async function POST(request: NextRequest) {
     let attachmentImageUrls: string[] = []
     let attachmentStatus: AttachmentStatus = {
       attempted: false,
+      source: 'attachments',
+      attachmentCount: 0,
       imageCount: 0,
       fileCount: 0,
       extractedCount: 0,
       failedCount: 0,
-      source: 'attachment',
+      contextInjected: false,
+      reason: 'no_attachments',
     }
 
     if (currentTurnAttachments.length > 0) {
       attachmentStatus.attempted = true
+      attachmentStatus.attachmentCount = currentTurnAttachments.length
 
       // Separate images from files
       const imageAttachments = currentTurnAttachments.filter(a => a.type === 'image')
@@ -376,6 +388,7 @@ export async function POST(request: NextRequest) {
       if (unifiedContextArray.length > 0) {
         const { block, references } = buildChatAttachmentContextBlock(unifiedContextArray)
         attachmentContextBlock = block
+        attachmentStatus.contextInjected = block.length > 0
 
         // Convert to AttachmentReference with label and isImage flag
         attachmentReferences = references.map((ref, i) => ({
@@ -383,6 +396,13 @@ export async function POST(request: NextRequest) {
           label: `[ATTACH-${i + 1}]`,
           isImage: i < imageAttachments.length,
         }))
+      }
+
+      // Determine reason based on processing outcome
+      if (attachmentStatus.failedCount > 0 && attachmentStatus.extractedCount === 0 && imageAttachments.length === 0) {
+        attachmentStatus.reason = 'extraction_error'
+      } else {
+        attachmentStatus.reason = 'attachments_available'
       }
 
       console.log(`[lounge-chat] Attachments processed: ${imageAttachments.length} images, ${fileAttachments.length} files, ${attachmentStatus.extractedCount} extracted, ${attachmentStatus.failedCount} failed`)

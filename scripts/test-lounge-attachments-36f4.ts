@@ -136,8 +136,12 @@ async function run() {
     'AttachmentStatus type is exported',
   )
   assert(
-    routeSource.includes("source: 'attachment'"),
-    'AttachmentStatus has source: attachment',
+    routeSource.includes("source: 'attachments'"),
+    'AttachmentStatus has source: attachments (plural)',
+  )
+  assert(
+    /AttachmentStatus[\s\S]*?attachmentCount.*number/m.test(routeSource),
+    'AttachmentStatus has attachmentCount field',
   )
   assert(
     /AttachmentStatus[\s\S]*?imageCount.*number/m.test(routeSource),
@@ -154,6 +158,22 @@ async function run() {
   assert(
     /AttachmentStatus[\s\S]*?failedCount.*number/m.test(routeSource),
     'AttachmentStatus has failedCount field',
+  )
+  assert(
+    /AttachmentStatus[\s\S]*?contextInjected.*boolean/m.test(routeSource),
+    'AttachmentStatus has contextInjected field',
+  )
+  assert(
+    routeSource.includes("'attachments_available'"),
+    'AttachmentStatus reason includes attachments_available',
+  )
+  assert(
+    routeSource.includes("'no_attachments'"),
+    'AttachmentStatus reason includes no_attachments',
+  )
+  assert(
+    routeSource.includes("'extraction_error'"),
+    'AttachmentStatus reason includes extraction_error',
   )
 
   // ─── 8. AttachmentReference type defined and exported ──────────────
@@ -397,6 +417,21 @@ async function run() {
   assert(
     routeSource.includes('attachmentStatus.attempted ?'),
     'Conditional spread based on attempted flag',
+  )
+  // Default reason is 'no_attachments' when nothing is attached
+  assert(
+    routeSource.includes("reason: 'no_attachments'"),
+    'Default reason is no_attachments',
+  )
+  // contextInjected is set after block builder
+  assert(
+    routeSource.includes('attachmentStatus.contextInjected = block.length > 0'),
+    'contextInjected is set based on block content',
+  )
+  // attachmentCount is set from currentTurnAttachments.length
+  assert(
+    routeSource.includes('attachmentStatus.attachmentCount = currentTurnAttachments.length'),
+    'attachmentCount is set from attachment count',
   )
 
   // ─── 27–32. Side-effect prevention ─────────────────────────────────
