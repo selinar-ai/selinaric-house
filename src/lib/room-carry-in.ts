@@ -109,13 +109,15 @@ export function detectRoomCarryInIntent(message: string): CarryInTrigger {
 // ─── Carry-In Block Builder ─────────────────────────────────────────────────
 
 export interface RoomCarryInReference {
+  label: string                              // e.g. "[ROOM-1]"
   sessionId: string
-  presenceId: string
+  presenceId: 'ari' | 'eli'
   classification: string
   sessionEnd: string
   messageCount: number
   summary: string
   anchorQuotes: string[]
+  authority: typeof ROOM_CARRY_IN_AUTHORITY
 }
 
 export interface RoomContactStatus {
@@ -181,19 +183,21 @@ export async function buildRoomCarryInBlock(
 
     const presenceName = presenceId === 'ari' ? 'Ari' : 'Eli'
 
-    // Build references
-    const references: RoomCarryInReference[] = selected.map(s => ({
+    // Build references with stable [ROOM-N] labels
+    const references: RoomCarryInReference[] = selected.map((s, i) => ({
+      label: `[ROOM-${i + 1}]`,
       sessionId: s.id,
-      presenceId: s.presence_id,
+      presenceId: presenceId,
       classification: s.classification,
       sessionEnd: s.session_end,
       messageCount: s.message_count,
       summary: s.summary,
       anchorQuotes: Array.isArray(s.anchor_quotes) ? s.anchor_quotes : [],
+      authority: ROOM_CARRY_IN_AUTHORITY,
     }))
 
-    // Format session lines
-    const lines = selected.map(s => formatCarryInLine(s))
+    // Format session lines with stable [ROOM-N] labels
+    const lines = selected.map((s, i) => formatCarryInLine(s, `[ROOM-${i + 1}]`))
 
     const block = `
 
@@ -245,9 +249,9 @@ ${lines.join('\n')}
 
 // ─── Formatting ─────────────────────────────────────────────────────────────
 
-function formatCarryInLine(session: RecentContinuitySession): string {
+function formatCarryInLine(session: RecentContinuitySession, label: string): string {
   const timeLabel = formatSessionTime(session.session_end)
-  let line = `- [${timeLabel}] (${session.classification}, ${session.message_count} msgs): ${session.summary}`
+  let line = `- ${label} [${timeLabel}] (${session.classification}, ${session.message_count} msgs): ${session.summary}`
 
   // Append anchor quotes for significant/relational sessions
   if (

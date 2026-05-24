@@ -62,6 +62,13 @@
  * 58.  36F.1 Recent Continuity unchanged (regression)
  * 59.  36F.2 Library/RAG unchanged (regression)
  * 60.  36F.3 Web Search unchanged (regression)
+ * 61.  RoomCarryInReference has label field (e.g. "[ROOM-1]")
+ * 62.  RoomCarryInReference has authority field
+ * 63.  RoomCarryInReference presenceId typed as 'ari' | 'eli'
+ * 64.  Prompt block lines include [ROOM-N] labels
+ * 65.  Reference labels use [ROOM-N] format with sequential index
+ * 66.  Authority field value is 'room_to_lounge_contact_not_memory'
+ * 67.  36F.4 Attachments unchanged (regression)
  *
  * Tests are deterministic: no live API calls, no production data writes.
  * Uses source code inspection and function call tests.
@@ -351,6 +358,40 @@ async function run() {
   // 36F.3: Web Search still present
   assert(routeSource.includes('webSearchTool') && routeSource.includes('braveSearch'),
     '60. 36F.3 Web Search unchanged (regression)')
+
+  // ─── Section 12: Reference contract ───────────────────────────────────
+  console.log('\n--- Reference contract ---')
+
+  // RoomCarryInReference has label field
+  assert(carryInSource.includes("label: string") || carryInSource.includes("label: `[ROOM-"),
+    '61. RoomCarryInReference has label field (e.g. "[ROOM-1]")')
+
+  // RoomCarryInReference has authority field
+  assert(carryInSource.includes('authority: typeof ROOM_CARRY_IN_AUTHORITY') &&
+    !!carryInSource.match(/interface RoomCarryInReference[\s\S]*?authority.*ROOM_CARRY_IN_AUTHORITY[\s\S]*?\}/),
+    '62. RoomCarryInReference has authority field')
+
+  // RoomCarryInReference presenceId typed as 'ari' | 'eli'
+  const refInterface = carryInSource.match(/interface RoomCarryInReference[\s\S]*?\}/)
+  assert(!!refInterface && refInterface[0].includes("presenceId: 'ari' | 'eli'"),
+    '63. RoomCarryInReference presenceId typed as \'ari\' | \'eli\'')
+
+  // Prompt block lines include [ROOM-N] labels
+  assert(carryInSource.includes('[ROOM-${i + 1}]') || carryInSource.includes('`[ROOM-${i + 1}]`'),
+    '64. Prompt block lines include [ROOM-N] labels')
+
+  // Reference labels use [ROOM-N] format with sequential index
+  assert(carryInSource.includes("label: `[ROOM-${i + 1}]`"),
+    '65. Reference labels use [ROOM-N] format with sequential index')
+
+  // Authority field value in references — check the map callback contains it
+  const mapBlock = carryInSource.slice(carryInSource.indexOf('selected.map((s, i)'))
+  assert(mapBlock.includes('authority: ROOM_CARRY_IN_AUTHORITY'),
+    '66. Authority field value is \'room_to_lounge_contact_not_memory\'')
+
+  // 36F.4: Attachments still present
+  assert(routeSource.includes('attachmentContextBlock') && routeSource.includes('attachmentGuidanceBlock'),
+    '67. 36F.4 Attachments unchanged (regression)')
 
   // ─── Summary ──────────────────────────────────────────────────────────
   console.log(`\n=== Results: ${passed}/${total.value} passed, ${failed} failed ===\n`)
