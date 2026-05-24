@@ -1,4 +1,4 @@
-// Phase 35D + 36F.1 + 36F.2 + 36F.3 + 36F.4 — Lounge Chat API
+// Phase 35D + 36F.1 + 36F.2 + 36F.3 + 36F.4 + 36F.6 — Lounge Chat API
 //
 // POST /api/lounge-chat
 //
@@ -28,6 +28,13 @@
 // Extraction is fail-open: failed extraction does not block response.
 // Not Memory. Not Library. Not Archive. Read ≠ Remember.
 //
+// Phase 36F.6: Explicit Room Carry-In (Option B).
+// When Tara explicitly asks, each presence receives its own recent room contact.
+// Same-presence only: Ari gets Ari-room, Eli gets Eli-room. Cross-presence forbidden.
+// Authority: room_to_lounge_contact_not_memory. Not Memory. Not State. Not Interior.
+// Uses selectRecentContinuityForPrompt() with tighter limits (2-day, 2 sessions, 1200 chars).
+// No cross_room_events created. No carryforward/carryback records. No downstream writes.
+//
 // Body: { message?: string, respondAs?: 'both' | 'ari' | 'eli' | 'continue', attachments?: LoungeAttachment[] }
 //
 // - 'both' (default when message present): Ari responds, then Eli responds
@@ -41,6 +48,8 @@
 // - inject Interior/Journal/Inner Context
 // - perform auto-recall or Governed Memory injection
 // - write to State, Interior, Memory, Archive, Pulse, Journal, graph, carryback, or carryforward
+// - create cross_room_events from room carry-in (36F.6 is read-only)
+// - allow cross-presence room carry-in (Ari never sees Eli-room, Eli never sees Ari-room)
 
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
@@ -103,6 +112,13 @@ import {
   CHAT_ATTACHMENT_MAX_FILES,
   CHAT_ATTACHMENT_PER_FILE_TEXT_LIMIT,
 } from '@/lib/files/chat-attachment-types'
+// Phase 36F.6: Explicit room carry-in
+import {
+  detectRoomCarryInIntent,
+  buildRoomCarryInBlock,
+  type RoomContactStatus,
+  type RoomCarryInReference,
+} from '@/lib/room-carry-in'
 
 // Phase 36F.3: Web search types
 export type WebSearchReference = {
@@ -147,6 +163,9 @@ export type AttachmentReference = ChatAttachmentReference & {
   label: string
   isImage: boolean
 }
+
+// Phase 36F.6: Room carry-in status and reference types (re-exported for consumers)
+export type { RoomContactStatus, RoomCarryInReference }
 
 /**
  * Format search results with stable [WEB-N] labels for source grounding.
@@ -236,6 +255,8 @@ export async function POST(request: NextRequest) {
       webSearchStatus?: WebSearchStatus
       attachmentStatus?: AttachmentStatus
       attachmentReferences?: AttachmentReference[]
+      roomContactStatus?: RoomContactStatus
+      roomContactReferences?: RoomCarryInReference[]
     }[] = []
     let runningHistory = [...history]
 
@@ -265,6 +286,16 @@ export async function POST(request: NextRequest) {
       ? extractLibraryQuery(message) : ''
     const libraryIncludeSuperseded = message && typeof message === 'string'
       ? userRequestsSuperseded(message) : false
+
+    // ─── Phase 36F.6: Explicit room carry-in trigger detection ────────────────
+    // Detect once before the loop. Carry-in is built per-presence inside the loop.
+    const roomCarryInTrigger = message && typeof message === 'string'
+      ? detectRoomCarryInIntent(message)
+      : { triggered: false, targets: [] as ('ari' | 'eli')[] }
+
+    if (roomCarryInTrigger.triggered) {
+      console.log(`[lounge-chat] Room carry-in triggered for: ${roomCarryInTrigger.targets.join(', ')}`)
+    }
 
     // ─── Phase 36F.4: Attachment understanding (pre-loop, shared across presences) ──
     //
@@ -556,6 +587,53 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
 - Do not infer facts from a failed Library search beyond the absence of useful results.\n`
         : ''
 
+      // ─── Phase 36F.6: Explicit room carry-in (per-presence) ──────────
+      // Same-presence only: Ari gets Ari-room, Eli gets Eli-room.
+      // Cross-presence is structurally impossible — buildRoomCarryInBlock
+      // takes presenceId and queries only that presence's room.
+      let roomCarryInBlock = ''
+      let roomContactStatus: RoomContactStatus = {
+        attempted: false,
+        source: 'room_carry_in',
+        presenceId,
+        authority: 'room_to_lounge_contact_not_memory',
+        sessionsFound: 0,
+        sessionsUsed: 0,
+        contextInjected: false,
+        reason: 'not_triggered',
+      }
+      let roomContactReferences: RoomCarryInReference[] = []
+
+      if (roomCarryInTrigger.triggered && roomCarryInTrigger.targets.includes(presenceId)) {
+        const carryInResult = await buildRoomCarryInBlock(presenceId).catch(err => {
+          console.error(`[lounge-chat] Room carry-in error (${presenceId}):`, err)
+          return {
+            block: '',
+            status: {
+              attempted: true,
+              source: 'room_carry_in' as const,
+              presenceId,
+              authority: 'room_to_lounge_contact_not_memory' as const,
+              sessionsFound: 0,
+              sessionsUsed: 0,
+              contextInjected: false,
+              reason: 'retrieval_error' as const,
+            },
+            references: [],
+          }
+        })
+
+        roomCarryInBlock = carryInResult.block
+        roomContactStatus = carryInResult.status
+        roomContactReferences = carryInResult.references
+
+        if (roomContactStatus.contextInjected) {
+          console.log(`[lounge-chat] Room carry-in injected for ${presenceId}: ${roomContactStatus.sessionsUsed} sessions`)
+        } else {
+          console.log(`[lounge-chat] Room carry-in attempted for ${presenceId}: ${roomContactStatus.reason}`)
+        }
+      }
+
       // ─── Phase 36F.3: Web search guidance block ──────────────────────
       const webSearchGuidanceBlock = `\n\nWeb search guidance:
 - You have access to a web_search tool for current, external, factual context.
@@ -573,6 +651,7 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
         + libraryContextBlock + librarySearchStatusBlock + libraryGuidanceBlock
         + webSearchGuidanceBlock
         + attachmentContextBlock + attachmentGuidanceBlock
+        + roomCarryInBlock
         + livingStateBlock + autonomyContinuityBlock
 
       // ─── Phase 36F.4: Build multimodal user content with image blocks ───
@@ -741,6 +820,10 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
           ...(attachmentStatus.attempted ? {
             attachmentStatus,
             attachmentReferences,
+          } : {}),
+          ...(roomContactStatus.attempted ? {
+            roomContactStatus,
+            roomContactReferences,
           } : {}),
         })
 
