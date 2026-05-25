@@ -60,6 +60,8 @@ export async function getOrCreateActiveThread(): Promise<LoungeThread> {
     .from('lounge_threads')
     .select('*')
     .eq('status', 'active')
+    .eq('test_owned', false)
+    .is('deleted_at', null)
     .order('updated_at', { ascending: false })
     .limit(1)
     .single()
@@ -68,7 +70,7 @@ export async function getOrCreateActiveThread(): Promise<LoungeThread> {
 
   const { data: created, error } = await supabase
     .from('lounge_threads')
-    .insert({ status: 'active', current_surface: 'default', created_by: 'tara' })
+    .insert({ status: 'active', current_surface: 'default', created_by: 'tara', test_owned: false })
     .select()
     .single()
 
@@ -111,6 +113,7 @@ export async function getThreadMessages(
     .from('lounge_messages')
     .select('*')
     .eq('thread_id', threadId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit)
 

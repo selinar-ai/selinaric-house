@@ -45,6 +45,14 @@ For full system context, read these on demand:
 - Never modify or rewrite pulse_log, search_log, or memory_edges from UI
 - Presence voice is never replaced by search results or graph output
 
+## Validation safety rules (added Phase 36I)
+- **Never send test messages through production API endpoints** that reuse active production resources (threads, rooms). The Lounge chat API always writes to the single active thread — there is no isolation.
+- **Never DELETE from lounge_threads or lounge_messages** in validation or cleanup scripts. Use soft-delete (`UPDATE ... SET deleted_at = now()`) or mark `test_owned = true` at creation time.
+- **Never provide cleanup SQL containing DELETE FROM lounge_** without explicit Tara approval AND a pre-deletion export via `node scripts/emergency-lounge-export.mjs`.
+- If test data must be created in Lounge tables, INSERT directly with `test_owned = true` and `created_by = 'system'`. Never reuse the active production thread.
+- Before any destructive database operation: run `node scripts/emergency-lounge-export.mjs` and confirm the export file exists.
+- `lounge_messages` previously had ON DELETE CASCADE from `lounge_threads` — migration 066 changes this to ON DELETE RESTRICT. Deleting a thread now fails if messages exist.
+
 ## Build pattern
 Eli drafts briefs → Ari reviews and stress-tests → brief goes to Claude Code
 Do not skip Ari review for architectural phases.
