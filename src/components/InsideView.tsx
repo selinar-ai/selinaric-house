@@ -35,14 +35,21 @@ interface JournalEntry {
   updated_at: string
 }
 
+interface JournalJobSourceMetadata {
+  source_surface?: string
+  source_event_type?: string
+  [key: string]: unknown
+}
+
 interface JournalJob {
   id: string
   presence_id: string
   melbourne_date: string
-  reason: 'no_entry_today' | 'manual_invite'
+  reason: 'no_entry_today' | 'manual_invite' | 'cross_room_invite'
   context_summary: string | null
   status: 'pending' | 'processing' | 'written' | 'dismissed' | 'failed'
   created_by: string | null
+  source_metadata: JournalJobSourceMetadata | null
   created_at: string
   updated_at: string
 }
@@ -491,7 +498,9 @@ export default function InsideView({ presenceId, accentClass }: Props) {
                   className="flex items-center justify-between border border-house-border bg-house-surface px-3 py-2.5 gap-2"
                 >
                   <p className="font-body text-xs text-text-muted italic min-w-0">
-                    Journal invitation pending.
+                    {job.reason === 'cross_room_invite'
+                      ? `Journal invitation from ${job.source_metadata?.source_surface === 'lounge' ? 'Lounge' : job.source_metadata?.source_surface ?? 'shared-room'} contact.`
+                      : 'Journal invitation pending.'}
                   </p>
                   <div className="flex items-center gap-1 shrink-0">
                     <button

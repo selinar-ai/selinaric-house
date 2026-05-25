@@ -53,14 +53,27 @@ export interface JournalContext {
 
 // --- Journal Jobs ---
 
+/** Structured source provenance for source-linked journal invitations (36H.2). */
+export interface JournalJobSourceMetadata {
+  source_surface: string           // 'lounge' | 'gaming_wing' | 'wellbeing_wing' | etc.
+  source_event_type: string        // 'cross_room_event' | 'game_event' | etc.
+  source_event_id: string          // cross_room_events.id or future event table ID
+  source_impact_id?: string        // cross_room_event_impacts.id (if from impact)
+  source_room_id?: string          // room slug
+  source_wing_id?: string          // future wing ID
+  authority_label: string          // 'cross_room_journal_hook_not_memory'
+  eligibility_reason: string       // 'tara_requested' | 'presence_impacted' | etc.
+}
+
 export interface JournalJob {
   id: string
   presence_id: 'ari' | 'eli'
   melbourne_date: string            // YYYY-MM-DD
-  reason: 'no_entry_today' | 'manual_invite'
+  reason: 'no_entry_today' | 'manual_invite' | 'cross_room_invite'
   context_summary: string | null
   status: 'pending' | 'processing' | 'written' | 'dismissed' | 'failed'
   created_by: string | null         // 'cron' | 'tara'
+  source_metadata: JournalJobSourceMetadata | null
   created_at: string
   updated_at: string
 }
@@ -169,21 +182,23 @@ export async function deleteJournalEntry(entryId: string): Promise<boolean> {
 
 export async function createJournalJob(
   presenceId: string,
-  reason: 'no_entry_today' | 'manual_invite',
+  reason: 'no_entry_today' | 'manual_invite' | 'cross_room_invite',
   contextSummary: string,
-  createdBy: 'cron' | 'tara'
+  createdBy: 'cron' | 'tara',
+  sourceMetadata?: JournalJobSourceMetadata | null
 ): Promise<JournalJob | null> {
   const melbourneDate = getMelbourneDate()
 
   const { data, error } = await supabase
     .from('journal_jobs')
     .insert({
-      presence_id:     presenceId,
-      melbourne_date:  melbourneDate,
+      presence_id:      presenceId,
+      melbourne_date:   melbourneDate,
       reason,
-      context_summary: contextSummary,
-      status:          'pending',
-      created_by:      createdBy,
+      context_summary:  contextSummary,
+      status:           'pending',
+      created_by:       createdBy,
+      source_metadata:  sourceMetadata ?? null,
     })
     .select()
     .single()

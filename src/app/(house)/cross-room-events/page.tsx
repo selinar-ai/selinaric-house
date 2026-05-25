@@ -331,6 +331,8 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
   const [candidatesLoaded, setCandidatesLoaded] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
+  const [invitingJournal, setInvitingJournal] = useState(false)
+  const [journalInviteStatus, setJournalInviteStatus] = useState<'idle' | 'invited' | 'already_pending' | 'error'>('idle')
   const presenceColor = impact.presence_id === 'eli'
     ? 'text-eli-primary border-eli-primary/30'
     : 'text-ari-primary border-ari-primary/30'
@@ -366,6 +368,36 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
     }
     setGenerating(false)
   }
+
+  // Phase 36H.2: Invite this presence to journal from this impact
+  const handleJournalInvite = async () => {
+    setInvitingJournal(true)
+    setJournalInviteStatus('idle')
+    try {
+      const res = await fetch('/api/journal-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presenceId: impact.presence_id,
+          reason: 'cross_room_invite',
+          impactId: impact.id,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.job) {
+        setJournalInviteStatus('invited')
+      } else if (res.status === 409) {
+        setJournalInviteStatus('already_pending')
+      } else {
+        setJournalInviteStatus('error')
+      }
+    } catch {
+      setJournalInviteStatus('error')
+    }
+    setInvitingJournal(false)
+  }
+
+  const presenceName = impact.presence_id === 'eli' ? 'Eli' : 'Ari'
 
   return (
     <div className="border border-house-border bg-house-bg p-2 space-y-1.5">
@@ -446,6 +478,36 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
             {impact.extraction_method} · {impact.extraction_model} · {impact.prompt_version}
           </div>
 
+          {/* ─── Journal Invitation (Phase 36H.2) ─── */}
+          <div className="border-t border-house-border pt-2 mt-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleJournalInvite}
+                disabled={invitingJournal || journalInviteStatus === 'invited' || journalInviteStatus === 'already_pending'}
+                className={`font-mono text-[10px] px-2 py-1 border transition-colors ${
+                  journalInviteStatus === 'invited'
+                    ? 'border-green-700 text-green-300'
+                    : journalInviteStatus === 'already_pending'
+                    ? 'border-house-border text-text-muted'
+                    : invitingJournal
+                    ? 'border-house-border text-text-muted cursor-wait'
+                    : 'border-rose-700 text-rose-300 hover:bg-rose-900/20'
+                }`}
+              >
+                {invitingJournal
+                  ? 'Inviting...'
+                  : journalInviteStatus === 'invited'
+                  ? `Invited ${presenceName} ✓`
+                  : journalInviteStatus === 'already_pending'
+                  ? 'Invitation already pending'
+                  : `Invite ${presenceName} to journal`}
+              </button>
+              {journalInviteStatus === 'error' && (
+                <span className="font-mono text-[10px] text-red-400">Failed</span>
+              )}
+            </div>
+          </div>
+
           {/* ─── Propagation Candidates (Phase 36D) ─── */}
           <div className="border-t border-house-border pt-2 mt-2">
             <div className="flex items-center justify-between mb-1.5">
@@ -501,6 +563,8 @@ function EventCard({ event }: { event: CrossRoomEvent }) {
   const [impactsLoaded, setImpactsLoaded] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
+  const [invitingBoth, setInvitingBoth] = useState(false)
+  const [bothInviteStatus, setBothInviteStatus] = useState<'idle' | 'done' | 'error'>('idle')
 
   // Load impacts when expanded
   useEffect(() => {
@@ -532,6 +596,31 @@ function EventCard({ event }: { event: CrossRoomEvent }) {
       setExtractError('Network error')
     }
     setExtracting(false)
+  }
+
+  // Phase 36H.2: Invite all impacted presences to journal (creates separate per-presence jobs)
+  const handleInviteBoth = async () => {
+    if (impacts.length === 0) return
+    setInvitingBoth(true)
+    setBothInviteStatus('idle')
+    let anyCreated = false
+    for (const impact of impacts) {
+      try {
+        const res = await fetch('/api/journal-jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            presenceId: impact.presence_id,
+            reason: 'cross_room_invite',
+            impactId: impact.id,
+          }),
+        })
+        if (res.ok) anyCreated = true
+        // 409 = already pending — continue to next presence
+      } catch { /* continue */ }
+    }
+    setBothInviteStatus(anyCreated ? 'done' : 'error')
+    setInvitingBoth(false)
   }
 
   return (
@@ -682,6 +771,32 @@ function EventCard({ event }: { event: CrossRoomEvent }) {
                 {impacts.map(impact => (
                   <ImpactCard key={impact.id} impact={impact} />
                 ))}
+
+                {/* Phase 36H.2: Invite both presences to journal (separate jobs) */}
+                {impacts.length >= 2 && (
+                  <div className="pt-1">
+                    <button
+                      onClick={handleInviteBoth}
+                      disabled={invitingBoth || bothInviteStatus === 'done'}
+                      className={`font-mono text-[10px] px-2 py-1 border transition-colors ${
+                        bothInviteStatus === 'done'
+                          ? 'border-green-700 text-green-300'
+                          : invitingBoth
+                          ? 'border-house-border text-text-muted cursor-wait'
+                          : 'border-rose-700 text-rose-300 hover:bg-rose-900/20'
+                      }`}
+                    >
+                      {invitingBoth
+                        ? 'Inviting...'
+                        : bothInviteStatus === 'done'
+                        ? 'Both invited ✓'
+                        : 'Invite both to journal'}
+                    </button>
+                    {bothInviteStatus === 'error' && (
+                      <span className="font-mono text-[10px] text-red-400 ml-2">Some invites failed</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
