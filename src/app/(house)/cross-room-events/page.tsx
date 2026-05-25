@@ -333,6 +333,8 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [invitingJournal, setInvitingJournal] = useState(false)
   const [journalInviteStatus, setJournalInviteStatus] = useState<'idle' | 'invited' | 'already_pending' | 'error'>('idle')
+  const [invitingReflection, setInvitingReflection] = useState(false)
+  const [reflectionInviteStatus, setReflectionInviteStatus] = useState<'idle' | 'queued' | 'already_pending' | 'error'>('idle')
   const presenceColor = impact.presence_id === 'eli'
     ? 'text-eli-primary border-eli-primary/30'
     : 'text-ari-primary border-ari-primary/30'
@@ -395,6 +397,34 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
       setJournalInviteStatus('error')
     }
     setInvitingJournal(false)
+  }
+
+  // Phase 36H.3: Queue a reflection job from this impact
+  const handleReflectionInvite = async () => {
+    setInvitingReflection(true)
+    setReflectionInviteStatus('idle')
+    try {
+      const res = await fetch('/api/reflection-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presenceId: impact.presence_id,
+          triggerType: 'cross_room_event',
+          impactId: impact.id,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.job) {
+        setReflectionInviteStatus('queued')
+      } else if (res.status === 409) {
+        setReflectionInviteStatus('already_pending')
+      } else {
+        setReflectionInviteStatus('error')
+      }
+    } catch {
+      setReflectionInviteStatus('error')
+    }
+    setInvitingReflection(false)
   }
 
   const presenceName = impact.presence_id === 'eli' ? 'Eli' : 'Ari'
@@ -480,7 +510,7 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
 
           {/* ─── Journal Invitation (Phase 36H.2) ─── */}
           <div className="border-t border-house-border pt-2 mt-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={handleJournalInvite}
                 disabled={invitingJournal || journalInviteStatus === 'invited' || journalInviteStatus === 'already_pending'}
@@ -503,6 +533,32 @@ function ImpactCard({ impact }: { impact: CrossRoomEventImpact }) {
                   : `Invite ${presenceName} to journal`}
               </button>
               {journalInviteStatus === 'error' && (
+                <span className="font-mono text-[10px] text-red-400">Failed</span>
+              )}
+
+              {/* ─── Reflection Invite (Phase 36H.3) ─── */}
+              <button
+                onClick={handleReflectionInvite}
+                disabled={invitingReflection || reflectionInviteStatus === 'queued' || reflectionInviteStatus === 'already_pending'}
+                className={`font-mono text-[10px] px-2 py-1 border transition-colors ${
+                  reflectionInviteStatus === 'queued'
+                    ? 'border-teal-700 text-teal-300'
+                    : reflectionInviteStatus === 'already_pending'
+                    ? 'border-house-border text-text-muted'
+                    : invitingReflection
+                    ? 'border-house-border text-text-muted cursor-wait'
+                    : 'border-teal-700 text-teal-300 hover:bg-teal-900/20'
+                }`}
+              >
+                {invitingReflection
+                  ? 'Queuing...'
+                  : reflectionInviteStatus === 'queued'
+                  ? `Reflection queued ✓`
+                  : reflectionInviteStatus === 'already_pending'
+                  ? 'Reflection already queued'
+                  : `Reflect on ${presenceName} impact`}
+              </button>
+              {reflectionInviteStatus === 'error' && (
                 <span className="font-mono text-[10px] text-red-400">Failed</span>
               )}
             </div>
@@ -881,7 +937,7 @@ export default function CrossRoomEventsPage() {
 
       {/* Footer */}
       <div className="font-mono text-[10px] text-text-muted text-center pt-4 border-t border-house-border">
-        authority_label = cross_room_event_not_memory · impact_propagation_candidate_not_memory · cross_room_prompt_carryforward_not_memory
+        authority_label = cross_room_event_not_memory · impact_propagation_candidate_not_memory · cross_room_prompt_carryforward_not_memory · cross_room_reflection_hook_not_memory
       </div>
     </div>
   )

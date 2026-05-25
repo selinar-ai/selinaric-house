@@ -20,11 +20,14 @@ export interface LoadedSource {
 }
 
 // Strict mapping: each trigger type may only load specific source ref types.
+// cross_room_event has no source loading support in v1 (queue-only).
+// Empty array means loadSources returns [] → processPendingJobs filters these out.
 const ALLOWED_REF_TYPES: Record<ReflectionTriggerType, SourceRefType[]> = {
   timeline_keep:           ['timeline_entry'],
   concept_approved:        ['concept'],
   forgekeeper_accepted:    ['build'],
   living_state_transition: ['living_state'],
+  cross_room_event:        [],
 }
 
 /**

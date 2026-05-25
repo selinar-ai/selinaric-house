@@ -1,12 +1,15 @@
-// Phase 24 — Reflection Jobs API
+// Phase 24 + 36H.3 — Reflection Jobs API
 // GET  ?presenceId=ari|eli&status=pending|processing|completed|failed
 //      Returns recent reflection jobs for a presence (default: last 20)
 // POST { presenceId, triggerType, sourceRefs }
 //      Creates a new reflection job from a valid trigger source
+// POST { presenceId, triggerType: 'cross_room_event', impactId }
+//      Phase 36H.3 — server-derived cross-room reflection job (queue-only)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createReflectionJob } from '@/lib/reflections/create-reflection-job'
+import { createReflectionJobFromImpact } from '@/lib/reflections/reflection-hooks'
 import { VALID_TRIGGER_TYPES, type ReflectionTriggerType, type SourceRef } from '@/lib/reflections/reflection-types'
 
 function getSupabase() {
@@ -46,14 +49,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  let body: { presenceId?: string; triggerType?: string; sourceRefs?: unknown }
+  let body: { presenceId?: string; triggerType?: string; sourceRefs?: unknown; impactId?: string }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { presenceId, triggerType, sourceRefs } = body
+  const { presenceId, triggerType, sourceRefs, impactId } = body
 
   if (!presenceId || !['ari', 'eli'].includes(presenceId)) {
     return NextResponse.json({ error: 'presenceId required (ari|eli)' }, { status: 400 })
@@ -64,6 +67,36 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+
+  // ─── Phase 36H.3: Cross-room reflection job path ───
+  // Client sends only presenceId + impactId. Server derives all provenance.
+  if (triggerType === 'cross_room_event') {
+    if (!impactId || typeof impactId !== 'string' || impactId.trim().length === 0) {
+      return NextResponse.json({ error: 'impactId required for cross_room_event trigger' }, { status: 400 })
+    }
+
+    const { result, error } = await createReflectionJobFromImpact(impactId)
+
+    if (error) {
+      return NextResponse.json({ error }, { status: 400 })
+    }
+    if (!result.created) {
+      if (result.skippedReason === 'duplicate_pending_job') {
+        return NextResponse.json(
+          { error: 'Pending reflection job already exists for this impact', skippedReason: result.skippedReason },
+          { status: 409 }
+        )
+      }
+      return NextResponse.json(
+        { error: `Job not created: ${result.skippedReason}`, skippedReason: result.skippedReason },
+        { status: 400 }
+      )
+    }
+
+    return NextResponse.json({ job: result.job }, { status: 201 })
+  }
+
+  // ─── Standard reflection job path (existing triggers) ───
   if (!Array.isArray(sourceRefs) || sourceRefs.length === 0) {
     return NextResponse.json({ error: 'sourceRefs must be a non-empty array' }, { status: 400 })
   }

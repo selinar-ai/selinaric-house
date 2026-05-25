@@ -1,6 +1,6 @@
-// Phase 24 — Interior Reflection Engine: types and validators
-// These are the only reflection types, trigger types, and target types in v1.
-// No additions without a phase change.
+// Phase 24 + 36H.3 — Interior Reflection Engine: types and validators
+// Trigger types, reflection types, and target types.
+// Phase 36H.3 adds cross_room_event trigger type + source metadata.
 
 // --- Trigger types (what generates a reflection job) ---
 
@@ -9,8 +9,18 @@ export type ReflectionTriggerType =
   | 'concept_approved'
   | 'forgekeeper_accepted'
   | 'living_state_transition'
+  | 'cross_room_event'
 
 export const VALID_TRIGGER_TYPES: ReflectionTriggerType[] = [
+  'timeline_keep',
+  'concept_approved',
+  'forgekeeper_accepted',
+  'living_state_transition',
+  'cross_room_event',
+]
+
+/** Trigger types that have source loading + prompt support for processing. */
+export const PROCESSABLE_TRIGGER_TYPES: ReflectionTriggerType[] = [
   'timeline_keep',
   'concept_approved',
   'forgekeeper_accepted',
@@ -45,11 +55,25 @@ export type ReflectionJobStatus = 'pending' | 'processing' | 'completed' | 'fail
 
 // --- Source reference shape ---
 
-export type SourceRefType = 'timeline_entry' | 'concept' | 'build' | 'living_state'
+export type SourceRefType = 'timeline_entry' | 'concept' | 'build' | 'living_state' | 'cross_room_event' | 'cross_room_impact'
 
 export interface SourceRef {
   type: SourceRefType
   id: string
+}
+
+// --- Structured source metadata for cross-room reflection jobs (36H.3) ---
+
+/** Structured source provenance for source-linked reflection jobs. */
+export interface ReflectionJobSourceMetadata {
+  source_surface: string           // 'lounge' | 'gaming_wing' | 'wellbeing_wing' | etc.
+  source_event_type: string        // 'cross_room_event' | 'game_event' | etc.
+  source_event_id: string          // cross_room_events.id or future event table ID
+  source_impact_id?: string        // cross_room_event_impacts.id (if from impact)
+  source_room_id?: string          // room slug
+  source_wing_id?: string          // future wing ID
+  authority_label: string          // 'cross_room_reflection_hook_not_memory'
+  eligibility_reason: string       // 'tara_requested' | etc.
 }
 
 // --- DB row shapes ---
@@ -62,6 +86,9 @@ export interface ReflectionJob {
   source_summary: string | null
   priority: number
   status: ReflectionJobStatus
+  source_metadata: ReflectionJobSourceMetadata | null
+  reflection_scope: string | null
+  created_by: string | null
   created_at: string
   completed_at: string | null
   error_message: string | null

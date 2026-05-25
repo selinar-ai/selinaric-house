@@ -14,6 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import {
   isValidReflectionOutput,
+  PROCESSABLE_TRIGGER_TYPES,
   type ReflectionJob,
   type ReflectionOutput,
 } from './reflection-types'
@@ -173,11 +174,14 @@ export async function processPendingJobs(
 ): Promise<ProcessResult[]> {
   const supabase = getSupabase()
 
+  // Only fetch jobs with processable trigger types.
+  // cross_room_event jobs are queue-only in v1 (no source loading or prompt support).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = supabase
     .from('reflection_jobs')
     .select('*')
     .eq('status', 'pending')
+    .in('trigger_type', PROCESSABLE_TRIGGER_TYPES)
     .order('created_at', { ascending: true })
     .limit(limit)
 

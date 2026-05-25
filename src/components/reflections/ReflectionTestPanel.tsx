@@ -5,17 +5,19 @@
 // Only rendered in development mode.
 
 import { useState } from 'react'
-import { VALID_TRIGGER_TYPES, type ReflectionTriggerType } from '@/lib/reflections/reflection-types'
+import { PROCESSABLE_TRIGGER_TYPES, type ReflectionTriggerType } from '@/lib/reflections/reflection-types'
 
 // Map trigger type → the source ref type it expects
-const TRIGGER_SOURCE_TYPE: Record<ReflectionTriggerType, string> = {
+// Only processable triggers can be manually created via source UUID.
+// cross_room_event uses its own pathway (impactId → server-derived provenance).
+const TRIGGER_SOURCE_TYPE: Record<string, string> = {
   concept_approved:        'concept',
   timeline_keep:           'timeline_entry',
   forgekeeper_accepted:    'build',
   living_state_transition: 'living_state',
 }
 
-const TRIGGER_LABELS: Record<ReflectionTriggerType, string> = {
+const TRIGGER_LABELS: Record<string, string> = {
   concept_approved:        'Concept approved',
   timeline_keep:           'Timeline keep',
   forgekeeper_accepted:    'Forgekeeper accepted',
@@ -119,8 +121,8 @@ export default function ReflectionTestPanel({ presence, onJobProcessed }: Props)
               onChange={e => setTriggerType(e.target.value as ReflectionTriggerType)}
               className="font-body text-xs bg-house-surface border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted"
             >
-              {VALID_TRIGGER_TYPES.map(t => (
-                <option key={t} value={t}>{TRIGGER_LABELS[t]}</option>
+              {PROCESSABLE_TRIGGER_TYPES.map(t => (
+                <option key={t} value={t}>{TRIGGER_LABELS[t] ?? t}</option>
               ))}
             </select>
 

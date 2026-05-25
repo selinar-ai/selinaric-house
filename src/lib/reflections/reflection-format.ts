@@ -70,11 +70,13 @@ export function confidenceColorClass(confidence: number | null): string {
 
 export function formatSourceRefType(type: string): string {
   switch (type) {
-    case 'timeline_entry': return 'Timeline entry'
-    case 'concept':        return 'Approved concept'
-    case 'build':          return 'Committed build'
-    case 'living_state':   return 'Living State transition'
-    default:               return type
+    case 'timeline_entry':   return 'Timeline entry'
+    case 'concept':          return 'Approved concept'
+    case 'build':            return 'Committed build'
+    case 'living_state':     return 'Living State transition'
+    case 'cross_room_event': return 'Cross-room event'
+    case 'cross_room_impact': return 'Cross-room impact'
+    default:                 return type
   }
 }
 
@@ -82,10 +84,11 @@ export function formatSourceRefType(type: string): string {
 
 export function formatTriggerType(triggerType: string): string {
   switch (triggerType) {
-    case 'timeline_keep':          return 'Timeline keep'
-    case 'concept_approved':       return 'Concept approval'
-    case 'forgekeeper_accepted':   return 'Forgekeeper acceptance'
+    case 'timeline_keep':           return 'Timeline keep'
+    case 'concept_approved':        return 'Concept approval'
+    case 'forgekeeper_accepted':    return 'Forgekeeper acceptance'
     case 'living_state_transition': return 'Living State transition'
+    case 'cross_room_event':        return 'Cross-room reflection'
     default:                        return triggerType
   }
 }
