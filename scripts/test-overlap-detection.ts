@@ -7,6 +7,8 @@
  * Run: npx tsx scripts/test-overlap-detection.ts
  */
 
+export {}  // TypeScript module boundary — prevents global scope collisions
+
 // Inline the overlap detection logic (same as in recent-continuity.ts)
 function findOverlappingRow(
   newMessageIds: string[],

@@ -6,6 +6,8 @@
  * Usage: npx tsx scripts/validate-36h2-post-migration.ts
  */
 
+export {}  // TypeScript module boundary — prevents global scope collisions
+
 const BASE = 'https://selinaric-house.vercel.app'
 
 let passed = 0
