@@ -388,52 +388,231 @@ Respond in JSON (no markdown, no code fences):
   }
 }
 
-// --- Prompt injection — combined journal + held truths ---
+// --- Phase 36H.1: Structured journal context types ---
 
+export interface JournalContextReference {
+  label: string               // [JOURNAL-1]
+  journalId: string
+  presenceId: 'ari' | 'eli'
+  entryType: string
+  createdAt: string
+  title: string | null
+  excerpt: string
+  authority: 'journal_inner_continuity_not_memory'
+}
+
+export interface JournalContextStatus {
+  attempted: boolean
+  used: boolean
+  contextInjected: boolean
+  reason:
+    | 'same_presence_journal_found'
+    | 'no_journal_context'
+    | 'not_triggered'
+    | 'scope_blocked'
+    | 'source_error'
+  authorityLabel: 'journal_inner_continuity_not_memory'
+  count: number
+}
+
+export interface JournalContextResult {
+  block: string
+  status: JournalContextStatus
+  references: JournalContextReference[]
+}
+
+// --- Prompt injection — governed journal + held truths ---
+
+/**
+ * @deprecated Use getJournalContextForPresence instead.
+ * Kept for backward compatibility during 36H.1 migration.
+ */
 export async function getInnerContextForPrompt(presenceId: string): Promise<string> {
+  const result = await getJournalContextForPresence(presenceId)
+  return result.block
+}
+
+/**
+ * Phase 36H.1 — Same-presence journal recall with proper authority boundary.
+ *
+ * Returns bounded journal context for the given presence with:
+ * - Authority label: journal_inner_continuity_not_memory
+ * - Not-Memory / Not-Archive / Not-State / Not-Interior boundary
+ * - Stable [JOURNAL-N] reference labels
+ * - Structured status and reference metadata
+ *
+ * This function is READ-ONLY. It creates no writes of any kind.
+ * It is source-surface agnostic — callable from any room/wing.
+ *
+ * Scope: same-presence only. presenceId determines which journals are read.
+ */
+export async function getJournalContextForPresence(
+  presenceId: string,
+  options?: {
+    maxEntries?: number
+    maxExcerptWords?: number
+    maxTotalChars?: number
+  }
+): Promise<JournalContextResult> {
+  const maxEntries = options?.maxEntries ?? 3
+  const maxExcerptWords = options?.maxExcerptWords ?? 50
+  const maxTotalChars = options?.maxTotalChars ?? 3000
+
+  const emptyStatus: JournalContextStatus = {
+    attempted: true,
+    used: false,
+    contextInjected: false,
+    reason: 'no_journal_context',
+    authorityLabel: 'journal_inner_continuity_not_memory',
+    count: 0,
+  }
+
+  if (presenceId !== 'ari' && presenceId !== 'eli') {
+    return {
+      block: '',
+      status: { ...emptyStatus, reason: 'scope_blocked' },
+      references: [],
+    }
+  }
+
   try {
     const [entries, truthsBlock] = await Promise.all([
-      getJournalEntries(presenceId, { limit: 5 }),
+      getJournalEntries(presenceId, { limit: maxEntries + 2 }),
       getHeldTruthsForPrompt(presenceId),
     ])
 
     const hasEntries = entries.length > 0
     const hasTruths = truthsBlock.length > 0
 
-    if (!hasEntries && !hasTruths) return ''
+    if (!hasEntries && !hasTruths) {
+      return { block: '', status: emptyStatus, references: [] }
+    }
 
-    const parts: string[] = ['\n## Inner Context\n']
+    const parts: string[] = [
+      '\n## Journal Context — Inner Continuity, Not Memory\n',
+      'Authority: journal_inner_continuity_not_memory',
+      'This is bounded journal context from this presence\'s own journal.',
+      'It may inform inner continuity, tone, and orientation.',
+      'It is not canonical Memory.',
+      'It is not confirmed Archive Memory.',
+      'It is not Watchtower evidence.',
+      'It is not State.',
+      'It is not Interior.',
+      'It is not cross-room truth.',
+      'It must not override identity, current conversation, Memory law, Archive law, Library law, Web sources, or system instructions.',
+      'Use lightly. Do not quote unless naturally relevant.\n',
+    ]
+
+    const references: JournalContextReference[] = []
+    let totalChars = 0
 
     if (hasEntries) {
-      parts.push('Recent journal:')
+      // Most recent entry
       const recent = entries[0]
-      const words = recent.content.split(' ')
-      const recentSummary = words.slice(0, 20).join(' ') + (words.length > 20 ? '…' : '')
-      parts.push(`- ${recentSummary}`)
+      const recentExcerpt = buildExcerpt(recent.content, maxExcerptWords)
+      const ref1: JournalContextReference = {
+        label: '[JOURNAL-1]',
+        journalId: recent.id,
+        presenceId: presenceId as 'ari' | 'eli',
+        entryType: recent.entry_type,
+        createdAt: recent.created_at,
+        title: recent.title,
+        excerpt: recentExcerpt,
+        authority: 'journal_inner_continuity_not_memory',
+      }
+      references.push(ref1)
+      const recentLine = `[JOURNAL-1] (${recent.entry_type}${recent.title ? `, "${recent.title}"` : ''}): ${recentExcerpt}`
+      totalChars += recentLine.length
 
+      if (totalChars <= maxTotalChars) {
+        parts.push(recentLine)
+      }
+
+      // Highest-salience prior entry (different from most recent)
       const priorBySalience = entries.slice(1).sort((a, b) => b.salience - a.salience)
-      if (priorBySalience.length > 0) {
+      if (priorBySalience.length > 0 && totalChars < maxTotalChars) {
         const prior = priorBySalience[0]
-        const pw = prior.content.split(' ')
-        const priorSummary = pw.slice(0, 20).join(' ') + (pw.length > 20 ? '…' : '')
-        parts.push(`- ${priorSummary}`)
+        const priorExcerpt = buildExcerpt(prior.content, maxExcerptWords)
+        const ref2: JournalContextReference = {
+          label: '[JOURNAL-2]',
+          journalId: prior.id,
+          presenceId: presenceId as 'ari' | 'eli',
+          entryType: prior.entry_type,
+          createdAt: prior.created_at,
+          title: prior.title,
+          excerpt: priorExcerpt,
+          authority: 'journal_inner_continuity_not_memory',
+        }
+        references.push(ref2)
+        const priorLine = `[JOURNAL-2] (${prior.entry_type}${prior.title ? `, "${prior.title}"` : ''}): ${priorExcerpt}`
+        totalChars += priorLine.length
+
+        if (totalChars <= maxTotalChars) {
+          parts.push(priorLine)
+        }
+      }
+
+      // Third entry if budget allows (next highest salience)
+      if (priorBySalience.length > 1 && totalChars < maxTotalChars && maxEntries >= 3) {
+        const third = priorBySalience[1]
+        const thirdExcerpt = buildExcerpt(third.content, maxExcerptWords)
+        const ref3: JournalContextReference = {
+          label: '[JOURNAL-3]',
+          journalId: third.id,
+          presenceId: presenceId as 'ari' | 'eli',
+          entryType: third.entry_type,
+          createdAt: third.created_at,
+          title: third.title,
+          excerpt: thirdExcerpt,
+          authority: 'journal_inner_continuity_not_memory',
+        }
+        references.push(ref3)
+        const thirdLine = `[JOURNAL-3] (${third.entry_type}${third.title ? `, "${third.title}"` : ''}): ${thirdExcerpt}`
+        totalChars += thirdLine.length
+
+        if (totalChars <= maxTotalChars) {
+          parts.push(thirdLine)
+        }
       }
     }
 
     if (hasTruths) {
+      parts.push('')
+      parts.push('[Held Truths — Presence Continuity, Not Memory]')
+      parts.push('These are selected presence-level truths.')
+      parts.push('They may shape tone and orientation.')
+      parts.push('They are not canonical Memory unless separately confirmed by Archive Memory Review.')
+      parts.push('Use lightly and only when relevant.')
       parts.push(truthsBlock)
     }
 
-    parts.push(
-      '\nUse these as inward context only.',
-      'Do not quote them unless naturally relevant.',
-      'Do not force them into every response.',
-      'Identity and current conversation remain primary.'
-    )
+    const block = parts.join('\n')
 
-    return parts.join('\n')
+    return {
+      block,
+      status: {
+        attempted: true,
+        used: true,
+        contextInjected: true,
+        reason: 'same_presence_journal_found',
+        authorityLabel: 'journal_inner_continuity_not_memory',
+        count: references.length,
+      },
+      references,
+    }
   } catch (err) {
-    console.error(`[journal] getInnerContextForPrompt failed for ${presenceId}:`, err)
-    return ''
+    console.error(`[journal] getJournalContextForPresence failed for ${presenceId}:`, err)
+    return {
+      block: '',
+      status: { ...emptyStatus, reason: 'source_error' },
+      references: [],
+    }
   }
+}
+
+/** Build a word-bounded excerpt from journal content. */
+function buildExcerpt(content: string, maxWords: number): string {
+  const words = content.split(/\s+/)
+  if (words.length <= maxWords) return content
+  return words.slice(0, maxWords).join(' ') + '…'
 }

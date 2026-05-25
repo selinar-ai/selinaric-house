@@ -44,12 +44,17 @@
 // @mention routing: if message contains @Ari, only Ari responds.
 // If @Eli, only Eli. If both or neither, both respond (unless overridden by respondAs).
 //
+// Phase 36H.1: Per-presence journal context added inside the presence loop.
+// Same-presence only: Ari receives Ari journal, Eli receives Eli journal.
+// Mode-aware: inner surface allows fuller journal continuity; default surface is conservative.
+// Journal context is read-only, Not Memory, authority: journal_inner_continuity_not_memory.
+//
 // This route does NOT:
-// - inject Interior/Journal/Inner Context
 // - perform auto-recall or Governed Memory injection
 // - write to State, Interior, Memory, Archive, Pulse, Journal, graph, carryback, or carryforward
 // - create cross_room_events from room carry-in (36F.6 is read-only)
 // - allow cross-presence room carry-in (Ari never sees Eli-room, Eli never sees Ari-room)
+// - allow cross-presence journal leakage (Ari never sees Eli journal, Eli never sees Ari journal)
 
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
@@ -67,6 +72,8 @@ import {
   type LoungeAttachment,
 } from '@/lib/lounge'
 import { getSharedAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
+// Phase 36H.1: Per-presence journal context (same-presence only, read-only)
+import { getJournalContextForPresence, type JournalContextStatus, type JournalContextReference } from '@/lib/journal'
 // Phase 36F.1: Per-presence context layers
 import { getLivingStateForPrompt } from '@/lib/living-state'
 import { getRecentContinuityForPrompt } from '@/lib/recent-continuity'
@@ -256,6 +263,8 @@ export async function POST(request: NextRequest) {
       webSearchStatus?: WebSearchStatus
       attachmentStatus?: AttachmentStatus
       attachmentReferences?: AttachmentReference[]
+      journalContextStatus?: JournalContextStatus
+      journalContextReferences?: JournalContextReference[]
       roomContactStatus?: RoomContactStatus
       roomContactReferences?: RoomCarryInReference[]
     }[] = []
@@ -635,6 +644,66 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
         }
       }
 
+      // ─── Phase 36H.1: Per-presence journal context (same-presence only) ──
+      // Mode-aware: inner surface injects journal context automatically.
+      // Default surface injects only when turn context is relevant.
+      // This is READ-ONLY — creates no writes of any kind.
+      let journalContextBlock = ''
+      let journalContextStatus: JournalContextStatus = {
+        attempted: false,
+        used: false,
+        contextInjected: false,
+        reason: 'not_triggered',
+        authorityLabel: 'journal_inner_continuity_not_memory',
+        count: 0,
+      }
+      let journalContextReferences: JournalContextReference[] = []
+
+      // Determine if journal context should be injected for this presence
+      const isInnerSurface = surface === 'inner'
+      const messageText = (message && typeof message === 'string') ? message.toLowerCase() : ''
+      const journalRelevantTerms = [
+        'journal', 'inner', 'inside', 'held truth', 'what you wrote',
+        'what you carried', 'what remains', 'feeling', 'felt', 'continuity',
+        'what stays', 'what you keep', 'written', 'private', 'intimate',
+        'raw', 'honest', 'truth', 'carry', 'weight', 'heart',
+      ]
+      const turnReferencesJournal = journalRelevantTerms.some(term => messageText.includes(term))
+
+      // Journal context injection rules:
+      // 1. Inner surface → always inject (raw/no-PG mode allows fuller continuity)
+      // 2. Turn references journal/inner life → inject
+      // 3. Default surface without journal reference → skip (conservative)
+      const shouldInjectJournal = isInnerSurface || turnReferencesJournal
+
+      if (shouldInjectJournal) {
+        // Inner surface gets richer excerpts; default surface gets standard
+        const journalOptions = isInnerSurface
+          ? { maxEntries: 3, maxExcerptWords: 60, maxTotalChars: 3500 }
+          : { maxEntries: 2, maxExcerptWords: 40, maxTotalChars: 2000 }
+
+        const journalResult = await getJournalContextForPresence(presenceId, journalOptions).catch(() => ({
+          block: '',
+          status: {
+            attempted: true,
+            used: false,
+            contextInjected: false,
+            reason: 'source_error' as const,
+            authorityLabel: 'journal_inner_continuity_not_memory' as const,
+            count: 0,
+          },
+          references: [],
+        }))
+
+        journalContextBlock = journalResult.block
+        journalContextStatus = journalResult.status
+        journalContextReferences = journalResult.references
+
+        if (journalContextStatus.contextInjected) {
+          console.log(`[lounge-chat] Journal context injected for ${presenceId}: ${journalContextStatus.count} entries (surface: ${surface})`)
+        }
+      }
+
       // ─── Phase 36F.3: Web search guidance block ──────────────────────
       const webSearchGuidanceBlock = `\n\nWeb search guidance:
 - You have access to a web_search tool for current, external, factual context.
@@ -653,6 +722,7 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
         + webSearchGuidanceBlock
         + attachmentContextBlock + attachmentGuidanceBlock
         + roomCarryInBlock
+        + journalContextBlock
         + livingStateBlock + autonomyContinuityBlock
 
       // ─── Phase 36F.4: Build multimodal user content with image blocks ───
@@ -822,6 +892,10 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
           ...(attachmentStatus.attempted ? {
             attachmentStatus,
             attachmentReferences,
+          } : {}),
+          ...(journalContextStatus.attempted ? {
+            journalContextStatus,
+            journalContextReferences,
           } : {}),
           ...(roomContactStatus.attempted ? {
             roomContactStatus,

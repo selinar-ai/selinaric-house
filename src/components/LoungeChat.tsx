@@ -216,6 +216,8 @@ export default function LoungeChat() {
         webSearchStatus: resp.webSearchStatus,
         attachmentStatus: resp.attachmentStatus,
         attachmentReferences: resp.attachmentReferences,
+        journalContextStatus: resp.journalContextStatus,
+        journalContextReferences: resp.journalContextReferences,
         roomContactStatus: resp.roomContactStatus,
         roomContactReferences: resp.roomContactReferences,
       }

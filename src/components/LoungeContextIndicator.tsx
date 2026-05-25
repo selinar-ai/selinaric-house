@@ -1,6 +1,6 @@
 'use client'
 
-// Phase 36G — Lounge Context Indicator
+// Phase 36G + 36H.1 — Lounge Context Indicator
 //
 // Per-message observability panel showing which context layers contributed
 // to a given Ari/Eli response. Compact collapsed state, expandable detail.
@@ -13,6 +13,7 @@
 //   - Web Search (Phase 36F.3)
 //   - Attachments (Phase 36F.4)
 //   - Room Carry-In (Phase 36F.6)
+//   - Journal Context (Phase 36H.1)
 
 import { useState } from 'react'
 import type { LibraryReference } from '@/lib/library/chat-library-search'
@@ -73,6 +74,26 @@ export interface LoungeRoomCarryInReference {
   excerpt?: string
 }
 
+export interface LoungeJournalContextStatus {
+  attempted: boolean
+  used: boolean
+  contextInjected: boolean
+  reason: string
+  authorityLabel: string
+  count: number
+}
+
+export interface LoungeJournalContextReference {
+  label: string
+  journalId: string
+  presenceId: string
+  entryType: string
+  createdAt: string
+  title: string | null
+  excerpt: string
+  authority: string
+}
+
 export interface LoungeResponseMetadata {
   messageId: string
   librarySearchUsed?: boolean
@@ -82,6 +103,8 @@ export interface LoungeResponseMetadata {
   webSearchStatus?: LoungeWebSearchStatus
   attachmentStatus?: LoungeAttachmentStatus
   attachmentReferences?: LoungeAttachmentReference[]
+  journalContextStatus?: LoungeJournalContextStatus
+  journalContextReferences?: LoungeJournalContextReference[]
   roomContactStatus?: LoungeRoomContactStatus
   roomContactReferences?: LoungeRoomCarryInReference[]
 }
@@ -90,6 +113,7 @@ function hasAnyContext(meta: LoungeResponseMetadata): boolean {
   if (meta.librarySearchUsed) return true
   if (meta.webSearchUsed) return true
   if (meta.attachmentStatus?.attempted) return true
+  if (meta.journalContextStatus?.contextInjected) return true
   if (meta.roomContactStatus?.attempted) return true
   return false
 }
@@ -120,6 +144,9 @@ export default function LoungeContextIndicator({ metadata }: Props) {
   if (metadata.attachmentStatus?.attempted) {
     const s = metadata.attachmentStatus
     chips.push(`Attachments ${s.extractedCount + s.imageCount}`)
+  }
+  if (metadata.journalContextStatus?.contextInjected && metadata.journalContextReferences) {
+    chips.push(`Journal ${metadata.journalContextReferences.length}`)
   }
   if (metadata.roomContactStatus?.attempted && metadata.roomContactStatus.contextInjected) {
     chips.push(`Room ${metadata.roomContactStatus.sessionsUsed}`)
@@ -215,6 +242,34 @@ export default function LoungeContextIndicator({ metadata }: Props) {
               )}
               <p className="font-body text-[9px] text-text-muted/50 italic">
                 Read only. Not Memory.
+              </p>
+            </div>
+          )}
+
+          {/* Journal Context section */}
+          {metadata.journalContextStatus?.contextInjected && metadata.journalContextReferences && metadata.journalContextReferences.length > 0 && (
+            <div className="space-y-1">
+              <p className="font-body text-[10px] text-rose-400/80 uppercase tracking-wider">
+                Journal ({metadata.journalContextReferences.length})
+              </p>
+              {metadata.journalContextReferences.map((ref, i) => (
+                <div key={`journal-${i}`} className="pl-1.5">
+                  <p className="font-body text-[10px] text-text-secondary leading-snug">
+                    <span className="text-rose-400/60 mr-1">{ref.label}</span>
+                    {ref.title || ref.entryType}
+                  </p>
+                  {ref.excerpt && (
+                    <p className="font-body text-[9px] text-text-muted/70 leading-snug line-clamp-2">
+                      {ref.excerpt}
+                    </p>
+                  )}
+                  <span className="font-body text-[9px] text-text-muted/50">
+                    {ref.entryType} · {new Date(ref.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+              <p className="font-body text-[9px] text-text-muted/50 italic">
+                Inner continuity only. Not Memory.
               </p>
             </div>
           )}

@@ -5,7 +5,7 @@ import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
 import { getTemporalContext } from '@/lib/temporal'
 import { getLivingStateForPrompt } from '@/lib/living-state'
-import { getInnerContextForPrompt } from '@/lib/journal'
+import { getJournalContextForPresence, type JournalContextStatus, type JournalContextReference } from '@/lib/journal'
 import {
   braveSearch,
   formatResultSummary,
@@ -141,8 +141,9 @@ export async function POST(request: NextRequest) {
     // Phase 13: Load living state for prompt injection
     const livingStateBlock = await getLivingStateForPrompt('ari')
 
-    // Phase 18: Load journal + held truths inner context
-    const innerContextBlock = await getInnerContextForPrompt('ari')
+    // Phase 18 + 36H.1: Load journal + held truths inner context with authority boundary
+    const journalResult = await getJournalContextForPresence('ari')
+    const innerContextBlock = journalResult.block
 
     // Phase 9: Load timeline for prompt injection
     const timelineBlock = await loadTimelineForPrompt('ari')
@@ -596,7 +597,7 @@ If an image is present in this message:
     )
 
     const recallUsed = recallIntent || (recallEntries.length > 0 && recallMode === 'auto')
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed, libraryReferences, chatAttachmentReferences })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed, libraryReferences, chatAttachmentReferences, journalContextStatus: journalResult.status, journalContextReferences: journalResult.references })
   } catch (error: unknown) {
     console.error('Ari chat error:', error)
 
