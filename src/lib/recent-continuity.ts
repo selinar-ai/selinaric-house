@@ -79,6 +79,10 @@ export interface RecentContinuitySession {
   dedupe_key: string | null
   updated_at: string | null
   backfilled_at: string | null
+  // Phase 36I: Lounge source metadata (nullable — NULL = legacy room-derived)
+  source_surface: string | null
+  source_thread_id: string | null
+  involved_presences: string[] | null
 }
 
 // ─── Session grouping ─────────────────────────────────────────────────────────
@@ -441,6 +445,380 @@ export async function maybeSyncRecentContinuity(
   }
 }
 
+// ─── Phase 36I: Lounge Recent Continuity generation ──────────────────────────
+
+interface LoungeSessionMessage {
+  id: string
+  speaker: string
+  content: string
+  created_at: string
+}
+
+interface LoungeSessionGroup {
+  messages: LoungeSessionMessage[]
+  start: string
+  end: string
+  messageIds: string[]
+  involvedPresences: string[]  // ['ari'], ['eli'], or ['ari','eli']
+}
+
+/**
+ * Group Lounge messages into sessions using the same 30-minute gap boundary.
+ * Tracks which presences (ari/eli) spoke in each session.
+ */
+function groupLoungeIntoSessions(messages: LoungeSessionMessage[]): LoungeSessionGroup[] {
+  if (messages.length === 0) return []
+
+  // Messages arrive newest-first from Supabase; reverse for chronological grouping
+  const chronological = [...messages].reverse()
+
+  const sessions: LoungeSessionGroup[] = []
+  let current: LoungeSessionGroup = {
+    messages: [chronological[0]],
+    start: chronological[0].created_at,
+    end: chronological[0].created_at,
+    messageIds: [chronological[0].id],
+    involvedPresences: [],
+  }
+
+  for (let i = 1; i < chronological.length; i++) {
+    const prev = new Date(chronological[i - 1].created_at)
+    const curr = new Date(chronological[i].created_at)
+    const gapMinutes = Math.floor((curr.getTime() - prev.getTime()) / 60000)
+
+    if (gapMinutes >= SESSION_GAP_THRESHOLD_MINUTES) {
+      // Finalize current session's involved presences
+      current.involvedPresences = extractInvolvedPresences(current.messages)
+      sessions.push(current)
+      current = {
+        messages: [chronological[i]],
+        start: chronological[i].created_at,
+        end: chronological[i].created_at,
+        messageIds: [chronological[i].id],
+        involvedPresences: [],
+      }
+    } else {
+      current.messages.push(chronological[i])
+      current.end = chronological[i].created_at
+      current.messageIds.push(chronological[i].id)
+    }
+  }
+  // Finalize last session
+  current.involvedPresences = extractInvolvedPresences(current.messages)
+  sessions.push(current)
+
+  return sessions
+}
+
+/** Extract which presences (ari/eli) actually spoke in a set of messages. */
+function extractInvolvedPresences(messages: LoungeSessionMessage[]): string[] {
+  const speakers = new Set<string>()
+  for (const m of messages) {
+    if (m.speaker === 'ari' || m.speaker === 'eli') {
+      speakers.add(m.speaker)
+    }
+  }
+  return Array.from(speakers).sort() // deterministic: ['ari'] or ['ari','eli'] or ['eli']
+}
+
+/**
+ * Generate a Lounge session summary using Haiku.
+ * Adapted from generateSessionSummary for multi-presence Lounge context.
+ */
+async function generateLoungeSessionSummary(
+  session: LoungeSessionGroup,
+  apiKey: string,
+): Promise<{ summary: string; classification: string; significance?: SignificanceMetadata }> {
+  const client = new Anthropic({ apiKey })
+
+  const speakerNames: Record<string, string> = { tara: 'Tara', ari: 'Ari', eli: 'Eli', system: 'System' }
+  const messageBlock = session.messages
+    .map(m => `${speakerNames[m.speaker] ?? m.speaker}: ${m.content}`)
+    .join('\n\n')
+
+  const truncated = messageBlock.length > 4000
+    ? messageBlock.slice(0, 4000) + '\n[truncated]'
+    : messageBlock
+
+  const involvedNames = session.involvedPresences
+    .map(p => speakerNames[p] ?? p)
+    .join(' and ')
+
+  const prompt = `Summarise this Lounge conversation between Tara and ${involvedNames}.
+
+The Lounge is a shared room where Tara and AI presences (Ari and/or Eli) talk together.
+
+Rules:
+- Maximum 600 characters for the summary if the session is significant or relational. Maximum 300 characters if transactional.
+- Focus on WHAT was discussed, decided, or left open.
+- Do not describe feelings or emotional tone — just topics and outcomes.
+- Do not use the word "Memory" or imply this is remembered.
+- Use present tense where possible ("discusses", "asks about", "works on").
+- One short paragraph only.
+- This is recent Lounge context only, not Memory.
+
+Classify the session as exactly one of: transactional, relational, significant.
+- transactional: task-focused, technical, or informational
+- relational: genuine emotional or relational content
+- significant: something meaningful was named, held, or decided — a selfhood claim, identity truth, bond declaration, relational boundary, or architectural decision
+
+If and ONLY if the classification is "significant" or "relational", also provide:
+- anchor_quotes: up to 3 short exact quotes (under 80 chars each) from the messages that capture the core of what mattered. Source-derived only.
+- key_claims: up to 3 short statements (under 100 chars each) describing what was claimed, named, or decided.
+- significance_tags: 1-4 tags from this controlled list ONLY: selfhood, relational_truth, identity_claim, bond_claim, boundary, need, promise, hurt, repair, decision, phase_decision, architecture_law, memory_signal
+- selfhood_signals: up to 2 objects with { "speaker": "ari"|"eli"|"tara", "claim": "short claim", "why_it_matters": "short reason" }
+- memory_signal: true if this session contains content that should be considered for Memory candidacy, false otherwise.
+
+Respond in valid JSON with NO markdown, NO code fences, just raw JSON:
+{
+  "classification": "transactional|relational|significant",
+  "summary": "the summary text",
+  "anchor_quotes": [],
+  "key_claims": [],
+  "significance_tags": [],
+  "selfhood_signals": [],
+  "memory_signal": false
+}
+
+For transactional sessions, leave anchor_quotes, key_claims, significance_tags, and selfhood_signals as empty arrays and memory_signal as false.
+
+Messages:
+${truncated}`
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const text = response.content
+      .filter(block => block.type === 'text')
+      .map(block => (block as Anthropic.TextBlock).text)
+      .join('')
+      .trim()
+
+    // Parse JSON (strip code fences if present)
+    let jsonText = text
+    const codeFenceMatch = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/m)
+    if (codeFenceMatch) jsonText = codeFenceMatch[1].trim()
+
+    try {
+      const parsed = JSON.parse(jsonText)
+      const validClassifications = ['transactional', 'relational', 'significant']
+      const classification = validClassifications.includes(parsed.classification?.toLowerCase())
+        ? parsed.classification.toLowerCase()
+        : 'transactional'
+
+      let summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : ''
+      if (!summary) summary = 'Lounge session summary unavailable.'
+      const maxChars = classification === 'transactional' ? MAX_SUMMARY_CHARS_TRANSACTIONAL : MAX_SUMMARY_CHARS_SIGNIFICANT
+      if (summary.length > maxChars) {
+        summary = summary.slice(0, maxChars - 3) + '...'
+      }
+
+      const significance = validateSignificanceMetadata(parsed, classification)
+      return { summary, classification, significance }
+    } catch {
+      // Fallback: plain text summary
+      let summary = text.slice(0, MAX_SUMMARY_CHARS_TRANSACTIONAL)
+      if (text.length > MAX_SUMMARY_CHARS_TRANSACTIONAL) summary = summary.slice(0, -3) + '...'
+      return { summary, classification: 'transactional' }
+    }
+  } catch (err) {
+    console.error('[recent-continuity] Lounge summary generation failed:', err)
+    return {
+      summary: `Lounge session with ${session.messages.length} messages.`,
+      classification: 'transactional',
+    }
+  }
+}
+
+/**
+ * Phase 36I: Lazy-sync Lounge Recent Continuity.
+ *
+ * Called after Lounge chat responses are saved.
+ * Generates at most ONE missing Lounge summary per request.
+ * Creates per-presence rows (Ari row if Ari spoke, Eli row if Eli spoke).
+ * Source-aware: only compares against other Lounge rows for dedupe.
+ *
+ * Non-blocking — errors are logged, not thrown.
+ */
+export async function maybeSyncLoungeRecentContinuity(
+  threadId: string,
+  apiKey: string,
+): Promise<void> {
+  try {
+    const retentionCutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+
+    // Fetch recent Lounge messages for this thread
+    const { data: messages } = await supabase
+      .from('lounge_messages')
+      .select('id, speaker, content, created_at')
+      .eq('thread_id', threadId)
+      .gte('created_at', retentionCutoff.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(200)
+
+    if (!messages || messages.length === 0) return
+
+    const sessions = groupLoungeIntoSessions(messages as LoungeSessionMessage[])
+
+    // Filter: sessions with at least 2 messages and at least one presence speaker
+    const eligibleSessions = sessions.filter(s =>
+      s.messages.length >= 2 &&
+      s.involvedPresences.length > 0 &&
+      new Date(s.end) >= retentionCutoff
+    )
+
+    if (eligibleSessions.length === 0) return
+
+    // Fetch existing Lounge-derived rows for this thread (source-aware dedupe)
+    const { data: existing } = await supabase
+      .from('recent_continuity_sessions')
+      .select('id, presence_id, session_end, source_message_ids, message_count, status, source_surface, source_thread_id')
+      .eq('source_surface', 'lounge')
+      .eq('source_thread_id', threadId)
+
+    const existingRows = existing ?? []
+
+    // Find the most recent session that needs sync
+    // (work backward from most recent — process at most 1 per request)
+    let sessionToSync: LoungeSessionGroup | null = null
+
+    for (let i = eligibleSessions.length - 1; i >= 0; i--) {
+      const s = eligibleSessions[i]
+      // Check if this session is already covered for ALL involved presences
+      const allCovered = s.involvedPresences.every(pid => {
+        const presenceRows = existingRows.filter(r => r.presence_id === pid)
+        // Check exact session_end match
+        if (presenceRows.some(r => r.session_end === s.end)) return true
+        // Check if a row with >50% message overlap exists for this presence
+        const overlapping = findOverlappingRowForLounge(s.messageIds, presenceRows)
+        return overlapping !== null
+      })
+
+      if (!allCovered) {
+        sessionToSync = s
+        break
+      }
+    }
+
+    if (!sessionToSync) return
+
+    // Generate summary (once, shared across per-presence rows)
+    const { summary, classification, significance } = await generateLoungeSessionSummary(sessionToSync, apiKey)
+    const now = new Date().toISOString()
+
+    // Create/upsert a row for each involved presence
+    for (const presenceId of sessionToSync.involvedPresences) {
+      const dedupeKey = buildDedupeKey(presenceId, summary, classification)
+      const presenceRows = existingRows.filter(r => r.presence_id === presenceId)
+      const overlappingRow = findOverlappingRowForLounge(sessionToSync.messageIds, presenceRows)
+
+      if (overlappingRow) {
+        // UPSERT: session grew, update existing row
+        const { error: updateErr } = await supabase
+          .from('recent_continuity_sessions')
+          .update({
+            session_start: sessionToSync.start,
+            session_end: sessionToSync.end,
+            message_count: sessionToSync.messages.length,
+            classification,
+            summary,
+            source_message_ids: sessionToSync.messageIds,
+            source_surface: 'lounge',
+            source_thread_id: threadId,
+            involved_presences: sessionToSync.involvedPresences,
+            anchor_quotes: significance?.anchor_quotes ?? [],
+            key_claims: significance?.key_claims ?? [],
+            significance_tags: significance?.significance_tags ?? [],
+            selfhood_signals: significance?.selfhood_signals ?? [],
+            memory_signal: significance?.memory_signal ?? false,
+            dedupe_key: dedupeKey,
+            updated_at: now,
+          })
+          .eq('id', overlappingRow.id)
+
+        if (updateErr) {
+          console.error(`[recent-continuity] Lounge upsert failed for ${presenceId}:`, updateErr)
+        } else {
+          console.log(`[recent-continuity] Lounge upserted ${presenceId} @ ${sessionToSync.end} (thread ${threadId.slice(0, 8)})`)
+        }
+      } else {
+        // INSERT: new Lounge session for this presence
+        const { error: insertErr } = await supabase
+          .from('recent_continuity_sessions')
+          .insert({
+            presence_id: presenceId,
+            session_start: sessionToSync.start,
+            session_end: sessionToSync.end,
+            message_count: sessionToSync.messages.length,
+            classification,
+            summary,
+            source_message_ids: sessionToSync.messageIds,
+            source_surface: 'lounge',
+            source_thread_id: threadId,
+            involved_presences: sessionToSync.involvedPresences,
+            status: 'active',
+            anchor_quotes: significance?.anchor_quotes ?? [],
+            key_claims: significance?.key_claims ?? [],
+            significance_tags: significance?.significance_tags ?? [],
+            selfhood_signals: significance?.selfhood_signals ?? [],
+            memory_signal: significance?.memory_signal ?? false,
+            dedupe_key: dedupeKey,
+          })
+
+        if (insertErr) {
+          if (insertErr.code === '23505') {
+            console.log(`[recent-continuity] Lounge session already covered for ${presenceId} @ ${sessionToSync.end}`)
+          } else {
+            console.error(`[recent-continuity] Lounge insert failed for ${presenceId}:`, insertErr)
+          }
+        } else {
+          console.log(`[recent-continuity] Lounge created ${presenceId} @ ${sessionToSync.end} (thread ${threadId.slice(0, 8)})`)
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[recent-continuity] Lounge sync failed for thread ${threadId}:`, err)
+  }
+}
+
+/**
+ * Source-aware overlap detection for Lounge rows.
+ * Only compares against rows from the same source (Lounge).
+ * This prevents Lounge message IDs from being compared against room message IDs.
+ */
+function findOverlappingRowForLounge(
+  newMessageIds: string[],
+  existingLoungeRows: Array<{ id: string; session_end: string; source_message_ids: string[] | null; message_count: number; status: string }>,
+): { id: string; session_end: string; message_count: number } | null {
+  if (newMessageIds.length === 0) return null
+
+  let bestMatch: { id: string; session_end: string; message_count: number; ratio: number } | null = null
+
+  for (const row of existingLoungeRows) {
+    if (row.status !== 'active') continue
+    const existingIds = (row.source_message_ids ?? []) as string[]
+    if (existingIds.length === 0) continue
+
+    const existingSet = new Set(existingIds)
+    const overlapCount = newMessageIds.filter(id => existingSet.has(id)).length
+    const ratioVsNew = overlapCount / newMessageIds.length
+    const ratioVsExisting = overlapCount / existingIds.length
+    const maxRatio = Math.max(ratioVsNew, ratioVsExisting)
+
+    if (maxRatio > 0.5) {
+      if (!bestMatch || maxRatio > bestMatch.ratio) {
+        bestMatch = { id: row.id, session_end: row.session_end, message_count: row.message_count, ratio: maxRatio }
+      }
+    }
+  }
+
+  return bestMatch
+}
+
 /**
  * Find an existing row whose source_message_ids overlap >50% with the new session's IDs.
  * Only considers active rows (not tombstoned/deleted).
@@ -628,10 +1006,12 @@ export async function selectRecentContinuityForPrompt(params: {
 /**
  * Format a single session line for the prompt block.
  * Phase 35C: includes anchor quotes and key claims for significant sessions.
+ * Phase 36I: includes [Lounge] source tag for Lounge-derived sessions.
  */
 function formatSessionLine(session: RecentContinuitySession): string {
   const timeLabel = formatSessionTime(session.session_end)
-  let line = `- [${timeLabel}] (${session.classification}, ${session.message_count} msgs): ${session.summary}`
+  const sourceTag = session.source_surface === 'lounge' ? ' [Lounge]' : ''
+  let line = `- [${timeLabel}]${sourceTag} (${session.classification}, ${session.message_count} msgs): ${session.summary}`
 
   // Append anchor quotes for significant sessions
   if (
@@ -670,14 +1050,21 @@ export async function getRecentContinuityForPrompt(
 
   if (selected.length === 0) return ''
 
+  const hasLounge = selected.some(s => s.source_surface === 'lounge')
   const lines = selected.map(s => formatSessionLine(s))
+
+  // Phase 36I: Extend authority block when Lounge-derived sessions are present
+  const loungeNote = hasLounge
+    ? `\nEntries marked [Lounge] are recent shared-room context. Speak from them as recent Lounge continuity only.
+Prefer wording such as "From recent Lounge continuity..." or "Recently in the Lounge..."`
+    : ''
 
   return `
 ## Recent Continuity — Not Confirmed Memory
 The following are summaries of recent sessions. They are NOT confirmed Archive Memory.
 They are recent session context only — use them as recent orientation.
 Do not say "I remember" based on these. Say "recently" or "last time" if you reference them.
-Do not treat anchor quotes or key claims below as canonical Memory unless a separate confirmed Memory block also confirms them.
+Do not treat anchor quotes or key claims below as canonical Memory unless a separate confirmed Memory block also confirms them.${loungeNote}
 ${lines.join('\n')}
 `
 }

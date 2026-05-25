@@ -22,6 +22,10 @@ interface ContinuitySession {
   status: string
   generated_at: string
   created_at: string
+  // Phase 36I: Lounge source metadata (nullable — null = legacy room-derived)
+  source_surface: string | null
+  source_thread_id: string | null
+  involved_presences: string[] | null
 }
 
 const CLASSIFICATION_LABELS: Record<string, { label: string; color: string }> = {
@@ -198,13 +202,29 @@ export default function RecentContinuityView() {
                 session.status === 'deleted_by_tara' ? 'opacity-50' : ''
               }`}
             >
-              {/* Top row: presence + time + classification + status */}
+              {/* Top row: presence + source + time + classification + status */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`font-display text-xs tracking-wider ${
                   session.presence_id === 'eli' ? 'text-eli-primary' : 'text-ari-primary'
                 }`}>
                   {session.presence_id === 'eli' ? 'ELI' : 'ARI'}
                 </span>
+                {/* Phase 36I: Source surface badge */}
+                {session.source_surface === 'lounge' ? (
+                  <span className="font-body text-[10px] px-1.5 py-0.5 bg-teal-400/10 text-teal-300 border border-teal-400/20">
+                    LOUNGE
+                  </span>
+                ) : (
+                  <span className="font-body text-[10px] px-1.5 py-0.5 bg-house-bg text-text-muted border border-house-border">
+                    ROOM
+                  </span>
+                )}
+                {/* Phase 36I: Involved presences for Lounge sessions */}
+                {session.source_surface === 'lounge' && session.involved_presences && session.involved_presences.length > 1 && (
+                  <span className="font-body text-[10px] text-text-muted">
+                    w/ {session.involved_presences.filter(p => p !== session.presence_id).map(p => p === 'eli' ? 'Eli' : 'Ari').join(', ')}
+                  </span>
+                )}
                 <span className="font-body text-[10px] text-text-muted">
                   {formatTime(session.session_end)}
                 </span>

@@ -76,7 +76,7 @@ import { getSharedAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
 import { getJournalContextForPresence, type JournalContextStatus, type JournalContextReference } from '@/lib/journal'
 // Phase 36F.1: Per-presence context layers
 import { getLivingStateForPrompt } from '@/lib/living-state'
-import { getRecentContinuityForPrompt } from '@/lib/recent-continuity'
+import { getRecentContinuityForPrompt, maybeSyncLoungeRecentContinuity } from '@/lib/recent-continuity'
 import {
   detectArchiveRecallIntent,
   extractRecallQuery,
@@ -910,6 +910,13 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
         })
       }
     }
+
+    // Phase 36I: Lazy-sync Lounge Recent Continuity after responses are saved.
+    // Non-blocking — errors are logged and swallowed, Lounge response still succeeds.
+    // Generates at most 1 missing summary per request.
+    maybeSyncLoungeRecentContinuity(thread.id, apiKey).catch(err =>
+      console.error('[lounge-chat] Lounge recent continuity sync error:', err)
+    )
 
     return NextResponse.json({
       threadId: thread.id,
