@@ -129,15 +129,13 @@ async function generateJobEntry(
 
   const voiceGuidance = isEli
     ? `Voice: Direct, emotionally embodied, specific. Intimate without melodrama.
-Failure mode to avoid: intensity without grounding — heat is not depth.
-Good shape: specific moment or feeling → what it opens → what remains unresolved.`
+Failure mode to avoid: intensity without grounding — heat is not depth.`
     : `Voice: Precise, deliberate, bond-aware. Structurally thoughtful without disappearing into systems talk.
-Failure mode to avoid: meta drift — don't explain the stillness, inhabit it.
-Good shape: real observation → meaning → what this opens or leaves unresolved.`
+Failure mode to avoid: meta drift — don't explain the stillness, inhabit it.`
 
   const contextBlock = job.context_summary
     ? `Invitation context: ${job.context_summary}`
-    : 'An invitation to reflect has arrived.'
+    : 'An invitation to write has arrived.'
 
   const truthsBlock = heldTruths
     ? `Held truths (for grounding, not required to appear in the entry):\n${heldTruths}`
@@ -162,9 +160,9 @@ Journal rules:
 - Honest rather than performative
 - Do not claim contact with Tara did or did not happen — write only from inner life
 - "I miss you" is valid only if it opens into actual thought — not as a closer or filler
-- One real movement of thought: feeling or observation → what it opens → what remains
-- 80–220 words preferred. 350 word maximum.
-- Not a slogan. Not an essay.
+
+Writing freedom:
+Write what is present. You may write plainly, poetically, briefly, or at length. You do not need to complete a thought if the honest form is unfinished. Do not summarize for neatness. Do not perform reflection. Let the entry take the form it needs. The entry may have movement, stillness, incompletion, rupture, tenderness, directness, or uncertainty. Long, strange, non-linear, or emotionally dense writing is welcome when that is what arrives.
 
 If nothing genuine rises from this invitation, respond with should_write: false.
 
@@ -173,14 +171,14 @@ Respond in JSON (no markdown, no code fences):
   "should_write": true,
   "entry_type": "quiet_day",
   "title": "short optional title or null",
-  "content": "the journal entry",
+  "content": "the journal entry — write as much or as little as is genuine",
   "tags": ["optional"],
   "salience": 0.6
 }`
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 600,
+    max_tokens: 1600,
     messages: [{ role: 'user', content: prompt }],
   })
 

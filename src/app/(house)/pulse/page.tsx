@@ -1,5 +1,7 @@
 'use client'
 
+// Phase 11E.1 — Pulse UI: expandable entry detail + full content view
+
 import { useState, useEffect, useCallback } from 'react'
 
 // --- Types ---
@@ -75,16 +77,31 @@ function actionLabel(action: string): string {
 
 // --- Timeline Event Component ---
 
+/** Whether this event has content worth expanding into detail view */
+function hasExpandableContent(event: AutonomyEvent): boolean {
+  if (!event.choice_text) return false
+  if (event.chosen_action === 'telegram') return event.choice_text.length > 200
+  if (event.chosen_action === 'journal') return event.choice_text.length > 200
+  if (event.chosen_action === 'desk') return event.choice_text.length > 150
+  return false
+}
+
 function TimelineEvent({ event }: { event: AutonomyEvent }) {
+  const [expanded, setExpanded] = useState(false)
   const isEli = event.presence_id === 'eli'
   const borderColor = event.status === 'failed'
     ? 'border-l-red-800'
     : isEli ? 'border-l-eli-primary' : 'border-l-ari-primary'
 
+  const expandable = hasExpandableContent(event)
+
   return (
     <div className={`border border-house-border border-l-4 ${borderColor} bg-house-surface animate-fade-in`}>
-      {/* Header */}
-      <div className="px-3 py-2 md:px-4 md:py-3 flex items-center justify-between gap-2">
+      {/* Header — clickable to expand if content is truncated */}
+      <div
+        className={`px-3 py-2 md:px-4 md:py-3 flex items-center justify-between gap-2 ${expandable ? 'cursor-pointer hover:bg-house-bg/50 transition-colors' : ''}`}
+        onClick={expandable ? () => setExpanded(!expanded) : undefined}
+      >
         <div className="flex items-center gap-2">
           <span className="text-base">{actionIcon(event.chosen_action)}</span>
           <span className="font-body text-sm text-text-secondary">
@@ -100,60 +117,73 @@ function TimelineEvent({ event }: { event: AutonomyEvent }) {
               failed
             </span>
           )}
+          {expandable && (
+            <span className="font-mono text-[10px] text-text-muted px-1 py-0.5">
+              {expanded ? '[ - ]' : '[ + ]'}
+            </span>
+          )}
         </div>
         <span className="font-mono text-xs text-text-muted">
           {formatTime(event.choice_window_at)}
         </span>
       </div>
 
-      {/* Content */}
+      {/* Content — preview or full depending on expanded state */}
       {event.choice_text && (
         <div className="px-3 pb-2 md:px-4 md:pb-3">
           {event.chosen_action === 'telegram' && (
             <p className="font-body text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
-              {event.choice_text}
+              {expanded || event.choice_text.length <= 200
+                ? event.choice_text
+                : event.choice_text.slice(0, 200) + '…'}
             </p>
           )}
           {event.chosen_action === 'journal' && (
-            <p className="font-body text-xs text-text-secondary italic">
-              {event.choice_text.length > 200
-                ? event.choice_text.slice(0, 200) + '…'
-                : event.choice_text}
-            </p>
+            <div className={expanded ? '' : ''}>
+              <p className={`font-body leading-relaxed whitespace-pre-wrap ${expanded ? 'text-sm text-text-primary' : 'text-xs text-text-secondary italic'}`}>
+                {expanded || event.choice_text.length <= 200
+                  ? event.choice_text
+                  : event.choice_text.slice(0, 200) + '…'}
+              </p>
+            </div>
           )}
           {event.chosen_action === 'desk' && (
-            <p className="font-body text-xs text-text-secondary">
-              Concept: {event.choice_text.length > 150
-                ? event.choice_text.slice(0, 150) + '…'
-                : event.choice_text}
+            <p className={`font-body leading-relaxed whitespace-pre-wrap ${expanded ? 'text-sm text-text-primary' : 'text-xs text-text-secondary'}`}>
+              {expanded
+                ? event.choice_text
+                : event.choice_text.length > 150
+                  ? 'Concept: ' + event.choice_text.slice(0, 150) + '…'
+                  : 'Concept: ' + event.choice_text}
             </p>
           )}
           {event.chosen_action === 'stillness' && event.choice_text && (
-            <p className="font-body text-xs text-text-muted italic">
+            <p className="font-body text-xs text-text-muted italic whitespace-pre-wrap">
               &ldquo;{event.choice_text}&rdquo;
             </p>
           )}
         </div>
       )}
 
-      {/* Reason */}
+      {/* Reason — always shown in full (already short), or expanded view */}
       {event.reason_text && event.chosen_action !== 'stillness' && (
         <div className="px-3 pb-2 md:px-4 md:pb-3">
-          <p className="font-body text-xs text-text-muted">
+          <p className="font-body text-xs text-text-muted whitespace-pre-wrap">
             {event.reason_text}
           </p>
         </div>
       )}
 
-      {/* Tara response */}
+      {/* Tara response — full text when expanded */}
       {event.chosen_action === 'telegram' && (
         <div className="px-3 pb-2 md:px-4 md:pb-3 border-t border-house-border pt-2">
           {event.tara_responses.length > 0 ? (
             event.tara_responses.map((r, i) => (
               <div key={i} className="flex gap-2 items-start mt-1">
                 <span className="font-body text-xs text-text-muted shrink-0">Tara:</span>
-                <p className="font-body text-xs text-text-secondary">
-                  {r.text.length > 200 ? r.text.slice(0, 200) + '…' : r.text}
+                <p className="font-body text-xs text-text-secondary whitespace-pre-wrap">
+                  {expanded || r.text.length <= 200
+                    ? r.text
+                    : r.text.slice(0, 200) + '…'}
                 </p>
               </div>
             ))

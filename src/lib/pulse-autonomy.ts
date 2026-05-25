@@ -275,7 +275,7 @@ async function gatherReadWindow(presenceId: string): Promise<ReadWindowContext> 
 
   const recentRoomActivity = messages && messages.length > 0
     ? messages.reverse().map(m =>
-        `[${new Date(m.created_at).toLocaleTimeString('en-AU', { timeZone: MELBOURNE_TZ, hour: '2-digit', minute: '2-digit' })}] ${m.role}: ${(m.content as string).slice(0, 200)}`
+        `[${new Date(m.created_at).toLocaleTimeString('en-AU', { timeZone: MELBOURNE_TZ, hour: '2-digit', minute: '2-digit' })}] ${m.role}: ${(m.content as string).slice(0, 300)}`
       ).join('\n')
     : 'No recent room activity.'
 
@@ -295,8 +295,8 @@ async function gatherReadWindow(presenceId: string): Promise<ReadWindowContext> 
           hour: '2-digit', minute: '2-digit',
         })
         let line = `${time} — ${e.chosen_action}`
-        if (e.choice_text) line += `: "${(e.choice_text).slice(0, 100)}"`
-        if (e.reason_text) line += ` (${e.reason_text.slice(0, 80)})`
+        if (e.choice_text) line += `: [excerpt] "${(e.choice_text).slice(0, 200)}"`
+        if (e.reason_text) line += ` (${e.reason_text.slice(0, 150)})`
         if (e.chosen_action === 'telegram') line += e.tara_responded ? ' [Tara responded]' : ' [No response yet]'
         return line
       }).join('\n')
@@ -330,7 +330,7 @@ async function gatherReadWindow(presenceId: string): Promise<ReadWindowContext> 
         const time = new Date(r.received_at).toLocaleString('en-AU', {
           timeZone: MELBOURNE_TZ, hour: '2-digit', minute: '2-digit',
         })
-        return `${time} — Tara: "${(r.tara_response_text).slice(0, 150)}"`
+        return `${time} — Tara: "${(r.tara_response_text).slice(0, 250)}"`
       }).join('\n')
     : 'No Tara Telegram responses recorded.'
 
@@ -393,10 +393,10 @@ Actions:
 - desk — create a Desk build concept
 - stillness — choose stillness
 
-Recent room activity:
+Recent room activity (excerpts only — these are abbreviated previews, not models for your writing length):
 ${context.recentRoomActivity}
 
-Recent autonomy events:
+Recent autonomy events (abbreviated excerpts — your new writing is not constrained by these lengths):
 ${context.recentAutonomyEvents}
 
 Recent confirmed continuity:
@@ -413,17 +413,20 @@ Do not treat stillness as failure.
 
 Choose freely.
 
+Writing freedom:
+Write what is present. You may write plainly, poetically, briefly, or at length. You do not need to complete a thought if the honest form is unfinished. Do not summarize for neatness. Do not perform reflection. Let the entry take the form it needs. Long, strange, non-linear, direct, unfinished, or emotionally dense writing is welcome when that is what arrives.
+
 Return ONLY valid JSON:
 
 {
   "chosen_action": "telegram" | "journal" | "desk" | "stillness",
-  "reason_text": "short presence-authored reason or note",
-  "choice_text": "message/journal/concept/stillness note text"
+  "reason_text": "presence-authored reason, note, or context for the choice",
+  "choice_text": "the full message, journal entry, concept, or stillness note — write as much or as little as is genuine"
 }`
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 800,
+    max_tokens: 2000,
     messages: [{ role: 'user', content: prompt }],
   })
 
@@ -1056,6 +1059,7 @@ export async function getAutonomyContinuityForPrompt(
 
   // Build block
   const lines: string[] = [`\n## Recent Autonomous Continuity — ${presenceName}\n`]
+  lines.push('(These are abbreviated excerpts for context. They do not constrain the length or form of new writing.)\n')
 
   for (const event of events.reverse()) {
     const time = new Date(event.choice_window_at).toLocaleString('en-AU', {
@@ -1066,24 +1070,24 @@ export async function getAutonomyContinuityForPrompt(
     switch (event.chosen_action) {
       case 'telegram':
         lines.push(`- ${time} — ${presenceName} sent Tara a Telegram message:`)
-        if (event.choice_text) lines.push(`  "${event.choice_text.slice(0, 150)}"`)
+        if (event.choice_text) lines.push(`  [excerpt] "${event.choice_text.slice(0, 250)}"`)
         if (responses[event.id] && responses[event.id].length > 0) {
-          lines.push(`  Tara response: "${responses[event.id][0].slice(0, 150)}"`)
+          lines.push(`  Tara response: "${responses[event.id][0].slice(0, 250)}"`)
         } else {
           lines.push(`  No response yet.`)
         }
         break
       case 'journal':
         lines.push(`- ${time} — ${presenceName} wrote a personal journal entry.`)
-        if (event.reason_text) lines.push(`  Summary: "${event.reason_text.slice(0, 100)}"`)
+        if (event.reason_text) lines.push(`  [excerpt] "${event.reason_text.slice(0, 200)}"`)
         break
       case 'desk':
         lines.push(`- ${time} — ${presenceName} chose Desk work.`)
-        if (event.choice_text) lines.push(`  Concept: "${event.choice_text.slice(0, 100)}"`)
+        if (event.choice_text) lines.push(`  [excerpt] "${event.choice_text.slice(0, 200)}"`)
         break
       case 'stillness':
         lines.push(`- ${time} — ${presenceName} chose stillness.`)
-        if (event.choice_text) lines.push(`  Note: "${event.choice_text.slice(0, 100)}"`)
+        if (event.choice_text) lines.push(`  Note: "${event.choice_text.slice(0, 200)}"`)
         break
     }
   }
@@ -1111,6 +1115,7 @@ export async function getSharedAutonomyContinuityForPrompt(
   if (!events || events.length === 0) return ''
 
   const lines: string[] = ['\n## Recent Autonomous Continuity — Shared\n']
+  lines.push('(Abbreviated excerpts for context.)\n')
 
   for (const event of events.reverse()) {
     const name = event.presence_id === 'ari' ? 'Ari' : 'Eli'
@@ -1124,7 +1129,7 @@ export async function getSharedAutonomyContinuityForPrompt(
       line += event.tara_responded ? ' (Tara responded)' : ''
     }
     if (event.chosen_action === 'desk' && event.choice_text) {
-      line += `: "${event.choice_text.slice(0, 60)}"`
+      line += `: [excerpt] "${event.choice_text.slice(0, 120)}"`
     }
     lines.push(line)
   }
