@@ -245,6 +245,7 @@ export async function POST(request: NextRequest) {
     const autonomyContinuityBlock = await getSharedAutonomyContinuityForPrompt().catch(() => '')
 
     const responses: {
+      messageId: string | null
       speaker: string
       content: string
       librarySearchUsed?: boolean
@@ -806,10 +807,11 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
       const reply = sanitizeSpeakerBoundary(rawReply, presenceId)
 
       if (reply) {
-        // Save to database
-        await saveThreadMessage(thread.id, presenceId, reply, surface)
+        // Save to database — capture message ID for frontend metadata binding
+        const savedMsg = await saveThreadMessage(thread.id, presenceId, reply, surface)
 
         responses.push({
+          messageId: savedMsg?.id ?? null,
           speaker: presenceId,
           content: reply,
           ...(librarySearchUsed ? { librarySearchUsed: true, libraryReferences } : {}),

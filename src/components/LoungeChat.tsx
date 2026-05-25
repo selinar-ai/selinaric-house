@@ -11,9 +11,10 @@
 // Enter = newline, Ctrl/Cmd+Enter = send.
 // @Ari / @Eli mention routing.
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useLoungeMessages } from '@/hooks/useLoungeMessages'
 import VoiceButton from '@/components/VoiceButton'
+import LoungeContextIndicator, { type LoungeResponseMetadata } from '@/components/LoungeContextIndicator'
 import {
   validateLoungeImage,
   validateLoungeFile,
@@ -40,6 +41,9 @@ export default function LoungeChat() {
   const [error, setError] = useState<string | null>(null)
   const [carrybackStatus, setCarrybackStatus] = useState<string | null>(null)
   const [captureStatus, setCaptureStatus] = useState<string | null>(null)
+
+  // Phase 36G: Context metadata keyed by messageId
+  const [contextMetadataMap, setContextMetadataMap] = useState<Map<string, LoungeResponseMetadata>>(new Map())
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -197,6 +201,35 @@ export default function LoungeChat() {
     }
   }
 
+  // Phase 36G: Extract and store response metadata from send() result
+  const captureResponseMetadata = useCallback((data: Record<string, unknown>) => {
+    if (!data || !Array.isArray(data.responses)) return
+    const newEntries = new Map<string, LoungeResponseMetadata>()
+    for (const resp of data.responses) {
+      if (!resp.messageId) continue
+      const meta: LoungeResponseMetadata = {
+        messageId: resp.messageId,
+        librarySearchUsed: resp.librarySearchUsed,
+        libraryReferences: resp.libraryReferences,
+        webSearchUsed: resp.webSearchUsed,
+        webSearchReferences: resp.webSearchReferences,
+        webSearchStatus: resp.webSearchStatus,
+        attachmentStatus: resp.attachmentStatus,
+        attachmentReferences: resp.attachmentReferences,
+        roomContactStatus: resp.roomContactStatus,
+        roomContactReferences: resp.roomContactReferences,
+      }
+      newEntries.set(resp.messageId, meta)
+    }
+    if (newEntries.size > 0) {
+      setContextMetadataMap(prev => {
+        const next = new Map(prev)
+        newEntries.forEach((v, k) => next.set(k, v))
+        return next
+      })
+    }
+  }, [])
+
   async function handleSend() {
     const hasText = !!input.trim()
     const hasImages = selectedImages.length > 0
@@ -235,7 +268,8 @@ export default function LoungeChat() {
       }
 
       // Send with no explicit respondAs — let @mention routing determine who responds
-      await send(text, undefined, uploadedAttachments.length > 0 ? uploadedAttachments : undefined)
+      const result = await send(text, undefined, uploadedAttachments.length > 0 ? uploadedAttachments : undefined)
+      if (result) captureResponseMetadata(result)
       clearAllAttachments()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send')
@@ -249,7 +283,8 @@ export default function LoungeChat() {
     setError(null)
 
     try {
-      await send('', 'continue')
+      const result = await send('', 'continue')
+      if (result) captureResponseMetadata(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to continue')
     }
@@ -262,7 +297,8 @@ export default function LoungeChat() {
     setError(null)
 
     try {
-      await send('', who)
+      const result = await send('', who)
+      if (result) captureResponseMetadata(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to respond')
     }
@@ -477,6 +513,11 @@ export default function LoungeChat() {
                     </span>
                   )}
                 </div>
+
+                {/* Phase 36G: Context observability indicator */}
+                {(msg.speaker === 'ari' || msg.speaker === 'eli') && contextMetadataMap.has(msg.id) && (
+                  <LoungeContextIndicator metadata={contextMetadataMap.get(msg.id)!} />
+                )}
               </div>
             </div>
           )
