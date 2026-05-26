@@ -133,14 +133,14 @@ export const PROTECTED_TABLES: ProtectedTableEntry[] = [
     note: 'Per-room memories surfaced from conversation.',
   },
   {
-    table: 'sessions',
+    table: 'session_classifications',
     category: 'A',
     deletionPolicy: 'no_hard_delete',
     hasSoftDelete: false,
     hasTestOwned: false,
     cascadeChildren: [],
     parentFkBehaviour: 'none',
-    note: 'Session records with classification.',
+    note: 'Session classification records.',
   },
   {
     table: 'interior_notes',

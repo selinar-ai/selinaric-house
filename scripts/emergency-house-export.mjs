@@ -39,7 +39,11 @@ if (existsSync(envPath)) {
     const eqIdx = trimmed.indexOf('=')
     if (eqIdx === -1) continue
     const key = trimmed.slice(0, eqIdx).trim()
-    const value = trimmed.slice(eqIdx + 1).trim()
+    // Strip surrounding quotes (single or double) from .env values
+    let value = trimmed.slice(eqIdx + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
     if (!process.env[key]) {
       process.env[key] = value
     }
@@ -104,7 +108,7 @@ const TABLES = [
     category: 'A',
   },
   {
-    table: 'sessions',
+    table: 'session_classifications',
     select: '*',
     orderBy: 'created_at',
     category: 'A',
@@ -118,7 +122,7 @@ const TABLES = [
   {
     table: 'living_state',
     select: '*',
-    orderBy: 'created_at',
+    orderBy: 'last_updated',
     category: 'A',
   },
   {
@@ -155,7 +159,7 @@ const TABLES = [
   // Category A — Archive
   {
     table: 'archive_items',
-    select: 'id,presence_id,source_type,source_ref,title,body,canonical_status,salience,tags,authored_by,deleted_at,created_at,updated_at',
+    select: 'id,archive_name,owner_presence,source_origin,visibility,title,raw_content,excerpt,category,canonical_status,deleted_at,created_at,updated_at',
     orderBy: 'created_at',
     category: 'A',
   },
