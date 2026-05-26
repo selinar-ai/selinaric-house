@@ -102,9 +102,13 @@ export function useMessages(roomSlug: 'ari' | 'eli') {
   )
 
   const clearMessages = useCallback(async () => {
-    await supabase.from('room_messages').delete().eq('room_slug', roomSlug)
-    setMessages([])
-  }, [roomSlug])
+    // Phase 36J: Hard-delete of room_messages is disabled.
+    // room_messages is Category A (living data, no hard-delete).
+    // See: docs/incidents/2026-05-26-phase-36i-lounge-thread-loss.md
+    // See: src/lib/safety/protected-tables.ts
+    console.error('[useMessages] clearMessages() is disabled. room_messages is Category A — no hard-delete allowed.')
+    throw new Error('clearMessages is disabled (Phase 36J safety). room_messages cannot be hard-deleted.')
+  }, [])
 
   return { messages, loading, saveMessage, clearMessages, setMessages }
 }

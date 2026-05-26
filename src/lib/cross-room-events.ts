@@ -218,6 +218,8 @@ export async function listCrossRoomEvents(params?: {
   let query = supabase
     .from('cross_room_events')
     .select('*')
+    .is('deleted_at', null)     // Phase 36J: exclude soft-deleted
+    .eq('test_owned', false)    // Phase 36J: exclude test rows
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -251,6 +253,7 @@ export async function getCrossRoomEvent(id: string): Promise<CrossRoomEvent | nu
     .from('cross_room_events')
     .select('*')
     .eq('id', id)
+    .is('deleted_at', null)     // Phase 36J: exclude soft-deleted
     .single()
 
   if (error) {

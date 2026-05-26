@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// DELETE ?id=uuid — hard-delete a journal entry (Tara only; used to remove legacy system-generated entries)
+// DELETE ?id=uuid — soft-delete a journal entry (Phase 36J: sets deleted_at, no hard-delete)
 export async function DELETE(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const id = searchParams.get('id')

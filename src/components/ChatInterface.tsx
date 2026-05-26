@@ -570,20 +570,13 @@ export default function ChatInterface({
   }
 
   async function handleClear() {
-    const confirmed = window.confirm(
-      'Clear all messages in this room? This cannot be undone.'
+    // Phase 36J: clearMessages is disabled. room_messages is Category A.
+    // Show user-facing explanation instead of silently failing.
+    window.alert(
+      'Message clearing is disabled for safety (Phase 36J).\n\n' +
+      'Room messages are protected data and cannot be hard-deleted.\n' +
+      'Use "Fresh Thread" to start a new conversation context instead.'
     )
-    if (!confirmed) return
-    stopAllTTS()
-    await clearMessages()
-    setError(null)
-    setContinuityActive(false)
-    setContinuityMessageIds(new Set())
-    setEmotionalContinuityMessageIds(new Set())
-    setRecallMessageMap(new Map())
-    setRecallEventIdMap(new Map())
-    setRecallMatchQualityMap(new Map())
-    setRecallModeMap(new Map())
   }
 
   async function handleFreshThread() {

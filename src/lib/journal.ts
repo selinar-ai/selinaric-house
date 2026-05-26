@@ -105,6 +105,7 @@ export async function getEntriesForToday(presenceId: string): Promise<JournalEnt
     .from('presence_journal')
     .select('*')
     .eq('presence_id', presenceId)
+    .is('deleted_at', null)
     .gte('created_at', from)
     .lt('created_at', to)
     .order('created_at', { ascending: false })
@@ -119,6 +120,7 @@ export async function getJournalEntries(
     .from('presence_journal')
     .select('*')
     .eq('presence_id', presenceId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
 
   if (options?.filter && options.filter !== 'all') {
@@ -166,13 +168,19 @@ export async function insertJournalEntry(
   return data as JournalEntry
 }
 
+/**
+ * Soft-delete a journal entry (Phase 36J).
+ * Sets deleted_at = now() instead of hard-deleting.
+ * presence_journal is Category A — no hard-delete allowed.
+ */
 export async function deleteJournalEntry(entryId: string): Promise<boolean> {
   const { error } = await supabase
     .from('presence_journal')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', entryId)
+    .is('deleted_at', null) // Only soft-delete if not already deleted
   if (error) {
-    console.error('[journal] Delete error:', error)
+    console.error('[journal] Soft-delete error:', error)
     return false
   }
   return true
