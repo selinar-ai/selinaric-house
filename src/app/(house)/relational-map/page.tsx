@@ -191,7 +191,7 @@ export default function RelationalMapPage() {
   const hasData = !loading && data && (data.nodes.length > 0 || data.edges.length > 0)
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
       <div className="shrink-0 px-6 pt-6 pb-3 space-y-3">
         <div>
