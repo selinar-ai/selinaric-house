@@ -1,7 +1,12 @@
 'use client'
 
-// Phase 37D — Governance banner for the Relational Map.
-// Read-only. Not Memory. Not Archive authority.
+// Phase 37E — Governance banner for the Relational Map.
+//
+// Layout is not ontology.
+// Position is not relationship.
+// Distance is not strength.
+// Cluster is not truth.
+// Dragging does not mutate graph semantics.
 
 export default function RelationalMapGovernanceBanner() {
   return (
@@ -13,12 +18,12 @@ export default function RelationalMapGovernanceBanner() {
       <span className="text-sm mt-0.5 shrink-0 opacity-60">ⓘ</span>
       <div>
         <p>
-          Read-only graph canvas from approved graph proposals.
+          Graph canvas from approved graph proposals.
           This is graph structure, not Memory and not Archive authority.
         </p>
         <p className="mt-1 opacity-70">
+          Workspace layout is visual metadata only. Dragging does not mutate graph meaning.
           Provenance and supporting records are available in the inspector.
-          No edits, no approvals, no moderation actions.
         </p>
       </div>
     </div>

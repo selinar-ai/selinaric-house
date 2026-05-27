@@ -1,7 +1,10 @@
 'use client'
 
-// Phase 37D — Inspector panel for node and edge details.
-// Read-only display. No mutations. No Memory authority.
+// Phase 37E — Inspector panel for node and edge details.
+// Display only. No mutations. No Memory authority.
+//
+// Layout is not ontology.
+// Position is not relationship.
 
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
@@ -12,6 +15,7 @@ import type {
   GraphMapSourceSummary,
   GraphMapAuditEvent,
 } from '@/lib/graph/relationalMapTypes'
+import type { RelationalMapNodeLayout } from '@/lib/graph/relationalMapWorkspaceTypes'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +31,11 @@ interface InspectorProps {
   auditEvents: GraphMapAuditEvent[]
   allNodes: GraphMapNode[]
   onClose: () => void
+  // 37E workspace layout context
+  nodeLayout?: RelationalMapNodeLayout | null
+  hasWorkspace?: boolean
+  arrangeMode?: boolean
+  onTogglePin?: (nodeId: string) => void
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -138,6 +147,10 @@ export default function RelationalMapInspector({
   auditEvents,
   allNodes,
   onClose,
+  nodeLayout,
+  hasWorkspace,
+  arrangeMode,
+  onTogglePin,
 }: InspectorProps) {
   const [showPayload, setShowPayload] = useState(false)
 
@@ -254,6 +267,39 @@ export default function RelationalMapInspector({
             </>
           )}
         </div>
+
+        {/* Layout metadata section (37E) */}
+        {isNode && nodeLayout && (
+          <div>
+            <div className="text-text-muted uppercase tracking-wider text-[10px] mb-2 font-mono">
+              Layout
+            </div>
+            <MetadataRow label="Position" value={`${Math.round(nodeLayout.x)}, ${Math.round(nodeLayout.y)}`} />
+            <MetadataRow
+              label="Pinned"
+              value={
+                <span className="flex items-center gap-1.5">
+                  <span>{nodeLayout.pinned ? 'Yes 📌' : 'No'}</span>
+                  {arrangeMode && onTogglePin && (
+                    <button
+                      onClick={() => onTogglePin(selection.node.id)}
+                      className="text-[10px] text-purple-400 hover:text-purple-300 transition-colors"
+                    >
+                      {nodeLayout.pinned ? 'Unpin' : 'Pin'}
+                    </button>
+                  )}
+                </span>
+              }
+            />
+            <MetadataRow
+              label="Source"
+              value={hasWorkspace ? 'Saved workspace' : 'Default layout'}
+            />
+            <div className="text-[10px] text-text-muted opacity-50 italic mt-1">
+              Node position is workspace layout metadata only. It does not change graph meaning.
+            </div>
+          </div>
+        )}
 
         {/* Prompt eligibility warning */}
         {promptEligible && (

@@ -1,8 +1,16 @@
 'use client'
 
-// Phase 37D — Read-only graph canvas for the Relational Map.
-// Uses @xyflow/react. No editing. No dragging as semantic mutation.
-// Pan and zoom only. Node selection for inspector.
+// Phase 37E — Graph canvas for the Relational Map.
+// Uses @xyflow/react. Supports Arrange Mode for layout changes.
+//
+// Layout is not ontology.
+// Position is not relationship.
+// Distance is not strength.
+// Cluster is not truth.
+// Dragging does not mutate graph semantics.
+//
+// Dragging moves visual positions only. It does not create edges,
+// change authority, modify Memory, or mutate prompt eligibility.
 
 import { useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from 'react'
 import {
@@ -13,6 +21,7 @@ import {
   type NodeTypes,
   type EdgeTypes,
   type OnSelectionChangeParams,
+  type OnNodeDrag,
   type ReactFlowInstance,
   MarkerType,
   Handle,
@@ -23,6 +32,7 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import type { GraphMapNode, GraphMapEdge } from '@/lib/graph/relationalMapTypes'
+import type { RelationalMapLayoutData, RelationalMapVisualCluster } from '@/lib/graph/relationalMapWorkspaceTypes'
 import {
   getNodeColours,
   getNodeTypeLabel,
@@ -36,10 +46,12 @@ import {
 interface HouseNodeData {
   graphNode: GraphMapNode
   selected: boolean
+  pinned: boolean
+  arrangeMode: boolean
 }
 
 function HouseNode({ data }: { data: HouseNodeData }) {
-  const { graphNode, selected } = data
+  const { graphNode, selected, pinned, arrangeMode } = data
   const colours = getNodeColours(graphNode.nodeType)
   const sizeMultiplier = getNodeSizeMultiplier(graphNode.salience)
   const baseSize = 60
@@ -56,6 +68,7 @@ function HouseNode({ data }: { data: HouseNodeData }) {
           backgroundColor: colours.bg,
           border: `2px solid ${selected ? '#9B7FD4' : colours.border}`,
           boxShadow: selected ? `0 0 12px ${colours.border}40` : 'none',
+          cursor: arrangeMode ? 'grab' : 'pointer',
         }}
       >
         <div
@@ -74,6 +87,11 @@ function HouseNode({ data }: { data: HouseNodeData }) {
         {graphNode.derivedFromEdge && (
           <div className="text-[7px] opacity-40 mt-0.5" style={{ color: colours.text }}>
             (derived)
+          </div>
+        )}
+        {pinned && (
+          <div className="text-[7px] opacity-50 mt-0.5" style={{ color: colours.text }}>
+            📌
           </div>
         )}
       </div>
@@ -150,14 +168,52 @@ function HouseEdge({
   )
 }
 
-// ─── Layout ────────────────────────────────────────────────────────────────
+// ─── Visual Cluster Overlay ───────────────────────────────────────────────
+
+function ClusterOverlays({ clusters }: { clusters: RelationalMapVisualCluster[] }) {
+  if (clusters.length === 0) return null
+
+  return (
+    <>
+      {clusters.map(cluster => (
+        <div
+          key={cluster.id}
+          className="absolute pointer-events-none"
+          style={{
+            left: cluster.x,
+            top: cluster.y,
+            width: cluster.width,
+            height: cluster.collapsed ? 36 : cluster.height,
+            border: '1px dashed #4A395860',
+            borderRadius: 8,
+            backgroundColor: 'rgba(42, 31, 53, 0.15)',
+          }}
+        >
+          <div
+            className="absolute -top-4 left-2 text-[9px] font-body px-1.5 py-0.5 rounded"
+            style={{
+              backgroundColor: 'rgba(20, 16, 25, 0.8)',
+              color: '#6B5B8A',
+              border: '1px solid #3A2B4630',
+            }}
+          >
+            {cluster.label}
+            <span className="text-[8px] opacity-50 ml-1">visual cluster</span>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+// ─── Default Layout ───────────────────────────────────────────────────────
 
 /**
  * Simple deterministic layout: arrange nodes in a circle.
  * For small graphs this produces a clear, legible result.
  * Future phases may add force-directed or grouped layouts.
  */
-function computeLayout(
+export function computeDefaultLayout(
   nodes: GraphMapNode[],
   edges: GraphMapEdge[]
 ): { x: number; y: number; id: string }[] {
@@ -226,6 +282,11 @@ interface CanvasProps {
   selectedEdgeId: string | null
   onSelectNode: (nodeId: string | null) => void
   onSelectEdge: (edgeId: string | null) => void
+  // 37E workspace props
+  arrangeMode: boolean
+  workspaceLayout: RelationalMapLayoutData | null
+  onNodeDragStop: (nodeId: string, x: number, y: number) => void
+  skippedNodeKeys: string[]
 }
 
 const nodeTypes: NodeTypes = {
@@ -238,7 +299,11 @@ const edgeTypes: EdgeTypes = {
 
 const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
   function RelationalMapCanvas(
-    { nodes, edges, selectedNodeId, selectedEdgeId, onSelectNode, onSelectEdge },
+    {
+      nodes, edges, selectedNodeId, selectedEdgeId,
+      onSelectNode, onSelectEdge,
+      arrangeMode, workspaceLayout, onNodeDragStop, skippedNodeKeys,
+    },
     ref
   ) {
     const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -249,23 +314,34 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
       fitView: () => rfInstance.current?.fitView({ padding: 0.2 }),
     }))
 
-    // Convert to XYFlow format
-    const positions = useMemo(() => computeLayout(nodes, edges), [nodes, edges])
+    // Compute default positions
+    const defaultPositions = useMemo(() => computeDefaultLayout(nodes, edges), [nodes, edges])
 
+    // Convert to XYFlow format, applying workspace positions where available
     const flowNodes: Node[] = useMemo(() => {
       return nodes.map(n => {
-        const pos = positions.find(p => p.id === n.id) ?? { x: 0, y: 0 }
+        // Try workspace layout first, fall back to default
+        const wsNode = workspaceLayout?.nodes?.[n.id]
+        const defaultPos = defaultPositions.find(p => p.id === n.id) ?? { x: 0, y: 0 }
+        const pos = wsNode ? { x: wsNode.x, y: wsNode.y } : { x: defaultPos.x, y: defaultPos.y }
+        const pinned = wsNode?.pinned ?? false
+
         return {
           id: n.id,
           type: 'houseNode',
-          position: { x: pos.x, y: pos.y },
-          data: { graphNode: n, selected: n.id === selectedNodeId },
+          position: pos,
+          data: {
+            graphNode: n,
+            selected: n.id === selectedNodeId,
+            pinned,
+            arrangeMode,
+          },
           selectable: true,
-          draggable: false,
+          draggable: arrangeMode,
           connectable: false,
         }
       })
-    }, [nodes, positions, selectedNodeId])
+    }, [nodes, defaultPositions, selectedNodeId, workspaceLayout, arrangeMode])
 
     const flowEdges: Edge[] = useMemo(() => {
       return edges.map(e => ({
@@ -279,6 +355,11 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
       }))
     }, [edges, selectedEdgeId])
 
+    // Visual clusters from workspace
+    const clusters = useMemo(() => {
+      return workspaceLayout?.clusters ?? []
+    }, [workspaceLayout])
+
     const onSelectionChange = useCallback(({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
       if (selNodes.length > 0) {
         onSelectNode(selNodes[0].id)
@@ -288,6 +369,10 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
         onSelectNode(null)
       }
     }, [onSelectNode, onSelectEdge])
+
+    const handleNodeDragStop: OnNodeDrag = useCallback((_event, node) => {
+      onNodeDragStop(node.id, node.position.x, node.position.y)
+    }, [onNodeDragStop])
 
     const onInit = useCallback((instance: ReactFlowInstance) => {
       rfInstance.current = instance
@@ -303,8 +388,9 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onSelectionChange={onSelectionChange}
+          onNodeDragStop={handleNodeDragStop}
           onInit={onInit}
-          nodesDraggable={false}
+          nodesDraggable={arrangeMode}
           nodesConnectable={false}
           elementsSelectable={true}
           panOnDrag={true}
@@ -312,6 +398,7 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
           fitView={true}
           minZoom={0.1}
           maxZoom={3}
+          deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
           className="bg-house-bg"
         >
@@ -346,11 +433,33 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
           </svg>
         </ReactFlow>
 
-        {/* Read-only mode indicator */}
+        {/* Visual cluster overlays */}
+        <ClusterOverlays clusters={clusters} />
+
+        {/* Mode indicator */}
         <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-house-surface/80 border border-house-border/50 rounded px-2.5 py-1 backdrop-blur-sm">
-          <span className="text-[10px] text-text-muted">🔒</span>
-          <span className="text-[10px] text-text-muted font-body">Read-only mode</span>
+          {arrangeMode ? (
+            <>
+              <span className="text-[10px] text-purple-400">✦</span>
+              <span className="text-[10px] text-purple-300 font-body">Arrange mode</span>
+              <span className="text-[9px] text-purple-400/50 ml-1">layout only</span>
+            </>
+          ) : (
+            <>
+              <span className="text-[10px] text-text-muted">🔒</span>
+              <span className="text-[10px] text-text-muted font-body">Inspect mode</span>
+            </>
+          )}
         </div>
+
+        {/* Skipped node keys warning */}
+        {skippedNodeKeys.length > 0 && (
+          <div className="absolute top-3 right-3 z-10 bg-amber-900/30 border border-amber-700/30 rounded px-2.5 py-1.5 backdrop-blur-sm max-w-[240px]">
+            <p className="text-[10px] text-amber-400/80">
+              {skippedNodeKeys.length} saved position{skippedNodeKeys.length === 1 ? '' : 's'} skipped — graph nodes no longer visible.
+            </p>
+          </div>
+        )}
       </div>
     )
   }

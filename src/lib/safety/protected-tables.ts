@@ -519,6 +519,21 @@ export const PROTECTED_TABLES: ProtectedTableEntry[] = [
     parentFkBehaviour: 'RESTRICT',
     note: 'Graph proposal audit trail. RESTRICT FK from graph_proposals. Append-only.',
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Phase 37E — Relational Map Workspace (layout metadata only)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    table: 'relational_map_workspaces',
+    category: 'C',
+    deletionPolicy: 'soft_delete_only',
+    hasSoftDelete: false,
+    hasTestOwned: false,
+    cascadeChildren: [],
+    parentFkBehaviour: 'none',
+    note: 'Relational map workspace layout metadata. Visual only, not graph authority. Uses status=archived soft-delete pattern.',
+  },
 ]
 
 // ─── Lookup helpers ──────────────────────────────────────────────────────────
