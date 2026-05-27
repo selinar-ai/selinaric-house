@@ -2,7 +2,7 @@
 
 // Phase 37C — Filters toolbar for graph proposal review
 
-import { GRAPH_AUTHORITY_STATUSES, GRAPH_PRESENCE_SCOPES } from '@/lib/graph/types'
+import { GRAPH_AUTHORITY_STATUSES, GRAPH_PRESENCE_SCOPES, GRAPH_SOURCE_TYPES } from '@/lib/graph/types'
 
 export interface ProposalFilterState {
   status: string
@@ -46,6 +46,11 @@ const SCOPE_OPTIONS = [
 const AUTHORITY_OPTIONS = [
   { value: '', label: 'All authority' },
   ...GRAPH_AUTHORITY_STATUSES.map(a => ({ value: a, label: a.replace(/_/g, ' ') })),
+]
+
+const SOURCE_TYPE_OPTIONS = [
+  { value: '', label: 'All sources' },
+  ...GRAPH_SOURCE_TYPES.map(s => ({ value: s, label: s.replace(/_/g, ' ') })),
 ]
 
 function SelectFilter({
@@ -114,6 +119,12 @@ export default function GraphProposalFilters({
         value={filters.authorityStatus}
         options={AUTHORITY_OPTIONS}
         onChange={v => update('authorityStatus', v)}
+      />
+      <SelectFilter
+        label="Source Type"
+        value={filters.sourceType}
+        options={SOURCE_TYPE_OPTIONS}
+        onChange={v => update('sourceType', v)}
       />
 
       <input
