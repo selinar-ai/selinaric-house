@@ -105,12 +105,13 @@ export function useLoungeMessages() {
 
     const data = await res.json()
 
-    // Requires confirmation (first capture, no prior boundary)
+    // Requires confirmation (first capture or boundary reset)
     if (data.requires_confirmation) {
       return {
         captured: false,
         requires_confirmation: true,
         proposal: data.proposal,
+        boundaryResetReason: data.proposal?.boundaryResetReason ?? null,
         blocked: null,
       }
     }

@@ -176,8 +176,10 @@ export interface LoungeCaptureProposal {
   participants: { type: string; id: string; label?: string }[]
   presenceIds: string[]
   taraPresent: boolean
-  /** True when this is the first capture and requires explicit confirmation. */
+  /** True when this is the first capture or reconstruction-marker reset, requiring explicit confirmation. */
   requiresConfirmation: boolean
+  /** Set when boundary was reset via reconstruction marker. Null for normal captures. */
+  boundaryResetReason: string | null
 }
 
 /**
@@ -194,34 +196,52 @@ export interface LoungeCaptureProposal {
 export async function getMessagesForCapture(
   threadId: string,
 ): Promise<{ proposal: LoungeCaptureProposal | null; blocked: string | null }> {
-  // Find the most recent Lounge cross_room_event
+  // Phase 36J: Find the most recent live Lounge cross_room_event
+  // Exclude soft-deleted and test-owned events
   const { data: lastEvent } = await supabase
     .from('cross_room_events')
-    .select('id, source_message_ids, created_at')
+    .select('id, source_message_ids, ended_at, created_at')
     .eq('room_id', 'lounge')
+    .is('deleted_at', null)
+    .eq('test_owned', false)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
   let boundaryTimestamp: string | null = null
   let isFirstCapture = false
+  let boundaryResetReason: string | null = null
 
   if (lastEvent && Array.isArray(lastEvent.source_message_ids) && lastEvent.source_message_ids.length > 0) {
     // Resolve the latest created_at among the prior event's source messages
+    // Phase 36J: exclude soft-deleted messages
     const { data: boundaryMsgs } = await supabase
       .from('lounge_messages')
       .select('created_at')
       .in('id', lastEvent.source_message_ids)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(1)
 
     if (boundaryMsgs && boundaryMsgs.length > 0) {
       boundaryTimestamp = boundaryMsgs[0].created_at
     } else {
-      // Prior event exists but source_message_ids cannot be resolved → BLOCK
-      return {
-        proposal: null,
-        blocked: 'Latest Lounge event boundary could not be resolved. Capture blocked to avoid accidental backlog capture.',
+      // Phase 36I.1: Source messages are missing (likely 36I data loss).
+      // Check for a valid reconstruction marker in this thread.
+      const eventTimestamp = lastEvent.ended_at ?? lastEvent.created_at
+      const markerResult = await findReconstructionMarker(threadId, eventTimestamp)
+
+      if (markerResult) {
+        // Valid reconstruction marker found — use as boundary reset
+        boundaryTimestamp = markerResult.created_at
+        boundaryResetReason = 'Boundary reset from reconstruction marker (Phase 36I recovery). Review before recording.'
+        console.log(`[lounge-capture] Boundary reset via reconstruction marker. Event ${lastEvent.id} source messages unresolvable. Using marker at ${markerResult.created_at}.`)
+      } else {
+        // No valid marker — genuinely unresolvable. Keep blocking.
+        return {
+          proposal: null,
+          blocked: 'Latest Lounge event boundary could not be resolved. Capture blocked to avoid accidental backlog capture.',
+        }
       }
     }
   } else if (!lastEvent) {
@@ -234,15 +254,19 @@ export async function getMessagesForCapture(
   }
 
   // Fetch messages
+  // Phase 36J: all message queries exclude soft-deleted messages
   let messages: LoungeMessage[]
 
   if (boundaryTimestamp) {
-    // Normal case: capture after resolved boundary
+    // Normal case (or reconstruction-marker reset): capture after resolved boundary
+    // Excludes the marker itself (strict gt, and marker is speaker=system)
     const { data, error } = await supabase
       .from('lounge_messages')
       .select('*')
       .eq('thread_id', threadId)
+      .is('deleted_at', null)
       .gt('created_at', boundaryTimestamp)
+      .neq('speaker', 'system')
       .order('created_at', { ascending: true })
       .limit(LOUNGE_CAPTURE_CAP)
 
@@ -257,6 +281,8 @@ export async function getMessagesForCapture(
       .from('lounge_messages')
       .select('*')
       .eq('thread_id', threadId)
+      .is('deleted_at', null)
+      .neq('speaker', 'system')
       .order('created_at', { ascending: false })
       .limit(LOUNGE_CAPTURE_CAP)
 
@@ -283,6 +309,11 @@ export async function getMessagesForCapture(
         blocked: 'These Lounge messages are already covered by the most recent cross-room event.',
       }
     }
+  }
+
+  // Reconstruction-marker reset requires confirmation (same as first-capture flow)
+  if (boundaryResetReason) {
+    isFirstCapture = true
   }
 
   // Derive participants deterministically
@@ -314,9 +345,50 @@ export async function getMessagesForCapture(
       presenceIds,
       taraPresent,
       requiresConfirmation: isFirstCapture,
+      boundaryResetReason,
     },
     blocked: null,
   }
+}
+
+// ─── Reconstruction marker helper (Phase 36I.1) ────────────────────────────
+
+/**
+ * Find a valid reconstruction marker in a Lounge thread.
+ *
+ * A valid marker must:
+ * - Belong to the same thread_id
+ * - Have speaker = 'system'
+ * - Contain '[RECONSTRUCTION MARKER' in content
+ * - Contain 'Phase 36I incident' in content
+ * - Have deleted_at IS NULL
+ * - Be newer than the unresolved cross-room event boundary (eventTimestamp)
+ *
+ * Returns the marker row (with created_at) or null if none qualifies.
+ */
+async function findReconstructionMarker(
+  threadId: string,
+  eventTimestamp: string,
+): Promise<{ id: string; created_at: string } | null> {
+  const { data, error } = await supabase
+    .from('lounge_messages')
+    .select('id, created_at')
+    .eq('thread_id', threadId)
+    .eq('speaker', 'system')
+    .is('deleted_at', null)
+    .ilike('content', '%[RECONSTRUCTION MARKER%')
+    .ilike('content', '%Phase 36I incident%')
+    .gt('created_at', eventTimestamp)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[lounge-capture] Error searching for reconstruction marker:', error.message)
+    return null
+  }
+
+  return data as { id: string; created_at: string } | null
 }
 
 // ─── Prompt blocks ───────────────────────────────────────────────────────────

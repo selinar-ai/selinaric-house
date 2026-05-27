@@ -330,11 +330,15 @@ export default function LoungeChat() {
         setTimeout(() => setCaptureStatus(null), 5000)
       } else if (result.requires_confirmation) {
         const p = result.proposal
-        setCaptureStatus(`${p?.messageCount ?? '?'} msgs ready — click again to confirm`)
-        // Clear after 8s if not confirmed
+        const resetNote = result.boundaryResetReason
+          ? ' (boundary reset — review before confirming)'
+          : ''
+        setCaptureStatus(`${p?.messageCount ?? '?'} msgs ready${resetNote} — click again to confirm`)
+        // Clear after 12s if not confirmed (longer for reset to allow review)
+        const clearDelay = result.boundaryResetReason ? 12000 : 8000
         setTimeout(() => {
           setCaptureStatus(current => current?.includes('confirm') ? null : current)
-        }, 8000)
+        }, clearDelay)
       } else {
         setCaptureStatus(result.blocked ?? 'Blocked')
         setTimeout(() => setCaptureStatus(null), 5000)

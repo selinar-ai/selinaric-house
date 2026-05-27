@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
           participants: participantNames,
           presenceIds: proposal.presenceIds,
           taraPresent: proposal.taraPresent,
+          boundaryResetReason: proposal.boundaryResetReason ?? null,
         },
       }, { status: 200 })
     }
