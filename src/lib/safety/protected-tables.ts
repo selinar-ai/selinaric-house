@@ -484,6 +484,41 @@ export const PROTECTED_TABLES: ProtectedTableEntry[] = [
     parentFkBehaviour: 'CASCADE',
     note: 'Lounge message attachments. CASCADE from lounge_messages.',
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Phase 37B — Graph Proposal Pipeline tables
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    table: 'graph_proposals',
+    category: 'B',
+    deletionPolicy: 'soft_delete_only',
+    hasSoftDelete: true,
+    hasTestOwned: false,
+    cascadeChildren: [],
+    parentFkBehaviour: 'none',
+    note: 'Graph proposal queue. Has deleted_at. RESTRICT FK from sources and events.',
+  },
+  {
+    table: 'graph_proposal_sources',
+    category: 'B',
+    deletionPolicy: 'no_hard_delete',
+    hasSoftDelete: false,
+    hasTestOwned: false,
+    cascadeChildren: [],
+    parentFkBehaviour: 'RESTRICT',
+    note: 'Graph proposal source provenance. RESTRICT FK from graph_proposals.',
+  },
+  {
+    table: 'graph_proposal_events',
+    category: 'B',
+    deletionPolicy: 'no_hard_delete',
+    hasSoftDelete: false,
+    hasTestOwned: false,
+    cascadeChildren: [],
+    parentFkBehaviour: 'RESTRICT',
+    note: 'Graph proposal audit trail. RESTRICT FK from graph_proposals. Append-only.',
+  },
 ]
 
 // ─── Lookup helpers ──────────────────────────────────────────────────────────
