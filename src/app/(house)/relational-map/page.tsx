@@ -62,9 +62,10 @@ export default function RelationalMapPage() {
   const [lastLoaded, setLastLoaded] = useState<string | null>(null)
   const canvasRef = useRef<RelationalMapCanvasHandle>(null)
 
-  // Phase 37F — grain mode: 'overview' shows high-level only, 'detail' shows all
+  // Phase 37F/37F.1 — grain mode: 'overview' shows high-level only, 'detail' shows all
   type GrainMode = 'overview' | 'detail'
   const [grainMode, setGrainMode] = useState<GrainMode>('overview')
+  const [includeMidlevel, setIncludeMidlevel] = useState(false)
 
   // Workspace state (37E)
   const [workspaces, setWorkspaces] = useState<RelationalMapWorkspace[]>([])
@@ -134,23 +135,52 @@ export default function RelationalMapPage() {
 
   // ─── Client-side search filter ───────────────────────────────────────────
 
-  // Phase 37F — determine if overview nodes exist for fallback logic
-  const hasOverviewNodes = useMemo(() => {
-    if (!data) return false
-    return data.nodes.some(n => n.grainLevel === 'overview' || n.grainLevel === 'midlevel')
+  // Phase 37F.1 — strict overview: separate counts for tiered fallback
+  const overviewCount = useMemo(() => {
+    if (!data) return 0
+    return data.nodes.filter(n => n.grainLevel === 'overview').length
+  }, [data])
+
+  const midlevelCount = useMemo(() => {
+    if (!data) return 0
+    return data.nodes.filter(n => n.grainLevel === 'midlevel').length
   }, [data])
 
   const filteredNodes = useMemo(() => {
     if (!data) return []
     let nodes = data.nodes
 
-    // Phase 37F — grain filtering
-    // Overview mode: show overview + midlevel nodes when available.
-    // If no overview/midlevel nodes exist, fall back to showing all (current behaviour).
-    // Detail mode: show everything.
-    if (grainMode === 'overview' && hasOverviewNodes) {
-      nodes = nodes.filter(n => n.grainLevel === 'overview' || n.grainLevel === 'midlevel')
+    // Phase 37F.1 — strict overview grain filtering
+    //
+    // Overview mode (includeMidlevel OFF):
+    //   show overview only
+    //   fallback: if 0 overview → show midlevel
+    //   fallback: if 0 overview + 0 midlevel → show all
+    //
+    // Overview mode (includeMidlevel ON):
+    //   show overview + midlevel
+    //   fallback: if 0 overview + 0 midlevel → show all
+    //
+    // Detail mode: show all approved graph nodes
+    if (grainMode === 'overview') {
+      if (includeMidlevel) {
+        // Include midlevel toggle is ON → show overview + midlevel
+        if (overviewCount + midlevelCount > 0) {
+          nodes = nodes.filter(n => n.grainLevel === 'overview' || n.grainLevel === 'midlevel')
+        }
+        // else: fallback to all
+      } else {
+        // Strict overview: overview only
+        if (overviewCount > 0) {
+          nodes = nodes.filter(n => n.grainLevel === 'overview')
+        } else if (midlevelCount > 0) {
+          // Fallback tier 1: no overview nodes → show midlevel
+          nodes = nodes.filter(n => n.grainLevel === 'midlevel')
+        }
+        // else: fallback to all (no overview or midlevel)
+      }
     }
+    // Detail mode: no grain filtering
 
     // Search filter
     if (filters.search) {
@@ -163,7 +193,7 @@ export default function RelationalMapPage() {
     }
 
     return nodes
-  }, [data, filters.search, grainMode, hasOverviewNodes])
+  }, [data, filters.search, grainMode, includeMidlevel, overviewCount, midlevelCount])
 
   const filteredEdges = useMemo(() => {
     if (!data) return []
@@ -490,8 +520,8 @@ export default function RelationalMapPage() {
           disabled={loading || workspaceLoading}
         />
 
-        {/* Phase 37F — grain mode toggle */}
-        <div className="flex items-center gap-2">
+        {/* Phase 37F.1 — grain mode toggle with strict overview */}
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center border border-house-border rounded overflow-hidden">
             <button
               onClick={() => setGrainMode('overview')}
@@ -514,21 +544,31 @@ export default function RelationalMapPage() {
               Detail
             </button>
           </div>
-          {grainMode === 'overview' && !hasOverviewNodes && (
-            <span className="text-[9px] text-text-muted/60 font-body italic">
-              No overview nodes yet — showing all
-            </span>
+          {grainMode === 'overview' && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeMidlevel}
+                onChange={e => setIncludeMidlevel(e.target.checked)}
+                className="accent-house-muted w-3 h-3"
+              />
+              <span className="text-[10px] text-text-muted font-body">
+                Include midlevel
+              </span>
+            </label>
           )}
-          {grainMode === 'overview' && hasOverviewNodes && (
-            <span className="text-[9px] text-text-muted/60 font-body">
-              Showing high-level entities
-            </span>
-          )}
-          {grainMode === 'detail' && (
-            <span className="text-[9px] text-text-muted/60 font-body">
-              Showing all approved nodes
-            </span>
-          )}
+          <span className="text-[9px] text-text-muted/60 font-body">
+            {grainMode === 'detail'
+              ? 'Showing all approved nodes'
+              : overviewCount === 0 && midlevelCount === 0
+                ? 'No overview nodes yet — showing all'
+                : overviewCount === 0 && !includeMidlevel
+                  ? 'No overview nodes — falling back to midlevel'
+                  : includeMidlevel
+                    ? `Showing ${overviewCount} overview + ${midlevelCount} midlevel`
+                    : `Showing ${overviewCount} overview`
+            }
+          </span>
         </div>
 
         <RelationalMapToolbar

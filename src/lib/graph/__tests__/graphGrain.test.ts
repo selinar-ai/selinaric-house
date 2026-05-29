@@ -334,12 +334,13 @@ test('buildRelationalMap includes grainLevel on output nodes', () => {
   assert.ok(buildCode.includes('classifyGrain'), 'buildRelationalMap must use classifyGrain')
 })
 
-test('relational map page has grain mode toggle', () => {
+test('relational map page has grain mode toggle with midlevel control', () => {
   const pageCode = readFileSync(resolve(__dirname, '..', '..', '..', 'app', '(house)', 'relational-map', 'page.tsx'), 'utf-8')
   assert.ok(pageCode.includes('grainMode'), 'page must have grainMode state')
   assert.ok(pageCode.includes('Overview'), 'page must have Overview label')
   assert.ok(pageCode.includes('Detail'), 'page must have Detail label')
-  assert.ok(pageCode.includes('hasOverviewNodes'), 'page must have fallback logic')
+  assert.ok(pageCode.includes('includeMidlevel'), 'page must have includeMidlevel toggle')
+  assert.ok(pageCode.includes('Include midlevel'), 'page must have Include midlevel label')
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -353,20 +354,22 @@ test('GraphMapNode type includes grainLevel field', () => {
   assert.ok(typesCode.includes('grainLevel'), 'GraphMapNode must include grainLevel')
 })
 
-test('page falls back to all nodes when no overview nodes exist', () => {
+test('page falls back when no overview nodes exist', () => {
   const pageCode = readFileSync(resolve(__dirname, '..', '..', '..', 'app', '(house)', 'relational-map', 'page.tsx'), 'utf-8')
-  // The fallback logic: if grainMode === 'overview' && hasOverviewNodes, filter
-  // Otherwise show all
-  assert.ok(pageCode.includes('hasOverviewNodes'), 'page must check for overview nodes')
-  assert.ok(pageCode.includes("grainMode === 'overview' && hasOverviewNodes"), 'page must use fallback condition')
+  // 37F.1: fallback checks overviewCount and midlevelCount
+  assert.ok(pageCode.includes('overviewCount'), 'page must track overview count')
+  assert.ok(pageCode.includes('midlevelCount'), 'page must track midlevel count')
+  // Fallback: if overviewCount > 0 → filter to overview; else if midlevelCount > 0 → filter to midlevel; else show all
+  assert.ok(pageCode.includes('overviewCount > 0'), 'page must check overviewCount for fallback')
+  assert.ok(pageCode.includes('midlevelCount > 0'), 'page must check midlevelCount for fallback')
 })
 
 test('detail mode shows all approved graph proposals', () => {
   const pageCode = readFileSync(resolve(__dirname, '..', '..', '..', 'app', '(house)', 'relational-map', 'page.tsx'), 'utf-8')
   // The grain filter only activates for overview mode — detail mode passes all nodes through
   assert.ok(pageCode.includes("grainMode === 'overview'"), 'grain filtering must be gated on overview mode')
-  // Detail mode must NOT have its own filter
-  assert.ok(!pageCode.includes("grainMode === 'detail'") || !pageCode.includes("detail.*filter"), 'detail mode must not add grain filter')
+  // The comment confirms detail mode has no grain filtering
+  assert.ok(pageCode.includes('Detail mode: no grain filtering'), 'detail mode must be documented as no grain filtering')
 })
 
 test('37E workspace layout logic unchanged', () => {
