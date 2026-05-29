@@ -67,6 +67,10 @@ const AUTHORITY_OVERRIDES: Record<string, GraphAuthorityStatus[]> = {
   recent_continuity: ['candidate', 'inferred'],
   library_item: ['library_reference'],
   manual_tara: ['candidate'],
+  // Phase 37F — graph grain consolidation sources
+  graph_proposal: ['archive_supported', 'candidate', 'inferred'],
+  archive_graph_node: ['archive_supported', 'candidate'],
+  archive_graph_edge: ['archive_supported', 'candidate'],
 }
 
 function enforceAuthority(

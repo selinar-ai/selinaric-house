@@ -16,6 +16,7 @@ import {
   isValidGraphAuthorityStatus,
 } from './validation'
 import { makeNodeKey, normalizeGraphLabel } from './graphDisplayUtils'
+import { classifyGrain } from './graphGrain'
 import type { GraphProposal, GraphProposalSource } from './proposals'
 import type { GraphMapNode, GraphMapEdge } from './relationalMapTypes'
 
@@ -143,6 +144,12 @@ function processNodeProposal(
   const key = makeNodeKey(scope, nodeType, proposal.proposed_label)
   const sourceTypes = sourceTypesByProposal.get(proposal.id) ?? [proposal.primary_source_type]
 
+  const grainLevel = classifyGrain({
+    nodeType,
+    label: proposal.proposed_label,
+    proposedPayload: proposal.proposed_payload as unknown as Record<string, unknown> | undefined,
+  })
+
   return {
     id: key,
     label: proposal.proposed_label,
@@ -155,6 +162,7 @@ function processNodeProposal(
     proposalIds: [proposal.id],
     derivedFromEdge: false,
     promptEligible: proposal.prompt_eligible,
+    grainLevel,
   }
 }
 
@@ -228,6 +236,7 @@ function processEdgeProposal(
       proposalIds: [proposal.id],
       derivedFromEdge: true,
       promptEligible: false,
+      grainLevel: classifyGrain({ nodeType: fromNodeType, label: fromLabel }),
     })
   } else {
     // Existing node — add this proposal ID
@@ -253,6 +262,7 @@ function processEdgeProposal(
       proposalIds: [proposal.id],
       derivedFromEdge: true,
       promptEligible: false,
+      grainLevel: classifyGrain({ nodeType: toNodeType, label: toLabel }),
     })
   } else {
     const existing = nodeMap.get(toKey)!

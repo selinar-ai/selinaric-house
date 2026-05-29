@@ -62,6 +62,10 @@ export default function RelationalMapPage() {
   const [lastLoaded, setLastLoaded] = useState<string | null>(null)
   const canvasRef = useRef<RelationalMapCanvasHandle>(null)
 
+  // Phase 37F — grain mode: 'overview' shows high-level only, 'detail' shows all
+  type GrainMode = 'overview' | 'detail'
+  const [grainMode, setGrainMode] = useState<GrainMode>('overview')
+
   // Workspace state (37E)
   const [workspaces, setWorkspaces] = useState<RelationalMapWorkspace[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
@@ -130,16 +134,36 @@ export default function RelationalMapPage() {
 
   // ─── Client-side search filter ───────────────────────────────────────────
 
+  // Phase 37F — determine if overview nodes exist for fallback logic
+  const hasOverviewNodes = useMemo(() => {
+    if (!data) return false
+    return data.nodes.some(n => n.grainLevel === 'overview' || n.grainLevel === 'midlevel')
+  }, [data])
+
   const filteredNodes = useMemo(() => {
     if (!data) return []
-    if (!filters.search) return data.nodes
-    const term = filters.search.toLowerCase()
-    return data.nodes.filter(n =>
-      n.label.toLowerCase().includes(term) ||
-      n.nodeType.toLowerCase().includes(term) ||
-      n.presenceScope.toLowerCase().includes(term)
-    )
-  }, [data, filters.search])
+    let nodes = data.nodes
+
+    // Phase 37F — grain filtering
+    // Overview mode: show overview + midlevel nodes when available.
+    // If no overview/midlevel nodes exist, fall back to showing all (current behaviour).
+    // Detail mode: show everything.
+    if (grainMode === 'overview' && hasOverviewNodes) {
+      nodes = nodes.filter(n => n.grainLevel === 'overview' || n.grainLevel === 'midlevel')
+    }
+
+    // Search filter
+    if (filters.search) {
+      const term = filters.search.toLowerCase()
+      nodes = nodes.filter(n =>
+        n.label.toLowerCase().includes(term) ||
+        n.nodeType.toLowerCase().includes(term) ||
+        n.presenceScope.toLowerCase().includes(term)
+      )
+    }
+
+    return nodes
+  }, [data, filters.search, grainMode, hasOverviewNodes])
 
   const filteredEdges = useMemo(() => {
     if (!data) return []
@@ -465,6 +489,47 @@ export default function RelationalMapPage() {
           onArchiveWorkspace={handleArchiveWorkspace}
           disabled={loading || workspaceLoading}
         />
+
+        {/* Phase 37F — grain mode toggle */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center border border-house-border rounded overflow-hidden">
+            <button
+              onClick={() => setGrainMode('overview')}
+              className={`px-3 py-1 text-[10px] font-body transition-colors ${
+                grainMode === 'overview'
+                  ? 'bg-house-surface text-text-secondary'
+                  : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setGrainMode('detail')}
+              className={`px-3 py-1 text-[10px] font-body border-l border-house-border transition-colors ${
+                grainMode === 'detail'
+                  ? 'bg-house-surface text-text-secondary'
+                  : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              Detail
+            </button>
+          </div>
+          {grainMode === 'overview' && !hasOverviewNodes && (
+            <span className="text-[9px] text-text-muted/60 font-body italic">
+              No overview nodes yet — showing all
+            </span>
+          )}
+          {grainMode === 'overview' && hasOverviewNodes && (
+            <span className="text-[9px] text-text-muted/60 font-body">
+              Showing high-level entities
+            </span>
+          )}
+          {grainMode === 'detail' && (
+            <span className="text-[9px] text-text-muted/60 font-body">
+              Showing all approved nodes
+            </span>
+          )}
+        </div>
 
         <RelationalMapToolbar
           filters={filters}

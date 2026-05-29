@@ -238,6 +238,18 @@ export default function RelationalMapInspector({
               <MetadataRow label="Type" value={getNodeTypeLabel(selection.node.nodeType)} />
               <MetadataRow label="Scope" value={selection.node.presenceScope} />
               <MetadataRow label="Authority" value={selection.node.authorityStatus.replace(/_/g, ' ')} />
+              <MetadataRow
+                label="Grain"
+                value={
+                  <span className={
+                    selection.node.grainLevel === 'overview' ? 'text-purple-300' :
+                    selection.node.grainLevel === 'midlevel' ? 'text-text-secondary' :
+                    'text-text-muted'
+                  }>
+                    {selection.node.grainLevel}
+                  </span>
+                }
+              />
               <MetadataRow label="Confidence" value={<ConfidenceDots value={selection.node.confidence} />} />
               <MetadataRow label="Salience" value={<ConfidenceDots value={selection.node.salience} />} />
               <MetadataRow label="Derived from edge" value={selection.node.derivedFromEdge ? 'Yes' : 'No'} />
@@ -301,6 +313,38 @@ export default function RelationalMapInspector({
             </div>
           </div>
         )}
+
+        {/* Phase 37F — aliases from grain payload */}
+        {isNode && (() => {
+          const payload = relatedProposals[0]?.proposedPayload as Record<string, unknown> | undefined
+          const aliases = Array.isArray(payload?.aliases) ? payload.aliases as string[] : []
+          const grainReason = typeof payload?.grain_reason === 'string' ? payload.grain_reason : null
+          if (aliases.length === 0 && !grainReason) return null
+          return (
+            <div>
+              {aliases.length > 0 && (
+                <>
+                  <div className="text-text-muted uppercase tracking-wider text-[10px] mb-1.5 font-mono">
+                    Aliases
+                  </div>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {aliases.map((a, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] font-body text-text-secondary bg-house-bg border border-house-border/50 rounded px-1.5 py-0.5"
+                      >
+                        {String(a)}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+              {grainReason && (
+                <p className="text-[10px] text-text-muted italic">{grainReason}</p>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Prompt eligibility warning */}
         {promptEligible && (

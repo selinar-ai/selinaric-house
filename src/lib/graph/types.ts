@@ -142,6 +142,10 @@ export const GRAPH_SOURCE_TYPES = [
   'manual_eli',
   'relationship_arc_entry',
   'system_candidate',
+  // Phase 37F — graph grain consolidation provenance
+  'graph_proposal',
+  'archive_graph_node',
+  'archive_graph_edge',
 ] as const
 
 export type GraphSourceType = typeof GRAPH_SOURCE_TYPES[number]

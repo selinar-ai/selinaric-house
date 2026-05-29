@@ -1,10 +1,13 @@
-// Phase 37D — Relational Map Runtime Types
+// Phase 37D + 37F — Relational Map Runtime Types
 //
 // These types represent the runtime graph derived from approved proposals.
 // They are display/runtime only — no database writes, no Memory authority.
 //
 // The graph may reveal relationship.
 // The graph does not crown truth.
+//
+// Phase 37F: grainLevel classifies nodes for Overview vs Detail mode.
+// Grain level is display metadata, not Memory or Archive authority.
 
 // ─── Runtime Graph Node ────────────────────────────────────────────────────
 
@@ -23,6 +26,8 @@ export type GraphMapNode = {
   /** True if this node was implied from an edge proposal endpoint */
   derivedFromEdge: boolean
   promptEligible: boolean
+  /** Phase 37F — view-time grain classification. Display metadata only. */
+  grainLevel: 'overview' | 'midlevel' | 'detail' | 'evidence'
 }
 
 // ─── Runtime Graph Edge ────────────────────────────────────────────────────
