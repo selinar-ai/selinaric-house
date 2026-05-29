@@ -13,6 +13,11 @@
 //
 // Status filter: pending | approved | rejected | all
 // Default: pending
+//
+// Bulk actions: select multiple nodes/edges and approve/reject in batch.
+// Only writes approval_status + reviewed_at on archive_graph_nodes / archive_graph_edges.
+// Does NOT create Memory, change canonical_status, modify archive_items,
+// touch graph_proposals, or feed the Phase 37 Relational Map.
 
 import { useState, useEffect, useCallback } from 'react'
 import type { GraphNode, GraphEdge } from '@/lib/archive-graph'
@@ -32,6 +37,26 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
   const [error,        setError]        = useState<string | null>(null)
   const [actioning,    setActioning]    = useState<string | null>(null)  // id currently being actioned
   const [actionErr,    setActionErr]    = useState<string | null>(null)
+
+  // ── Bulk selection state ───────────────────────────────────────────────────
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set())
+  const [bulkLoading,     setBulkLoading]     = useState(false)
+  const [bulkResult,      setBulkResult]      = useState<{ message: string; type: 'success' | 'warning' | 'error' } | null>(null)
+
+  // Clear selections when filter or archive changes
+  useEffect(() => {
+    setSelectedNodeIds(new Set())
+    setSelectedEdgeIds(new Set())
+    setBulkResult(null)
+  }, [statusFilter, archiveName])
+
+  // Auto-dismiss bulk result toast after 5 seconds
+  useEffect(() => {
+    if (!bulkResult) return
+    const t = setTimeout(() => setBulkResult(null), 5000)
+    return () => clearTimeout(t)
+  }, [bulkResult])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -53,6 +78,8 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
   }, [archiveName, statusFilter])
 
   useEffect(() => { void load() }, [load])
+
+  // ── Individual actions ─────────────────────────────────────────────────────
 
   async function actOnNode(id: string, action: 'approve' | 'reject') {
     setActioning(id)
@@ -98,12 +125,149 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
     }
   }
 
+  // ── Bulk selection helpers ─────────────────────────────────────────────────
+
+  const pendingNodes = nodes.filter(n => n.approval_status === 'pending')
+  const pendingEdges = edges.filter(e => {
+    if (e.approval_status !== 'pending') return false
+    const fromStatus = e.from_node?.approval_status
+    const toStatus   = e.to_node?.approval_status
+    return fromStatus !== 'rejected' && toStatus !== 'rejected'
+  })
+
+  function toggleNodeSelect(id: string) {
+    setSelectedNodeIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleEdgeSelect(id: string) {
+    setSelectedEdgeIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllNodes() {
+    if (selectedNodeIds.size === pendingNodes.length && pendingNodes.length > 0) {
+      setSelectedNodeIds(new Set())
+    } else {
+      setSelectedNodeIds(new Set(pendingNodes.map(n => n.id)))
+    }
+  }
+
+  function toggleAllEdges() {
+    if (selectedEdgeIds.size === pendingEdges.length && pendingEdges.length > 0) {
+      setSelectedEdgeIds(new Set())
+    } else {
+      setSelectedEdgeIds(new Set(pendingEdges.map(e => e.id)))
+    }
+  }
+
+  function clearAllSelections() {
+    setSelectedNodeIds(new Set())
+    setSelectedEdgeIds(new Set())
+  }
+
+  const totalSelected = selectedNodeIds.size + selectedEdgeIds.size
+
+  // ── Bulk action handler ────────────────────────────────────────────────────
+
+  async function handleBulkAction(action: 'approve' | 'reject') {
+    const nodeIds = [...selectedNodeIds]
+    const edgeIds = [...selectedEdgeIds]
+    const total = nodeIds.length + edgeIds.length
+    if (total === 0) return
+
+    const verb = action === 'approve' ? 'approve' : 'reject'
+    const confirmed = window.confirm(
+      `${verb.charAt(0).toUpperCase() + verb.slice(1)} ${total} selected item${total === 1 ? '' : 's'}?\n\n` +
+      (nodeIds.length > 0 ? `• ${nodeIds.length} node${nodeIds.length === 1 ? '' : 's'}\n` : '') +
+      (edgeIds.length > 0 ? `• ${edgeIds.length} edge${edgeIds.length === 1 ? '' : 's'}\n` : '') +
+      '\nApproving archive graph items does not promote source Archive entries to Memory.\n' +
+      'This only updates approval_status on archive_graph_nodes / archive_graph_edges.'
+    )
+    if (!confirmed) return
+
+    setBulkLoading(true)
+    setBulkResult(null)
+    setActionErr(null)
+
+    let succeeded = 0
+    let failed = 0
+    let blocked = 0
+
+    // Process nodes first (rejecting nodes cascades to edges server-side)
+    for (const id of nodeIds) {
+      try {
+        const res = await fetch(`/api/archive-graph/nodes/${id}`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ action }),
+        })
+        if (res.ok) {
+          succeeded++
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+    }
+
+    // Then process edges
+    for (const id of edgeIds) {
+      try {
+        const res = await fetch(`/api/archive-graph/edges/${id}`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ action }),
+        })
+        if (res.ok) {
+          succeeded++
+        } else {
+          const data = await res.json().catch(() => ({}))
+          if (data.blocked) {
+            blocked++
+          } else {
+            failed++
+          }
+        }
+      } catch {
+        failed++
+      }
+    }
+
+    // Build result message
+    const parts: string[] = []
+    if (succeeded > 0) parts.push(`${succeeded} ${verb === 'approve' ? 'approved' : 'rejected'}`)
+    if (blocked > 0) parts.push(`${blocked} blocked (endpoint rejected)`)
+    if (failed > 0) parts.push(`${failed} failed`)
+
+    setBulkResult({
+      message: parts.join(', ') + '.',
+      type: failed > 0 || blocked > 0 ? 'warning' : 'success',
+    })
+
+    setSelectedNodeIds(new Set())
+    setSelectedEdgeIds(new Set())
+    setBulkLoading(false)
+    await load()
+  }
+
   const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
     { id: 'pending',  label: 'Pending' },
     { id: 'approved', label: 'Approved' },
     { id: 'rejected', label: 'Rejected' },
     { id: 'all',      label: 'All' },
   ]
+
+  const showBulkBar = totalSelected > 0
 
   return (
     <div className="space-y-0">
@@ -133,6 +297,55 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
+
+      {/* Bulk action bar */}
+      {showBulkBar && (
+        <div className="sticky top-0 z-10 px-4 py-2 bg-house-surface border-b border-house-border flex flex-wrap items-center gap-2">
+          <span className="font-body text-xs text-text-muted">
+            {totalSelected} selected
+            {selectedNodeIds.size > 0 && ` (${selectedNodeIds.size} node${selectedNodeIds.size !== 1 ? 's' : ''})`}
+            {selectedEdgeIds.size > 0 && ` (${selectedEdgeIds.size} edge${selectedEdgeIds.size !== 1 ? 's' : ''})`}
+          </span>
+          <button
+            onClick={() => void handleBulkAction('approve')}
+            disabled={bulkLoading || !!actioning}
+            className="font-body text-xs px-3 py-1 border border-green-400/30 text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40"
+          >
+            {bulkLoading ? 'Processing…' : 'Approve selected'}
+          </button>
+          <button
+            onClick={() => void handleBulkAction('reject')}
+            disabled={bulkLoading || !!actioning}
+            className="font-body text-xs px-3 py-1 border border-red-400/20 text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40"
+          >
+            {bulkLoading ? 'Processing…' : 'Reject selected'}
+          </button>
+          <button
+            onClick={clearAllSelections}
+            className="ml-auto font-body text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Bulk result toast */}
+      {bulkResult && (
+        <div className={`
+          px-4 py-2 border-b
+          ${bulkResult.type === 'success' ? 'bg-emerald-900/20 border-emerald-700/30' : ''}
+          ${bulkResult.type === 'warning' ? 'bg-amber-900/20 border-amber-700/30' : ''}
+          ${bulkResult.type === 'error'   ? 'bg-red-900/20 border-red-700/30' : ''}
+        `}>
+          <p className={`font-body text-xs ${
+            bulkResult.type === 'success' ? 'text-emerald-300' :
+            bulkResult.type === 'warning' ? 'text-amber-300' :
+            'text-red-300'
+          }`}>
+            {bulkResult.message}
+          </p>
+        </div>
+      )}
 
       {/* Global action error */}
       {actionErr && (
@@ -181,68 +394,102 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
           {/* ── Nodes ──────────────────────────────────────────────────── */}
           {nodes.length > 0 && (
             <div>
-              <div className="px-4 py-2 border-b border-house-border/40">
+              <div className="px-4 py-2 border-b border-house-border/40 flex items-center gap-3">
+                {pendingNodes.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedNodeIds.size === pendingNodes.length && pendingNodes.length > 0}
+                    ref={el => { if (el) el.indeterminate = selectedNodeIds.size > 0 && selectedNodeIds.size < pendingNodes.length }}
+                    onChange={toggleAllNodes}
+                    disabled={bulkLoading}
+                    className="accent-house-muted"
+                  />
+                )}
                 <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
                   Nodes · {nodes.length}
                 </p>
               </div>
-              {nodes.map(node => (
-                <div
-                  key={node.id}
-                  className="px-4 py-3 border-b border-house-border/30 flex flex-col gap-1.5"
-                >
-                  <div className="flex items-start gap-2 flex-wrap">
-                    <span className="font-body text-xs text-text-primary font-medium">
-                      {node.label}
-                    </span>
-                    <span className="font-body text-[10px] text-text-muted bg-house-surface border border-house-border px-1.5 py-0.5">
-                      {NODE_TYPE_LABELS[node.node_type] ?? node.node_type}
-                    </span>
-                    <ApprovalBadge status={node.approval_status} />
-                  </div>
-
-                  {node.description && (
-                    <p className="font-body text-xs text-text-muted">{node.description}</p>
-                  )}
-
-                  <p className="font-body text-[10px] text-text-muted/60">
-                    {node.source_item_ids.length} source item{node.source_item_ids.length !== 1 ? 's' : ''}
-                    {' · '}created {new Date(node.created_at).toLocaleDateString()}
-                  </p>
-
-                  {node.approval_status === 'pending' && (
-                    <div className="flex gap-2 pt-0.5">
-                      <button
-                        onClick={() => void actOnNode(node.id, 'approve')}
-                        disabled={actioning === node.id}
-                        className="
-                          h-7 px-3 font-body text-xs border border-green-400/30
-                          text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40
-                        "
-                      >
-                        {actioning === node.id ? '…' : 'Approve'}
-                      </button>
-                      <button
-                        onClick={() => void actOnNode(node.id, 'reject')}
-                        disabled={actioning === node.id}
-                        className="
-                          h-7 px-3 font-body text-xs border border-red-400/20
-                          text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40
-                        "
-                      >
-                        {actioning === node.id ? '…' : 'Reject'}
-                      </button>
+              {nodes.map(node => {
+                const isPending = node.approval_status === 'pending'
+                return (
+                  <div
+                    key={node.id}
+                    className={`px-4 py-3 border-b border-house-border/30 flex flex-col gap-1.5 ${
+                      selectedNodeIds.has(node.id) ? 'bg-house-bg/60' : ''
+                    }`}
+                  >
+                    <div className="flex items-start gap-2 flex-wrap">
+                      {isPending && (
+                        <input
+                          type="checkbox"
+                          checked={selectedNodeIds.has(node.id)}
+                          onChange={() => toggleNodeSelect(node.id)}
+                          disabled={bulkLoading}
+                          className="accent-house-muted mt-0.5 shrink-0"
+                        />
+                      )}
+                      <span className="font-body text-xs text-text-primary font-medium">
+                        {node.label}
+                      </span>
+                      <span className="font-body text-[10px] text-text-muted bg-house-surface border border-house-border px-1.5 py-0.5">
+                        {NODE_TYPE_LABELS[node.node_type] ?? node.node_type}
+                      </span>
+                      <ApprovalBadge status={node.approval_status} />
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {node.description && (
+                      <p className="font-body text-xs text-text-muted">{node.description}</p>
+                    )}
+
+                    <p className="font-body text-[10px] text-text-muted/60">
+                      {node.source_item_ids.length} source item{node.source_item_ids.length !== 1 ? 's' : ''}
+                      {' · '}created {new Date(node.created_at).toLocaleDateString()}
+                    </p>
+
+                    {isPending && (
+                      <div className="flex gap-2 pt-0.5">
+                        <button
+                          onClick={() => void actOnNode(node.id, 'approve')}
+                          disabled={actioning === node.id || bulkLoading}
+                          className="
+                            h-7 px-3 font-body text-xs border border-green-400/30
+                            text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40
+                          "
+                        >
+                          {actioning === node.id ? '…' : 'Approve'}
+                        </button>
+                        <button
+                          onClick={() => void actOnNode(node.id, 'reject')}
+                          disabled={actioning === node.id || bulkLoading}
+                          className="
+                            h-7 px-3 font-body text-xs border border-red-400/20
+                            text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40
+                          "
+                        >
+                          {actioning === node.id ? '…' : 'Reject'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
           {/* ── Edges ──────────────────────────────────────────────────── */}
           {edges.length > 0 && (
             <div>
-              <div className="px-4 py-2 border-b border-house-border/40 mt-2">
+              <div className="px-4 py-2 border-b border-house-border/40 mt-2 flex items-center gap-3">
+                {pendingEdges.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedEdgeIds.size === pendingEdges.length && pendingEdges.length > 0}
+                    ref={el => { if (el) el.indeterminate = selectedEdgeIds.size > 0 && selectedEdgeIds.size < pendingEdges.length }}
+                    onChange={toggleAllEdges}
+                    disabled={bulkLoading}
+                    className="accent-house-muted"
+                  />
+                )}
                 <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
                   Edges · {edges.length}
                 </p>
@@ -253,13 +500,26 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
                 const fromStatus = edge.from_node?.approval_status
                 const toStatus   = edge.to_node?.approval_status
                 const edgeBlocked = (fromStatus === 'rejected' || toStatus === 'rejected')
+                const isPending = edge.approval_status === 'pending'
+                const isSelectable = isPending && !edgeBlocked
 
                 return (
                   <div
                     key={edge.id}
-                    className="px-4 py-3 border-b border-house-border/30 flex flex-col gap-1.5"
+                    className={`px-4 py-3 border-b border-house-border/30 flex flex-col gap-1.5 ${
+                      selectedEdgeIds.has(edge.id) ? 'bg-house-bg/60' : ''
+                    }`}
                   >
                     <div className="flex items-center gap-2 flex-wrap">
+                      {isSelectable && (
+                        <input
+                          type="checkbox"
+                          checked={selectedEdgeIds.has(edge.id)}
+                          onChange={() => toggleEdgeSelect(edge.id)}
+                          disabled={bulkLoading}
+                          className="accent-house-muted shrink-0"
+                        />
+                      )}
                       <span className="font-body text-xs text-text-secondary">{fromLabel}</span>
                       <span className="font-body text-[10px] text-text-muted/60">→</span>
                       <span className="font-body text-xs text-text-muted bg-house-surface border border-house-border px-1.5 py-0.5">
@@ -274,7 +534,7 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
                       <p className="font-body text-xs text-text-muted">{edge.description}</p>
                     )}
 
-                    {edgeBlocked && edge.approval_status === 'pending' && (
+                    {edgeBlocked && isPending && (
                       <p className="font-body text-[10px] text-orange-300/70">
                         Blocked — one or both endpoint nodes are rejected.
                       </p>
@@ -285,11 +545,11 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
                       {' · '}created {new Date(edge.created_at).toLocaleDateString()}
                     </p>
 
-                    {edge.approval_status === 'pending' && !edgeBlocked && (
+                    {isSelectable && (
                       <div className="flex gap-2 pt-0.5">
                         <button
                           onClick={() => void actOnEdge(edge.id, 'approve')}
-                          disabled={actioning === edge.id}
+                          disabled={actioning === edge.id || bulkLoading}
                           className="
                             h-7 px-3 font-body text-xs border border-green-400/30
                             text-green-400 hover:bg-green-400/10 transition-all disabled:opacity-40
@@ -299,7 +559,7 @@ export default function GraphCandidatesTab({ archiveName }: Props) {
                         </button>
                         <button
                           onClick={() => void actOnEdge(edge.id, 'reject')}
-                          disabled={actioning === edge.id}
+                          disabled={actioning === edge.id || bulkLoading}
                           className="
                             h-7 px-3 font-body text-xs border border-red-400/20
                             text-red-400/60 hover:bg-red-400/10 transition-all disabled:opacity-40
