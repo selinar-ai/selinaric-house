@@ -442,10 +442,10 @@ export default function RelationalMapPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 px-6 pt-6 pb-3 space-y-3">
+      <div className="shrink-0 px-6 pt-4 pb-2 space-y-2">
         <div>
-          <h1 className="text-text-primary text-xl font-display">Relational Map</h1>
-          <p className="text-text-muted text-xs font-body mt-1">
+          <h1 className="text-text-primary text-lg font-display">Relational Map</h1>
+          <p className="text-text-muted text-[10px] font-body mt-0.5">
             Phase 37E — v1
           </p>
         </div>
@@ -509,9 +509,9 @@ export default function RelationalMapPage() {
         <div className="flex-1 flex overflow-hidden">
           {/* Graph or Table */}
           {viewMode === 'graph' ? (
-            <div className="flex-1 relative">
+            <div className="flex-1 min-w-0 relative">
               <Suspense fallback={
-                <div className="flex-1 flex items-center justify-center">
+                <div className="absolute inset-0 flex items-center justify-center">
                   <p className="text-text-muted text-xs font-body animate-pulse">Loading canvas…</p>
                 </div>
               }>

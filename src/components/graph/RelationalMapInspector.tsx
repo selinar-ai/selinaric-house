@@ -155,11 +155,12 @@ export default function RelationalMapInspector({
   const [showPayload, setShowPayload] = useState(false)
 
   if (!selection) {
+    // Collapsed state — minimal width when nothing is selected
     return (
-      <div className="w-[360px] shrink-0 border-l border-house-border bg-house-surface/50 flex items-center justify-center">
-        <p className="text-text-muted text-xs font-body text-center px-6">
-          Select a node or edge to inspect its provenance.
-        </p>
+      <div className="w-[48px] shrink-0 border-l border-house-border bg-house-surface/50 flex flex-col items-center pt-4 gap-2">
+        <span className="text-text-muted text-[10px] [writing-mode:vertical-rl] rotate-180 font-body tracking-wider opacity-60">
+          Inspector
+        </span>
       </div>
     )
   }

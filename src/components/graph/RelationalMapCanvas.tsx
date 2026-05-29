@@ -12,7 +12,7 @@
 // Dragging moves visual positions only. It does not create edges,
 // change authority, modify Memory, or mutate prompt eligibility.
 
-import { useCallback, useMemo, useRef, useImperativeHandle, forwardRef } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -54,7 +54,7 @@ function HouseNode({ data }: { data: HouseNodeData }) {
   const { graphNode, selected, pinned, arrangeMode } = data
   const colours = getNodeColours(graphNode.nodeType)
   const sizeMultiplier = getNodeSizeMultiplier(graphNode.salience)
-  const baseSize = 60
+  const baseSize = 80
   const size = Math.round(baseSize * sizeMultiplier)
 
   return (
@@ -67,16 +67,16 @@ function HouseNode({ data }: { data: HouseNodeData }) {
           height: size,
           backgroundColor: colours.bg,
           border: `2px solid ${selected ? '#9B7FD4' : colours.border}`,
-          boxShadow: selected ? `0 0 12px ${colours.border}40` : 'none',
+          boxShadow: selected ? `0 0 16px ${colours.border}50` : `0 0 8px ${colours.border}15`,
           cursor: arrangeMode ? 'grab' : 'pointer',
         }}
       >
         <div
-          className="text-[10px] font-display leading-tight text-center px-1 truncate max-w-[90px]"
+          className="text-[11px] font-display leading-tight text-center px-1.5 max-w-[120px]"
           style={{ color: colours.text }}
           title={graphNode.label}
         >
-          {graphNode.label.length > 16 ? graphNode.label.slice(0, 14) + '…' : graphNode.label}
+          {graphNode.label.length > 22 ? graphNode.label.slice(0, 20) + '…' : graphNode.label}
         </div>
         <div
           className="text-[8px] font-mono opacity-60 mt-0.5"
@@ -220,7 +220,7 @@ export function computeDefaultLayout(
   if (nodes.length === 0) return []
 
   if (nodes.length === 1) {
-    return [{ id: nodes[0].id, x: 400, y: 300 }]
+    return [{ id: nodes[0].id, x: 600, y: 400 }]
   }
 
   // Find the most connected node — place it in the center
@@ -235,17 +235,17 @@ export function computeDefaultLayout(
     (connectionCount.get(b.id) ?? 0) - (connectionCount.get(a.id) ?? 0)
   )
 
-  const centerX = 400
-  const centerY = 350
+  const centerX = 600
+  const centerY = 400
   const positions: { id: string; x: number; y: number }[] = []
 
   // Place the most connected node in center
   positions.push({ id: sorted[0].id, x: centerX, y: centerY })
 
-  // Place remaining nodes in concentric rings
+  // Place remaining nodes in concentric rings — generous spacing for readability
   const remaining = sorted.slice(1)
   const ringCapacities = [6, 12, 18, 24] // nodes per ring
-  const ringRadii = [160, 280, 400, 520]
+  const ringRadii = [250, 440, 630, 820]
   let nodeIndex = 0
 
   for (let ring = 0; ring < ringRadii.length && nodeIndex < remaining.length; ring++) {
@@ -308,10 +308,12 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
   ) {
     const rfInstance = useRef<ReactFlowInstance | null>(null)
 
+    const fitViewOptions = useMemo(() => ({ padding: 0.35, maxZoom: 1.5 }), [])
+
     useImperativeHandle(ref, () => ({
       zoomIn: () => rfInstance.current?.zoomIn(),
       zoomOut: () => rfInstance.current?.zoomOut(),
-      fitView: () => rfInstance.current?.fitView({ padding: 0.2 }),
+      fitView: () => rfInstance.current?.fitView(fitViewOptions),
     }))
 
     // Compute default positions
@@ -376,12 +378,21 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
 
     const onInit = useCallback((instance: ReactFlowInstance) => {
       rfInstance.current = instance
-      // Fit view on initial load
-      setTimeout(() => instance.fitView({ padding: 0.2 }), 100)
     }, [])
 
+    // Fit view after nodes are positioned — fires on data changes and initial load.
+    // The 200ms delay ensures React Flow has finished its internal layout pass.
+    const nodeCount = flowNodes.length
+    useEffect(() => {
+      if (nodeCount === 0 || !rfInstance.current) return
+      const timer = setTimeout(() => {
+        rfInstance.current?.fitView(fitViewOptions)
+      }, 200)
+      return () => clearTimeout(timer)
+    }, [nodeCount, fitViewOptions])
+
     return (
-      <div className="flex-1 relative" style={{ minHeight: 400 }}>
+      <div className="absolute inset-0">
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
@@ -395,9 +406,10 @@ const RelationalMapCanvas = forwardRef<RelationalMapCanvasHandle, CanvasProps>(
           elementsSelectable={true}
           panOnDrag={true}
           zoomOnScroll={true}
-          fitView={true}
+          fitView
+          fitViewOptions={fitViewOptions}
           minZoom={0.1}
-          maxZoom={3}
+          maxZoom={2.5}
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
           className="bg-house-bg"
