@@ -50,6 +50,8 @@ export interface BuildRelationalMapOutput {
 interface EdgePayloadEndpoint {
   label?: string
   nodeType?: string
+  /** Phase 37F.3 — optional per-endpoint scope for cross-scope edges */
+  presenceScope?: string
 }
 
 interface EdgePayload {
@@ -220,15 +222,20 @@ function processEdgeProposal(
   const fromNodeType = payload.from.nodeType ?? 'concept'
   const toNodeType = payload.to.nodeType ?? 'concept'
 
+  // Phase 37F.3 — per-endpoint scope for cross-scope edges.
+  // Falls back to the edge's own scope for backward compatibility.
+  const fromScope = payload.from.presenceScope ?? scope
+  const toScope = payload.to.presenceScope ?? scope
+
   // Create or find "from" node
-  const fromKey = makeNodeKey(scope, fromNodeType, fromLabel)
+  const fromKey = makeNodeKey(fromScope, fromNodeType, fromLabel)
   if (!nodeMap.has(fromKey)) {
     const sourceTypes = sourceTypesByProposal.get(proposal.id) ?? [proposal.primary_source_type]
     nodeMap.set(fromKey, {
       id: fromKey,
       label: fromLabel,
       nodeType: fromNodeType,
-      presenceScope: scope,
+      presenceScope: fromScope,
       authorityStatus: authority,
       confidence: null,
       salience: null,
@@ -247,14 +254,14 @@ function processEdgeProposal(
   }
 
   // Create or find "to" node
-  const toKey = makeNodeKey(scope, toNodeType, toLabel)
+  const toKey = makeNodeKey(toScope, toNodeType, toLabel)
   if (!nodeMap.has(toKey)) {
     const sourceTypes = sourceTypesByProposal.get(proposal.id) ?? [proposal.primary_source_type]
     nodeMap.set(toKey, {
       id: toKey,
       label: toLabel,
       nodeType: toNodeType,
-      presenceScope: scope,
+      presenceScope: toScope,
       authorityStatus: authority,
       confidence: null,
       salience: null,

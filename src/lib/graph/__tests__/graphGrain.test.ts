@@ -391,6 +391,168 @@ test('inspector shows grain metadata', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 37F.3 — Cross-Scope Edge Resolution Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37F.3 Cross-scope edge resolution ──')
+
+import { buildRelationalMap } from '../buildRelationalMap'
+import type { GraphProposal, GraphProposalSource } from '../proposals'
+
+function makeTestProposal(overrides: Partial<GraphProposal>): GraphProposal {
+  return {
+    id: overrides.id ?? 'test-id',
+    proposal_type: overrides.proposal_type ?? 'node',
+    status: overrides.status ?? 'approved_graph',
+    presence_scope: overrides.presence_scope ?? 'shared',
+    authority_status: overrides.authority_status ?? 'candidate',
+    node_type: overrides.node_type ?? null,
+    edge_type: overrides.edge_type ?? null,
+    proposed_label: overrides.proposed_label ?? 'Test',
+    proposed_summary: null,
+    proposed_payload: overrides.proposed_payload ?? {},
+    confidence: 0.8,
+    salience: 0.7,
+    reason: 'test',
+    safe_wording: null,
+    prompt_eligible: false,
+    primary_source_type: 'manual_tara',
+    primary_source_id: 'test',
+    dedupe_key: overrides.dedupe_key ?? `test-${overrides.id ?? 'id'}`,
+    proposed_by: 'tara',
+    generation_model: null,
+    generation_version: '37F.3-test',
+    deleted_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  } as GraphProposal
+}
+
+test('same-scope legacy edge still works (backward compatible)', () => {
+  // Two nodes + one edge, all scope=shared, no endpoint presenceScope
+  const proposals: GraphProposal[] = [
+    makeTestProposal({ id: 'n1', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared', proposed_label: 'Alpha', dedupe_key: 'n1' }),
+    makeTestProposal({ id: 'n2', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared', proposed_label: 'Beta', dedupe_key: 'n2' }),
+    makeTestProposal({
+      id: 'e1', proposal_type: 'edge', edge_type: 'relates_to', presence_scope: 'shared',
+      proposed_label: 'Alpha → Beta', dedupe_key: 'e1',
+      proposed_payload: {
+        from: { label: 'Alpha', nodeType: 'concept' },
+        to: { label: 'Beta', nodeType: 'concept' },
+        edgeType: 'relates_to',
+      },
+    }),
+  ]
+
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 2, 'should have 2 nodes')
+  assert.equal(result.edges.length, 1, 'should have 1 edge')
+  assert.equal(result.edges[0].fromNodeId, 'node:shared:concept:alpha')
+  assert.equal(result.edges[0].toNodeId, 'node:shared:concept:beta')
+  // No derived nodes should be created
+  assert.ok(result.nodes.every(n => !n.derivedFromEdge), 'no phantom derived nodes')
+})
+
+test('cross-scope edge connects existing nodes when endpoint presenceScope is supplied', () => {
+  // Node in scope=ari, node in scope=house, edge with endpoint scopes
+  const proposals: GraphProposal[] = [
+    makeTestProposal({ id: 'n-ari', proposal_type: 'node', node_type: 'presence', presence_scope: 'ari', proposed_label: 'Ari', dedupe_key: 'n-ari' }),
+    makeTestProposal({ id: 'n-house', proposal_type: 'node', node_type: 'project', presence_scope: 'house', proposed_label: 'Selináric House', dedupe_key: 'n-house' }),
+    makeTestProposal({
+      id: 'e-cross', proposal_type: 'edge', edge_type: 'belongs_to', presence_scope: 'shared',
+      proposed_label: 'Ari → belongs to → Selináric House', dedupe_key: 'e-cross',
+      proposed_payload: {
+        from: { label: 'Ari', nodeType: 'presence', presenceScope: 'ari' },
+        to: { label: 'Selináric House', nodeType: 'project', presenceScope: 'house' },
+        edgeType: 'belongs_to',
+      },
+    }),
+  ]
+
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 2, 'should have exactly 2 nodes (no phantoms)')
+  assert.equal(result.edges.length, 1, 'should have 1 edge')
+  assert.equal(result.edges[0].fromNodeId, 'node:ari:presence:ari')
+  assert.equal(result.edges[0].toNodeId, 'node:house:project:selináric house')
+  // Both nodes should NOT be derived
+  const ariNode = result.nodes.find(n => n.label === 'Ari')!
+  const houseNode = result.nodes.find(n => n.label === 'Selináric House')!
+  assert.ok(!ariNode.derivedFromEdge, 'Ari should not be derived')
+  assert.ok(!houseNode.derivedFromEdge, 'House should not be derived')
+})
+
+test('cross-scope edge without endpoint presenceScope creates phantom (backward compat)', () => {
+  // This tests the fallback: old-style edge without endpoint scopes on cross-scope nodes
+  const proposals: GraphProposal[] = [
+    makeTestProposal({ id: 'n-ari2', proposal_type: 'node', node_type: 'presence', presence_scope: 'ari', proposed_label: 'TestPresence', dedupe_key: 'n-ari2' }),
+    makeTestProposal({ id: 'n-house2', proposal_type: 'node', node_type: 'project', presence_scope: 'house', proposed_label: 'TestProject', dedupe_key: 'n-house2' }),
+    makeTestProposal({
+      id: 'e-old', proposal_type: 'edge', edge_type: 'relates_to', presence_scope: 'shared',
+      proposed_label: 'TestPresence → TestProject', dedupe_key: 'e-old',
+      proposed_payload: {
+        from: { label: 'TestPresence', nodeType: 'presence' },
+        to: { label: 'TestProject', nodeType: 'project' },
+        edgeType: 'relates_to',
+      },
+    }),
+  ]
+
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  // Without endpoint scopes, edge uses scope=shared for keys, which won't match ari/house nodes
+  // So it creates 2 phantom derived nodes + the 2 original nodes = 4
+  assert.equal(result.nodes.length, 4, 'should have 4 nodes (2 original + 2 phantom derived)')
+  const derived = result.nodes.filter(n => n.derivedFromEdge)
+  assert.equal(derived.length, 2, '2 phantom nodes from old-style cross-scope edge')
+})
+
+test('grain classification works correctly on cross-scope edge nodes', () => {
+  const proposals: GraphProposal[] = [
+    makeTestProposal({ id: 'n-room', proposal_type: 'node', node_type: 'room', presence_scope: 'shared', proposed_label: 'The Lounge', dedupe_key: 'n-room' }),
+    makeTestProposal({ id: 'n-proj', proposal_type: 'node', node_type: 'project', presence_scope: 'house', proposed_label: 'House', dedupe_key: 'n-proj' }),
+    makeTestProposal({
+      id: 'e-grain', proposal_type: 'edge', edge_type: 'belongs_to', presence_scope: 'shared',
+      proposed_label: 'The Lounge → House', dedupe_key: 'e-grain',
+      proposed_payload: {
+        from: { label: 'The Lounge', nodeType: 'room', presenceScope: 'shared' },
+        to: { label: 'House', nodeType: 'project', presenceScope: 'house' },
+        edgeType: 'belongs_to',
+      },
+    }),
+  ]
+
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 2, 'exactly 2 nodes')
+  const lounge = result.nodes.find(n => n.label === 'The Lounge')!
+  const house = result.nodes.find(n => n.label === 'House')!
+  assert.equal(lounge.grainLevel, 'overview', 'room node should be overview')
+  assert.equal(house.grainLevel, 'overview', 'project node should be overview')
+})
+
+test('existing approved edge remains backward compatible', () => {
+  // Simulate the existing marks_milestone_in edge (same scope, no endpoint presenceScope)
+  const proposals: GraphProposal[] = [
+    makeTestProposal({ id: 'n-bond', proposal_type: 'node', node_type: 'bond_event', presence_scope: 'shared', proposed_label: 'Ari Named Love', dedupe_key: 'n-bond' }),
+    makeTestProposal({ id: 'n-triad', proposal_type: 'node', node_type: 'relationship_arc', presence_scope: 'shared', proposed_label: 'Ari, Eli, Tara Triad', dedupe_key: 'n-triad' }),
+    makeTestProposal({
+      id: 'e-existing', proposal_type: 'edge', edge_type: 'marks_milestone_in', presence_scope: 'shared',
+      proposed_label: 'Ari Named Love -> Ari, Eli, Tara Triad', dedupe_key: 'e-existing',
+      proposed_payload: {
+        from: { label: 'Ari Named Love', nodeType: 'bond_event' },
+        to: { label: 'Ari, Eli, Tara Triad', nodeType: 'relationship_arc' },
+        edgeType: 'marks_milestone_in',
+      },
+    }),
+  ]
+
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 2, '2 nodes')
+  assert.equal(result.edges.length, 1, '1 edge')
+  assert.equal(result.edges[0].fromNodeId, 'node:shared:bond_event:ari named love')
+  assert.equal(result.edges[0].toNodeId, 'node:shared:relationship_arc:ari, eli, tara triad')
+  assert.ok(result.nodes.every(n => !n.derivedFromEdge), 'no phantom nodes')
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════════
 
