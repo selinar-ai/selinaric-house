@@ -207,6 +207,33 @@ test('Suggest actions are disabled in Arrange mode', () => {
   assert.ok(inspectorCode.includes('Switch to Inspect mode'), 'must show mode hint in arrange mode')
 })
 
+test('Suggest Edge hidden for derivedFromEdge nodes', () => {
+  const inspectorCode = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  // Must gate on !derivedFromEdge before showing suggest edge button
+  assert.ok(inspectorCode.includes('!selection.node.derivedFromEdge'), 'suggest edge must be hidden for derived nodes')
+  assert.ok(inspectorCode.includes('Derived display nodes cannot be used'), 'must show helper text for derived nodes')
+})
+
+test('Suggest Edge available only for real approved nodes (not derived)', () => {
+  const inspectorCode = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  // The condition requires isNode && !arrangeMode && !derivedFromEdge
+  assert.ok(
+    inspectorCode.includes('!arrangeMode && !selection.node.derivedFromEdge'),
+    'suggest edge condition must exclude both arrange mode AND derived nodes'
+  )
+})
+
+test('target dropdown excludes derived nodes', () => {
+  const panelCode = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(panelCode.includes('!n.derivedFromEdge'), 'target dropdown must exclude derived nodes')
+})
+
+test('approvedNodes prop already filters derived nodes before passing to SuggestEdgeForm', () => {
+  const inspectorCode = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  // The prop passed to SuggestEdgeForm filters !n.derivedFromEdge
+  assert.ok(inspectorCode.includes('!n.derivedFromEdge'), 'approved nodes prop must exclude derived nodes')
+})
+
 test('page passes onSuggestNodeClick as undefined in Arrange mode', () => {
   const pageCode = readFileSync(resolve(__dirname, '..', '..', '..', 'app', '(house)', 'relational-map', 'page.tsx'), 'utf-8')
   assert.ok(pageCode.includes('arrangeMode ? undefined'), 'onSuggestNodeClick must be undefined in arrange mode')

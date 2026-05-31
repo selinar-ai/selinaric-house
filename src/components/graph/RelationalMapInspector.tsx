@@ -374,13 +374,13 @@ export default function RelationalMapInspector({
           Graph structure only. Not canonical Memory. Not prompt truth.
         </div>
 
-        {/* Phase 37G.1 — Suggest Edge (Inspect mode only, node selection only) */}
-        {isNode && !arrangeMode && (
+        {/* Phase 37G.1 — Suggest Edge (Inspect mode only, real approved nodes only) */}
+        {isNode && !arrangeMode && !selection.node.derivedFromEdge && (
           <div>
             {suggestEdgeOpen ? (
               <SuggestEdgeForm
                 sourceNode={selection.node}
-                approvedNodes={allNodes.filter(n => n.grainLevel === 'overview')}
+                approvedNodes={allNodes.filter(n => n.grainLevel === 'overview' && !n.derivedFromEdge)}
                 onClose={() => setSuggestEdgeOpen(false)}
               />
             ) : (
@@ -392,6 +392,11 @@ export default function RelationalMapInspector({
               </button>
             )}
           </div>
+        )}
+        {isNode && !arrangeMode && selection.node.derivedFromEdge && (
+          <p className="text-[10px] text-text-muted opacity-50 italic">
+            Suggest Edge requires an approved graph node. Derived display nodes cannot be used as edge endpoints.
+          </p>
         )}
         {isNode && arrangeMode && (
           <p className="text-[10px] text-text-muted opacity-50 italic">

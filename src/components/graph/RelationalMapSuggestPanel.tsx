@@ -180,9 +180,11 @@ export function SuggestEdgeForm({ sourceNode, approvedNodes, onClose }: SuggestE
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string; proposalId?: string } | null>(null)
 
-  // Filter to approved nodes excluding the source
+  // Filter to real approved overview nodes only — exclude source and derived display nodes
   const targetOptions = approvedNodes.filter(n =>
-    n.id !== sourceNode.id && n.grainLevel === 'overview'
+    n.id !== sourceNode.id &&
+    n.grainLevel === 'overview' &&
+    !n.derivedFromEdge
   )
 
   const selectedTarget = approvedNodes.find(n => n.id === targetId)
