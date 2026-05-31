@@ -28,6 +28,7 @@ import RelationalMapLegend from '@/components/graph/RelationalMapLegend'
 import RelationalMapEmptyState from '@/components/graph/RelationalMapEmptyState'
 import RelationalMapTableView from '@/components/graph/RelationalMapTableView'
 import RelationalMapWorkspaceBar from '@/components/graph/RelationalMapWorkspaceBar'
+import { SuggestNodeForm } from '@/components/graph/RelationalMapSuggestPanel'
 import type { RelationalMapResponse, GraphMapNode, GraphMapEdge } from '@/lib/graph/relationalMapTypes'
 import type { RelationalMapCanvasHandle } from '@/components/graph/RelationalMapCanvas'
 import type {
@@ -66,6 +67,9 @@ export default function RelationalMapPage() {
   type GrainMode = 'overview' | 'detail'
   const [grainMode, setGrainMode] = useState<GrainMode>('overview')
   const [includeMidlevel, setIncludeMidlevel] = useState(false)
+
+  // Phase 37G.1 — suggest node panel
+  const [suggestNodeOpen, setSuggestNodeOpen] = useState(false)
 
   // Workspace state (37E)
   const [workspaces, setWorkspaces] = useState<RelationalMapWorkspace[]>([])
@@ -665,7 +669,19 @@ export default function RelationalMapPage() {
             hasWorkspace={!!activeWorkspaceId}
             arrangeMode={arrangeMode}
             onTogglePin={handleTogglePin}
+            onSuggestNodeClick={arrangeMode ? undefined : () => setSuggestNodeOpen(true)}
           />
+
+          {/* Phase 37G.1 — Suggest Node panel (Inspect mode only) */}
+          {suggestNodeOpen && !arrangeMode && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 w-[360px] bg-house-surface border border-house-border shadow-lg rounded p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-display text-sm text-text-primary">Suggest Node</h4>
+                <button onClick={() => setSuggestNodeOpen(false)} className="text-text-muted text-sm hover:text-text-secondary">✕</button>
+              </div>
+              <SuggestNodeForm onClose={() => setSuggestNodeOpen(false)} />
+            </div>
+          )}
         </div>
       )}
 

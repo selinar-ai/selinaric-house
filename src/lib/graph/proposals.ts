@@ -132,6 +132,10 @@ export interface CreateProposalInput {
   primarySourceType: GraphSourceType
   primarySourceId: string
   generationModel?: string
+  /** Phase 37G.1 — override proposed_by (default: 'graph_pipeline') */
+  proposedBy?: 'tara' | 'ari' | 'eli' | 'system_candidate' | 'graph_pipeline'
+  /** Phase 37G.1 — override generation_version (default: '37B') */
+  generationVersion?: string
   sourceRecord: {
     sourceType: GraphSourceType
     sourceTable?: string
@@ -275,9 +279,9 @@ export async function createProposal(
       primary_source_type: input.primarySourceType,
       primary_source_id: input.primarySourceId,
       dedupe_key: dedupeKey,
-      proposed_by: 'graph_pipeline',
+      proposed_by: input.proposedBy ?? 'graph_pipeline',
       generation_model: input.generationModel ?? null,
-      generation_version: '37B',
+      generation_version: input.generationVersion ?? '37B',
     })
     .select('id')
     .single()

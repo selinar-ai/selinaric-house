@@ -71,6 +71,8 @@ const AUTHORITY_OVERRIDES: Record<string, GraphAuthorityStatus[]> = {
   graph_proposal: ['archive_supported', 'candidate', 'inferred'],
   archive_graph_node: ['archive_supported', 'candidate'],
   archive_graph_edge: ['archive_supported', 'candidate'],
+  // Phase 37G — map UI edit action proposals
+  map_ui: ['candidate', 'inferred'],
 }
 
 function enforceAuthority(

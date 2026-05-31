@@ -8,6 +8,7 @@
 
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
+import { SuggestNodeForm, SuggestEdgeForm } from './RelationalMapSuggestPanel'
 import type {
   GraphMapNode,
   GraphMapEdge,
@@ -36,6 +37,8 @@ interface InspectorProps {
   hasWorkspace?: boolean
   arrangeMode?: boolean
   onTogglePin?: (nodeId: string) => void
+  // 37G.1 suggest actions — only available in Inspect mode (not Arrange mode)
+  onSuggestNodeClick?: () => void
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -151,8 +154,10 @@ export default function RelationalMapInspector({
   hasWorkspace,
   arrangeMode,
   onTogglePin,
+  onSuggestNodeClick,
 }: InspectorProps) {
   const [showPayload, setShowPayload] = useState(false)
+  const [suggestEdgeOpen, setSuggestEdgeOpen] = useState(false)
 
   if (!selection) {
     // Collapsed state — minimal width when nothing is selected
@@ -161,6 +166,15 @@ export default function RelationalMapInspector({
         <span className="text-text-muted text-[10px] [writing-mode:vertical-rl] rotate-180 font-body tracking-wider opacity-60">
           Inspector
         </span>
+        {!arrangeMode && onSuggestNodeClick && (
+          <button
+            onClick={onSuggestNodeClick}
+            title="Suggest Node"
+            className="text-text-muted text-[10px] [writing-mode:vertical-rl] rotate-180 font-body tracking-wider opacity-60 hover:opacity-100 hover:text-purple-300 transition-all mt-1"
+          >
+            + Node
+          </button>
+        )}
       </div>
     )
   }
@@ -359,6 +373,31 @@ export default function RelationalMapInspector({
         <div className="text-[10px] text-text-muted opacity-60 italic">
           Graph structure only. Not canonical Memory. Not prompt truth.
         </div>
+
+        {/* Phase 37G.1 — Suggest Edge (Inspect mode only, node selection only) */}
+        {isNode && !arrangeMode && (
+          <div>
+            {suggestEdgeOpen ? (
+              <SuggestEdgeForm
+                sourceNode={selection.node}
+                approvedNodes={allNodes.filter(n => n.grainLevel === 'overview')}
+                onClose={() => setSuggestEdgeOpen(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setSuggestEdgeOpen(true)}
+                className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-purple-300 hover:border-purple-600/40 transition-all"
+              >
+                ⟶ Suggest Edge from this node
+              </button>
+            )}
+          </div>
+        )}
+        {isNode && arrangeMode && (
+          <p className="text-[10px] text-text-muted opacity-50 italic">
+            Switch to Inspect mode to suggest graph changes.
+          </p>
+        )}
 
         {/* Proposal details */}
         {relatedProposals.length > 0 && (

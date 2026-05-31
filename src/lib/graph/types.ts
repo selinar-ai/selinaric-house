@@ -146,6 +146,8 @@ export const GRAPH_SOURCE_TYPES = [
   'graph_proposal',
   'archive_graph_node',
   'archive_graph_edge',
+  // Phase 37G — map UI edit action provenance
+  'map_ui',
 ] as const
 
 export type GraphSourceType = typeof GRAPH_SOURCE_TYPES[number]
