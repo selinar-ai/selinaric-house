@@ -40,15 +40,15 @@ export const GRAPH_EDIT_ACTION_TYPES = [
 
 export type GraphEditActionType = typeof GRAPH_EDIT_ACTION_TYPES[number]
 
-/** Actions supported in 37G.1 — first build slice */
+/** Actions supported in 37G.1/37G.2 */
 export const SUPPORTED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_node',
   'suggest_edge',
+  'suggest_alias',
 ] as const
 
 /** Actions deferred to later phases */
 export const DEFERRED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
-  'suggest_alias',
   'suggest_merge',
   'suggest_split',
   'suggest_reclassify',
@@ -170,9 +170,25 @@ export interface GraphEditSuggestEdgePayload extends GraphEditActionPayloadBase 
   rationale: string
 }
 
+/** Payload for suggest_alias (Phase 37G.2) */
+export interface GraphEditSuggestAliasPayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_alias'
+  target: {
+    label: string
+    nodeType: string
+    presenceScope: string
+    runtimeKey: string
+    proposalId?: string
+  }
+  proposed_alias: string
+  canonical_label: string
+  rationale: string
+}
+
 export type GraphEditActionPayload =
   | GraphEditSuggestNodePayload
   | GraphEditSuggestEdgePayload
+  | GraphEditSuggestAliasPayload
 
 // ─── Validation ───────────────────────────────────────────────────────────
 
@@ -221,6 +237,8 @@ export function validateEditActionPayload(
     validateSuggestNode(payload, errors)
   } else if (actionType === 'suggest_edge') {
     validateSuggestEdge(payload, errors)
+  } else if (actionType === 'suggest_alias') {
+    validateSuggestAlias(payload, errors)
   }
 
   return { valid: errors.length === 0, errors }
@@ -294,6 +312,42 @@ function validateSuggestEdge(payload: Record<string, unknown>, errors: string[])
   }
 }
 
+function validateSuggestAlias(payload: Record<string, unknown>, errors: string[]): void {
+  const target = payload.target as Record<string, unknown> | undefined
+
+  if (!target || typeof target !== 'object') {
+    errors.push('target is required')
+    return
+  }
+
+  if (typeof target.label !== 'string' || !target.label) errors.push('target.label is required')
+  if (typeof target.nodeType !== 'string' || !isValidGraphNodeType(target.nodeType)) errors.push(`Invalid target.nodeType: "${target.nodeType}"`)
+  if (typeof target.presenceScope !== 'string' || !isValidGraphPresenceScope(target.presenceScope)) errors.push(`Invalid target.presenceScope: "${target.presenceScope}"`)
+  if (typeof target.runtimeKey !== 'string' || !target.runtimeKey) errors.push('target.runtimeKey is required')
+
+  const alias = payload.proposed_alias
+  if (typeof alias !== 'string' || alias.trim().length === 0) {
+    errors.push('proposed_alias is required and must be non-empty')
+  } else {
+    if (alias.trim().length > 60) {
+      errors.push(`proposed_alias too long (${alias.trim().length} chars, max 60)`)
+    }
+    // Alias must not equal target canonical label
+    if (typeof target.label === 'string' &&
+        alias.trim().toLowerCase().replace(/\s+/g, ' ') ===
+        target.label.trim().toLowerCase().replace(/\s+/g, ' ')) {
+      errors.push('proposed_alias cannot be the same as the target node canonical label')
+    }
+  }
+
+  if (typeof payload.rationale !== 'string') {
+    // rationale is optional but must be a string if provided
+    if (payload.rationale !== undefined) {
+      errors.push('rationale must be a string')
+    }
+  }
+}
+
 // ─── Dedupe Key Generation ────────────────────────────────────────────────
 
 function normalizeLabel(label: string): string {
@@ -322,6 +376,13 @@ export function generateEditActionDedupeKey(
     const fromLabel = ((payload.from as Record<string, unknown>)?.label as string) || ''
     const toLabel = ((payload.to as Record<string, unknown>)?.label as string) || ''
     return `edge:map_ui:relational_map_ui:${scope}:${edgeType}:${normalizeLabel(fromLabel)}:${normalizeLabel(toLabel)}`
+  }
+
+  if (action === 'suggest_alias') {
+    const target = payload.target as Record<string, unknown> | undefined
+    const runtimeKey = (target?.runtimeKey as string) || ''
+    const alias = (payload.proposed_alias as string) || ''
+    return `alias:map_ui:relational_map_ui:${normalizeLabel(runtimeKey)}:${normalizeLabel(alias)}`
   }
 
   // Fallback for deferred actions

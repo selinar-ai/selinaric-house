@@ -171,6 +171,129 @@ export function SuggestNodeForm({ onClose }: SuggestNodeFormProps) {
   )
 }
 
+// ─── Suggest Alias Form (Phase 37G.2) ─────────────────────────────────────
+
+interface SuggestAliasFormProps {
+  targetNode: GraphMapNode
+  onClose: () => void
+}
+
+export function SuggestAliasForm({ targetNode, onClose }: SuggestAliasFormProps) {
+  const [alias, setAlias] = useState('')
+  const [rationale, setRationale] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string; proposalId?: string } | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = alias.trim()
+    if (!trimmed) return
+    setSubmitting(true)
+    setResult(null)
+    try {
+      const resp = await fetch('/api/graph-edit-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          edit_action_type: 'suggest_alias',
+          target: {
+            label: targetNode.label,
+            nodeType: targetNode.nodeType,
+            presenceScope: targetNode.presenceScope,
+            runtimeKey: targetNode.id,
+            proposalId: targetNode.proposalIds[0] ?? null,
+          },
+          proposed_alias: trimmed,
+          grain_level: 'overview',
+          rationale: rationale.trim() || 'Proposed alias from Relational Map UI.',
+          selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
+        }),
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setResult({ ok: true, message: 'Alias proposal created for Ontology Lab review.', proposalId: data.proposalId })
+      } else if (resp.status === 409) {
+        setResult({ ok: false, message: data.error ?? 'This alias already exists or has already been proposed.' })
+      } else {
+        setResult({ ok: false, message: data.error ?? 'Failed to create alias proposal.' })
+      }
+    } catch {
+      setResult({ ok: false, message: 'Request failed.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] text-text-muted/70 italic font-body">
+        This creates a pending alias proposal for Ontology Lab review.
+        It does not rename the node directly. It does not create Memory or Archive authority.
+      </div>
+
+      <div className="text-[10px] font-body text-text-muted">
+        Node: <span className="text-text-secondary">{targetNode.label}</span>
+      </div>
+
+      {result ? (
+        <div className={`px-3 py-2 rounded text-xs font-body ${result.ok ? 'bg-emerald-900/20 text-emerald-300 border border-emerald-700/30' : 'bg-amber-900/20 text-amber-300 border border-amber-700/30'}`}>
+          {result.message}
+        </div>
+      ) : null}
+
+      {!result?.ok && (
+        <form onSubmit={handleSubmit} className="space-y-2.5">
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">
+              Proposed alias <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={alias}
+              onChange={e => setAlias(e.target.value)}
+              maxLength={60}
+              required
+              placeholder={`e.g. shorter name for ${targetNode.label}`}
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted"
+            />
+          </div>
+
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Rationale (optional)</label>
+            <input
+              type="text"
+              value={rationale}
+              onChange={e => setRationale(e.target.value)}
+              maxLength={200}
+              placeholder="Why propose this alias?"
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={submitting || !alias.trim()}
+              className="font-body text-xs px-3 py-1.5 border border-purple-600/40 text-purple-300 hover:bg-purple-600/10 transition-all disabled:opacity-40"
+            >
+              {submitting ? 'Submitting…' : 'Submit for review'}
+            </button>
+            <button type="button" onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {result?.ok && (
+        <button onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">
+          Close
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ─── Suggest Edge Form ──────────────────────────────────────────────────────
 
 export function SuggestEdgeForm({ sourceNode, approvedNodes, onClose }: SuggestEdgeFormProps) {

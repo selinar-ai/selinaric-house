@@ -6,7 +6,7 @@
 // A suggestion is not a graph edit. A graph proposal is not Memory.
 // No UI action creates truth directly.
 //
-// Supported actions: suggest_node, suggest_edge
+// Supported actions: suggest_node, suggest_edge, suggest_alias
 // All proposals: pending_review, prompt_eligible=false, proposed_by=tara
 //
 // Writes ONLY to: graph_proposals, graph_proposal_sources, graph_proposal_events
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   // 1. Reject unsupported/deferred actions
   if (!actionType || !isSupportedEditAction(actionType)) {
     return NextResponse.json(
-      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge` },
+      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias` },
       { status: 400 }
     )
   }
@@ -79,6 +79,8 @@ export async function POST(request: NextRequest) {
   // 4. Route to handler
   if (actionType === 'suggest_node') {
     return handleSuggestNode(payload)
+  } else if (actionType === 'suggest_alias') {
+    return handleSuggestAlias(payload)
   } else if (actionType === 'suggest_edge') {
     return handleSuggestEdge(payload)
   }
@@ -314,5 +316,138 @@ async function handleSuggestEdge(payload: Record<string, unknown>) {
     ok: true,
     proposalId: result.proposalId,
     message: 'Edge proposal created for Ontology Lab review.',
+  }, { status: 201 })
+}
+
+// ─── Suggest Alias Handler (Phase 37G.2) ──────────────────────────────────
+
+async function handleSuggestAlias(payload: Record<string, unknown>) {
+  const target = payload.target as Record<string, unknown>
+  const proposedAlias = (payload.proposed_alias as string).trim()
+  const rationale = (payload.rationale as string)?.trim() || 'Proposed alias from Relational Map UI.'
+  const targetLabel = target.label as string
+  const targetNodeType = target.nodeType as string
+  const targetScope = target.presenceScope as string
+  const targetRuntimeKey = target.runtimeKey as string
+
+  // Validate target is an approved graph node
+  const { data: targetProposals } = await supabase
+    .from('graph_proposals')
+    .select('id, status')
+    .eq('proposal_type', 'node')
+    .eq('status', 'approved_graph')
+    .is('deleted_at', null)
+    .ilike('proposed_label', targetLabel)
+    .limit(1)
+
+  if (!targetProposals || targetProposals.length === 0) {
+    return NextResponse.json(
+      { error: `Target node "${targetLabel}" is not an approved graph node.`, code: 'target_not_approved' },
+      { status: 422 }
+    )
+  }
+
+  // Collision check: alias must not match any existing approved/pending node label
+  const { data: labelCollision } = await supabase
+    .from('graph_proposals')
+    .select('id, proposed_label, status')
+    .eq('proposal_type', 'node')
+    .is('deleted_at', null)
+    .in('status', ['pending_review', 'approved_graph'])
+    .ilike('proposed_label', proposedAlias)
+    .limit(1)
+
+  if (labelCollision && labelCollision.length > 0) {
+    return NextResponse.json(
+      {
+        error: `This alias conflicts with an existing graph node: "${labelCollision[0].proposed_label}"`,
+        code: 'alias_collision',
+      },
+      { status: 409 }
+    )
+  }
+
+  // Duplicate alias proposal check: same target + same alias already pending or approved
+  const aliasLabel = `Alias: ${proposedAlias} → ${targetLabel}`
+  const { data: existingAlias } = await supabase
+    .from('graph_proposals')
+    .select('id, proposed_label, status')
+    .eq('proposal_type', 'node')
+    .is('deleted_at', null)
+    .in('status', ['pending_review', 'approved_graph'])
+    .ilike('proposed_label', aliasLabel)
+    .limit(1)
+
+  if (existingAlias && existingAlias.length > 0) {
+    const match = existingAlias[0]
+    return NextResponse.json(
+      {
+        error: match.status === 'approved_graph'
+          ? `This alias already exists for this node.`
+          : `A matching pending alias proposal already exists.`,
+        code: 'duplicate',
+        existingId: match.id,
+      },
+      { status: 409 }
+    )
+  }
+
+  // Create alias proposal (proposal_type=node, but edit_action_type=suggest_alias — renderer guard prevents map materialisation)
+  const result = await createProposal({
+    proposalType: 'node',
+    nodeType: targetNodeType as GraphNodeType,
+    label: aliasLabel,
+    summary: rationale,
+    payload: {
+      ...payload,
+      canonical_label: aliasLabel,
+      nodeType: targetNodeType,
+      summary: rationale,
+      suggestedAuthorityStatus: 'candidate',
+      suggestedPresenceScope: targetScope,
+    },
+    confidence: 0.7,
+    salience: 0.5,
+    reason: rationale,
+    safeWording: `Alias proposal: "${proposedAlias}" for "${targetLabel}". Proposed from Relational Map UI.`,
+    authorityStatus: 'candidate',
+    presenceScope: targetScope as GraphPresenceScope,
+    primarySourceType: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_type,
+    primarySourceId: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_id,
+    proposedBy: EDIT_ACTION_PROPOSAL_DEFAULTS.proposed_by,
+    generationVersion: '37G.2',
+    sourceRecord: {
+      sourceType: 'map_ui',
+      sourceId: 'relational_map_ui',
+      sourceLabel: 'Relational Map UI',
+      sourceExcerpt: `User proposed alias: "${proposedAlias}" for "${targetLabel}"`,
+      sourceMetadata: {
+        phase: '37G.2',
+        edit_action_type: 'suggest_alias',
+        origin: 'relational_map',
+        target_node_key: targetRuntimeKey,
+        target_proposal_id: target.proposalId ?? null,
+        proposed_alias: proposedAlias,
+      },
+    },
+  })
+
+  if (!result.ok) {
+    if (result.code === 'duplicate_pending') {
+      return NextResponse.json(
+        { error: 'A matching pending alias proposal already exists.', code: 'duplicate' },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json(
+      { error: result.error, code: result.code },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    proposalId: result.proposalId,
+    message: 'Alias proposal created for Ontology Lab review.',
   }, { status: 201 })
 }

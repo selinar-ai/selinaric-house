@@ -553,11 +553,77 @@ test('existing approved edge remains backward compatible', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 37G.2 — Renderer Guard Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.2 Renderer guard ──')
+
+test('approved suggest_alias proposal does NOT materialise as a map node', () => {
+  const proposals = [
+    makeTestProposal({ id: 'real-node', proposal_type: 'node', node_type: 'project', presence_scope: 'house', proposed_label: 'Selináric House', dedupe_key: 'real' }),
+    makeTestProposal({
+      id: 'alias-prop', proposal_type: 'node', node_type: 'project', presence_scope: 'house',
+      proposed_label: 'Alias: House → Selináric House', dedupe_key: 'alias',
+      proposed_payload: {
+        edit_action_type: 'suggest_alias',
+        target: { label: 'Selináric House', nodeType: 'project', presenceScope: 'house', runtimeKey: 'node:house:project:selináric house' },
+        proposed_alias: 'House',
+      },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  // Only the real node should appear, not the alias proposal
+  assert.equal(result.nodes.length, 1, 'alias proposal must not materialise as a node')
+  assert.equal(result.nodes[0].label, 'Selináric House', 'only the real node should appear')
+})
+
+test('pending suggest_alias proposal also excluded by renderer guard', () => {
+  // The outer loop skips non-approved_graph — alias proposals with pending status never reach processNodeProposal
+  // This test verifies pending alias proposals are NOT in the approved set used by buildRelationalMap
+  const proposals = [
+    makeTestProposal({
+      id: 'pending-alias', status: 'pending_review' as any, proposal_type: 'node', node_type: 'project', presence_scope: 'house',
+      proposed_label: 'Alias: House → Selináric House', dedupe_key: 'pending-alias',
+      proposed_payload: { edit_action_type: 'suggest_alias' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 0, 'pending alias proposal must not materialise')
+  assert.equal(result.edges.length, 0, 'no edges should be created')
+})
+
+test('normal node proposals still materialise after guard (regression check)', () => {
+  const proposals = [
+    makeTestProposal({ id: 'normal', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared', proposed_label: 'Continuity', dedupe_key: 'normal' }),
+    makeTestProposal({
+      id: 'alias-to-skip', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared',
+      proposed_label: 'Alias: Cont → Continuity', dedupe_key: 'alias-skip',
+      proposed_payload: { edit_action_type: 'suggest_alias' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 1, 'only the real node, not the alias, should materialise')
+  assert.equal(result.nodes[0].label, 'Continuity')
+})
+
+test('suggest_alias skipped proposals appear in diagnostics.skippedProposals', () => {
+  const proposals = [
+    makeTestProposal({
+      id: 'alias-diag', proposal_type: 'node', node_type: 'project', presence_scope: 'house',
+      proposed_label: 'Alias: House → Selináric House', dedupe_key: 'alias-diag',
+      proposed_payload: { edit_action_type: 'suggest_alias' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.ok(result.diagnostics.skippedProposals >= 1, 'alias proposal must be counted in skippedProposals')
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Summary
 // ═══════════════════════════════════════════════════════════════════════════
 
 console.log('\n═══════════════════════════════════════════════════')
-console.log(`  Phase 37F Graph Grain Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37F/37G.2 Graph Grain Tests: ${passed} passed, ${failed} failed`)
 console.log('═══════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

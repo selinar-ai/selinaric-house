@@ -129,6 +129,14 @@ function processNodeProposal(
   const scope = proposal.presence_scope
   const authority = proposal.authority_status
 
+  // Phase 37G.2 — renderer guard: alias proposals must never materialise as map nodes.
+  // An alias is metadata, not an entity. This guard applies to pending and approved proposals alike.
+  const editActionType = (proposal.proposed_payload as unknown as Record<string, unknown> | undefined)?.edit_action_type
+  if (editActionType === 'suggest_alias') {
+    warnings.push(`Skipped alias proposal ${proposal.id}: alias proposals do not materialise as graph nodes.`)
+    return null
+  }
+
   // Defensive ontology validation
   if (!isValidGraphNodeType(nodeType)) {
     warnings.push(`Skipped node proposal ${proposal.id}: invalid node_type "${nodeType}".`)

@@ -8,7 +8,7 @@
 
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
-import { SuggestNodeForm, SuggestEdgeForm } from './RelationalMapSuggestPanel'
+import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm } from './RelationalMapSuggestPanel'
 import type {
   GraphMapNode,
   GraphMapEdge,
@@ -158,6 +158,7 @@ export default function RelationalMapInspector({
 }: InspectorProps) {
   const [showPayload, setShowPayload] = useState(false)
   const [suggestEdgeOpen, setSuggestEdgeOpen] = useState(false)
+  const [suggestAliasOpen, setSuggestAliasOpen] = useState(false)
 
   if (!selection) {
     // Collapsed state — minimal width when nothing is selected
@@ -396,6 +397,30 @@ export default function RelationalMapInspector({
         {isNode && !arrangeMode && selection.node.derivedFromEdge && (
           <p className="text-[10px] text-text-muted opacity-50 italic">
             Suggest Edge requires an approved graph node. Derived display nodes cannot be used as edge endpoints.
+          </p>
+        )}
+
+        {/* Phase 37G.2 — Suggest Alias (Inspect mode only, real approved nodes only) */}
+        {isNode && !arrangeMode && !selection.node.derivedFromEdge && (
+          <div>
+            {suggestAliasOpen ? (
+              <SuggestAliasForm
+                targetNode={selection.node}
+                onClose={() => setSuggestAliasOpen(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setSuggestAliasOpen(true)}
+                className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-purple-300 hover:border-purple-600/40 transition-all"
+              >
+                ≈ Suggest Alias for this node
+              </button>
+            )}
+          </div>
+        )}
+        {isNode && !arrangeMode && selection.node.derivedFromEdge && (
+          <p className="text-[10px] text-text-muted opacity-50 italic">
+            Suggest Alias requires an approved graph node. Derived display nodes cannot receive aliases.
           </p>
         )}
         {isNode && arrangeMode && (

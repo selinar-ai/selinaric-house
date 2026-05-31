@@ -51,15 +51,16 @@ test('GRAPH_EDIT_ACTION_TYPES has 9 action types', () => {
   assert.equal(GRAPH_EDIT_ACTION_TYPES.length, 9)
 })
 
-test('SUPPORTED_EDIT_ACTIONS has suggest_node and suggest_edge', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 2)
+test('SUPPORTED_EDIT_ACTIONS has suggest_node, suggest_edge, suggest_alias (37G.2)', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 3)
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_node'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_edge'))
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_alias'))
 })
 
-test('DEFERRED_EDIT_ACTIONS has 7 deferred actions', () => {
-  assert.equal(DEFERRED_EDIT_ACTIONS.length, 7)
-  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_alias'))
+test('DEFERRED_EDIT_ACTIONS has 6 deferred actions (suggest_alias promoted)', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 6)
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'), 'suggest_alias no longer deferred')
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_merge'))
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_split'))
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_reclassify'))
@@ -88,15 +89,15 @@ test('isValidEditActionType rejects invalid types', () => {
   assert.ok(!isValidEditActionType('approve'))
 })
 
-test('isSupportedEditAction accepts only supported', () => {
+test('isSupportedEditAction accepts supported actions', () => {
   assert.ok(isSupportedEditAction('suggest_node'))
   assert.ok(isSupportedEditAction('suggest_edge'))
-  assert.ok(!isSupportedEditAction('suggest_alias'))
+  assert.ok(isSupportedEditAction('suggest_alias'), 'suggest_alias now supported in 37G.2')
   assert.ok(!isSupportedEditAction('suggest_merge'))
 })
 
 test('isDeferredEditAction correctly identifies deferred', () => {
-  assert.ok(isDeferredEditAction('suggest_alias'))
+  assert.ok(!isDeferredEditAction('suggest_alias'), 'suggest_alias promoted to supported')
   assert.ok(isDeferredEditAction('suggest_merge'))
   assert.ok(!isDeferredEditAction('suggest_node'))
   assert.ok(!isDeferredEditAction('suggest_edge'))
@@ -415,8 +416,117 @@ test('contract file contains governance law comments', () => {
 // Summary
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.2 — Alias Action Contract Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.2 Alias action contract ──')
+
+test('suggest_alias is now in SUPPORTED_EDIT_ACTIONS', () => {
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_alias'))
+})
+
+test('suggest_alias is no longer in DEFERRED_EDIT_ACTIONS', () => {
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'))
+})
+
+test('SUPPORTED_EDIT_ACTIONS now has 3 actions', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 3)
+})
+
+test('deferred actions still rejected — suggest_merge blocked', () => {
+  const result = validateEditActionPayload({
+    edit_action_type: 'suggest_merge',
+    edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('deferred')))
+})
+
+const VALID_ALIAS_PAYLOAD = {
+  edit_action_type: 'suggest_alias',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.2',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Alias proposal only.',
+  target: {
+    label: 'Selináric House',
+    nodeType: 'project',
+    presenceScope: 'house',
+    runtimeKey: 'node:house:project:selináric house',
+    proposalId: '08a72feb-b37d-46c3-99b8-ee0c00ec5357',
+  },
+  proposed_alias: 'House',
+  canonical_label: 'Alias: House → Selináric House',
+  rationale: 'Common shorthand.',
+}
+
+test('valid alias payload passes', () => {
+  const result = validateEditActionPayload(VALID_ALIAS_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('alias payload rejects missing target', () => {
+  const { target, ...rest } = VALID_ALIAS_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('target')))
+})
+
+test('alias payload rejects missing target presenceScope', () => {
+  const result = validateEditActionPayload({
+    ...VALID_ALIAS_PAYLOAD,
+    target: { label: 'House', nodeType: 'project', runtimeKey: 'node:...' },
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('presenceScope')))
+})
+
+test('alias payload rejects empty alias', () => {
+  const result = validateEditActionPayload({ ...VALID_ALIAS_PAYLOAD, proposed_alias: '' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('proposed_alias')))
+})
+
+test('alias payload rejects alias equal to target label', () => {
+  const result = validateEditActionPayload({ ...VALID_ALIAS_PAYLOAD, proposed_alias: 'Selináric House' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same as the target')))
+})
+
+test('alias payload rejects alias too long', () => {
+  const result = validateEditActionPayload({ ...VALID_ALIAS_PAYLOAD, proposed_alias: 'A'.repeat(61) })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('too long')))
+})
+
+test('alias dedupe key has correct format', () => {
+  const key = generateEditActionDedupeKey(VALID_ALIAS_PAYLOAD)
+  assert.ok(key.startsWith('alias:map_ui:relational_map_ui:'), `key was: ${key}`)
+  assert.ok(key.includes(':house'), `key should contain normalised target runtimeKey`)
+  assert.ok(key.endsWith(':house'), `key should end with normalised alias`)
+})
+
+test('alias dedupe key differs from node and edge keys', () => {
+  const aliasKey = generateEditActionDedupeKey(VALID_ALIAS_PAYLOAD)
+  const nodeKey = generateEditActionDedupeKey({ ...VALID_ALIAS_PAYLOAD, edit_action_type: 'suggest_node', label: 'House', presence_scope: 'house', canonical_label: 'House' })
+  assert.notEqual(aliasKey, nodeKey)
+  assert.ok(aliasKey.startsWith('alias:'))
+  assert.ok(nodeKey.startsWith('node:'))
+})
+
+// ── Renderer guard ──
+test('buildRelationalMap renderer guard file exists and blocks suggest_alias', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  assert.ok(code.includes("editActionType === 'suggest_alias'"), 'renderer guard must check for suggest_alias')
+  assert.ok(code.includes('alias proposals do not materialise'), 'must have governance warning text')
+})
+
 console.log('\n═════════════════════════════════════════════════')
-console.log(`  Phase 37G.0 Graph Edit Action Contract Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.0/37G.2 Graph Edit Action Contract Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

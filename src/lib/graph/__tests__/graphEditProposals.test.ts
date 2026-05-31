@@ -267,8 +267,105 @@ test('SuggestPanel does not reference graph mutation', () => {
 // Summary
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.2 — Alias Proposal Structural Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.2 Alias proposal structure ──')
+
+test('suggest_alias route handler exists in API', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('handleSuggestAlias'), 'handleSuggestAlias must exist')
+  assert.ok(code.includes("suggest_alias"), 'suggest_alias must be handled')
+})
+
+test('alias handler uses generation_version=37G.2', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes("generationVersion: '37G.2'"), 'must use 37G.2 generation version')
+})
+
+test('alias handler validates target is approved_graph', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('target_not_approved') || code.includes('not an approved'), 'must validate target is approved')
+})
+
+test('alias handler checks for collision with existing node labels', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('alias_collision') || code.includes('conflicts with an existing'), 'must check label collision')
+})
+
+test('alias handler checks for duplicate alias proposals', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('existingAlias'), 'must check for existing alias proposals')
+})
+
+test('alias proposal uses proposal_type=node', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes("proposalType: 'node'"), 'alias proposal must use proposal_type=node')
+})
+
+test('alias label uses Alias: <alias> → <target> format', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('`Alias: ${proposedAlias} → ${targetLabel}`') || code.includes('Alias: '), 'must use Alias: prefix format')
+})
+
+test('alias uses map_ui source type', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  // The last handler (handleSuggestAlias) should also use map_ui
+  const lastMapUiIdx = code.lastIndexOf("sourceType: 'map_ui'")
+  assert.ok(lastMapUiIdx > -1, 'alias handler must use map_ui source type')
+})
+
+test('alias handler does not mutate target node payload', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(!code.includes('update'), 'alias handler must not update existing proposals')
+  assert.ok(!code.includes("'aliases'"), 'alias handler must not write aliases array to existing proposals')
+})
+
+// ── Renderer guard ──
+test('renderer guard added to buildRelationalMap processNodeProposal', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  assert.ok(code.includes("suggest_alias"), 'renderer guard must check for suggest_alias')
+  assert.ok(code.includes('return null'), 'renderer guard must return null to skip materialisation')
+})
+
+test('normal node proposals still materialise after guard (guard is narrow)', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  // Guard checks for specific edit_action_type, not all node proposals
+  assert.ok(code.includes("editActionType === 'suggest_alias'"), 'guard must be specific to suggest_alias only')
+  assert.ok(!code.includes("editActionType === 'suggest_node'"), 'guard must not block suggest_node proposals')
+})
+
+// ── UI ──
+test('SuggestAliasForm exists in suggest panel', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestAliasForm'), 'SuggestAliasForm must exist')
+  assert.ok(code.includes('/api/graph-edit-proposals'), 'must call edit proposals API')
+  assert.ok(code.includes("edit_action_type: 'suggest_alias'"), 'must use suggest_alias action type')
+})
+
+test('Suggest Alias hidden for derived nodes in inspector', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestAliasForm'), 'inspector must include SuggestAliasForm')
+  assert.ok(code.includes('Derived display nodes cannot receive aliases'), 'must show derived node hint')
+})
+
+test('Suggest Alias gated on !derivedFromEdge', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  // The inspector renders SuggestAliasForm inside a block gated by !derivedFromEdge
+  // and shows a "cannot receive aliases" message for derived nodes
+  assert.ok(
+    code.includes('!selection.node.derivedFromEdge'),
+    'alias must be gated on !selection.node.derivedFromEdge'
+  )
+  assert.ok(
+    code.includes('cannot receive aliases'),
+    'must show helper text for derived nodes'
+  )
+})
+
 console.log('\n═════════════════════════════════════════════════════')
-console.log(`  Phase 37G.1 Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.1/37G.2 Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)
