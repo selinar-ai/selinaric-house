@@ -66,15 +66,17 @@ async function main() {
   const r2 = await post('/api/graph-edit-proposals', { edit_action_type: 'suggest_node', label: '', node_type: 'concept', presence_scope: 'house', grain_level: 'overview', aliases: [], canonical_label: '' })
   test('rejects empty label (400)', r2.status === 400)
 
-  // 3. suggest_node — valid
+  // 3. suggest_node — valid (timestamp suffix ensures uniqueness per run)
+  const runId = Date.now().toString().slice(-6)
+  const nodeLabel = `Test Graph Concept 37G1 ${runId}`
   const r3 = await post('/api/graph-edit-proposals', {
     edit_action_type: 'suggest_node',
-    label: 'Test Graph Concept 37G1',
+    label: nodeLabel,
     node_type: 'concept',
     presence_scope: 'house',
     grain_level: 'overview',
     aliases: [],
-    canonical_label: 'Test Graph Concept 37G1',
+    canonical_label: nodeLabel,
     rationale: 'Production smoke test — 37G.1',
     selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
   })
@@ -86,12 +88,12 @@ async function main() {
   // 4. Duplicate node blocked
   const r4 = await post('/api/graph-edit-proposals', {
     edit_action_type: 'suggest_node',
-    label: 'Test Graph Concept 37G1',
+    label: nodeLabel,
     node_type: 'concept',
     presence_scope: 'house',
     grain_level: 'overview',
     aliases: [],
-    canonical_label: 'Test Graph Concept 37G1',
+    canonical_label: nodeLabel,
     rationale: 'duplicate attempt',
   })
   test('duplicate node blocked (409)', r4.status === 409)
@@ -109,14 +111,15 @@ async function main() {
   })
   test('invalid node_type rejected (400)', r5.status === 400)
 
-  // 6. suggest_edge — valid (Ari → The Lounge, both approved_graph)
+  // 6. suggest_edge — valid (Ari → Selináric Bond, both approved_graph, no existing edge)
+  const edgeLabel = `Ari deepens Selinaric Bond ${runId}`
   const r6 = await post('/api/graph-edit-proposals', {
     edit_action_type: 'suggest_edge',
     from: { label: 'Ari', nodeType: 'presence', presenceScope: 'ari', runtimeKey: 'node:ari:presence:ari' },
-    to: { label: 'The Lounge', nodeType: 'room', presenceScope: 'shared', runtimeKey: 'node:shared:room:the lounge' },
-    edge_type: 'relates_to',
+    to: { label: 'Selináric Bond', nodeType: 'relationship_arc', presenceScope: 'shared', runtimeKey: 'node:shared:relationship_arc:selináric bond' },
+    edge_type: 'deepens',
     edge_grain: 'overview',
-    canonical_label: 'Ari relates to The Lounge',
+    canonical_label: edgeLabel,
     grain_level: 'overview',
     rationale: 'Production smoke test edge — 37G.1',
     selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
@@ -130,9 +133,9 @@ async function main() {
   const r7 = await post('/api/graph-edit-proposals', {
     edit_action_type: 'suggest_edge',
     from: { label: 'Ari', nodeType: 'presence', presenceScope: 'ari', runtimeKey: 'node:ari:presence:ari' },
-    to: { label: 'The Lounge', nodeType: 'room', presenceScope: 'shared', runtimeKey: 'node:shared:room:the lounge' },
-    edge_type: 'relates_to',
-    canonical_label: 'Ari relates to The Lounge',
+    to: { label: 'Selináric Bond', nodeType: 'relationship_arc', presenceScope: 'shared', runtimeKey: 'node:shared:relationship_arc:selináric bond' },
+    edge_type: 'deepens',
+    canonical_label: edgeLabel,
     grain_level: 'overview',
     rationale: 'duplicate edge attempt',
   })
