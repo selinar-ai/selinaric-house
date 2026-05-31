@@ -322,7 +322,7 @@ export async function createProposal(
       event_type: 'proposal_created',
       previous_status: null,
       new_status: 'pending_review',
-      actor: 'graph_pipeline',
+      actor: input.proposedBy ?? 'graph_pipeline',
       reason: input.reason.trim(),
       metadata: {
         source_type: input.primarySourceType,
