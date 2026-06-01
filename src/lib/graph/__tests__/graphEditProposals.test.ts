@@ -595,8 +595,90 @@ test('renderer guard catches suggest_merge via shared set', () => {
   assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard uses shared set which now includes suggest_merge')
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3c — Lifecycle Proposal API + UI Structure Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3c Lifecycle proposal structure ──')
+
+test('lifecycle handler exists in API route', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('handleSuggestRetireOrSupersede'), 'handleSuggestRetireOrSupersede must exist')
+})
+
+test('lifecycle handler uses generation_version=37G.3c', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes("generationVersion: '37G.3c'"))
+})
+
+test('lifecycle handler validates target is approved_graph', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('target_not_approved'), 'must validate target is approved')
+})
+
+test('lifecycle handler validates successor for supersede mode', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('successor_not_approved'), 'must validate successor is approved for supersede')
+})
+
+test('lifecycle handler uses Retire:/Supersede: label formats', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('Retire: ') || code.includes('`Retire:'), 'must use Retire: format')
+  assert.ok(code.includes('Supersede: ') || code.includes('`Supersede:'), 'must use Supersede: format')
+})
+
+test('lifecycle handler does not mutate target or successor nodes', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(!code.includes("status: 'approved_graph'"), 'must not directly set approved status')
+})
+
+test('lifecycle handler uses map_ui source type', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  const lastMapUi = code.lastIndexOf("sourceType: 'map_ui'")
+  assert.ok(lastMapUi > -1)
+})
+
+test('SuggestLifecycleForm exists in suggest panel', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestLifecycleForm'), 'SuggestLifecycleForm must exist')
+  assert.ok(code.includes('suggest_retire_or_supersede'), 'must use suggest_retire_or_supersede action type')
+  assert.ok(code.includes('lifecycle_mode'), 'must include lifecycle_mode')
+})
+
+test('SuggestLifecycleForm retire mode hides successor dropdown', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  // Successor dropdown is conditional on supersede mode
+  assert.ok(code.includes("lifecycleMode === 'supersede'"), 'successor dropdown must be conditional on supersede mode')
+})
+
+test('SuggestLifecycleForm successor dropdown excludes target and derived nodes', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('n.id !== targetNode.id'), 'successor dropdown must exclude target node')
+  assert.ok(code.includes('!n.derivedFromEdge'), 'successor dropdown must exclude derived nodes')
+})
+
+test('Suggest Retire/Supersede hidden for derived nodes in inspector', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestLifecycleForm'), 'inspector must include SuggestLifecycleForm')
+  assert.ok(code.includes('cannot be retired or superseded'), 'must show derived node helper text')
+})
+
+test('renderer guard catches suggest_retire_or_supersede via shared set', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard uses shared set which now includes suggest_retire_or_supersede')
+})
+
+test('lifecycle handler does not create node deletion or retirement paths', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  // Handler must not set retired or superseded status on existing proposals
+  assert.ok(!code.includes("status: 'retired'"), 'handler must not set retired status on existing proposals')
+  assert.ok(!code.includes("status: 'superseded'"), 'handler must not set superseded status on existing proposals')
+  // Handler must not call .delete() on graph_proposals (only createProposal is called)
+  assert.ok(!code.includes(".from('graph_proposals').delete"), 'handler must not delete graph proposals')
+})
+
 console.log('\n═════════════════════════════════════════════════════')
-console.log(`  Phase 37G.1/37G.2/37G.3/37G.3a/37G.3b Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.1/37G.2/37G.3/37G.3a/37G.3b/37G.3c Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

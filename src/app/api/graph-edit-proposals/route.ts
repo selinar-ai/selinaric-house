@@ -6,7 +6,7 @@
 // A suggestion is not a graph edit. A graph proposal is not Memory.
 // No UI action creates truth directly.
 //
-// Supported actions: suggest_node, suggest_edge, suggest_alias, suggest_reclassify/confidence/salience, suggest_split, suggest_merge
+// Supported actions: all 9 37G actions including suggest_retire_or_supersede
 // All proposals: pending_review, prompt_eligible=false, proposed_by=tara
 //
 // Writes ONLY to: graph_proposals, graph_proposal_sources, graph_proposal_events
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   // 1. Reject unsupported/deferred actions
   if (!actionType || !isSupportedEditAction(actionType)) {
     return NextResponse.json(
-      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias, suggest_reclassify, suggest_confidence_change, suggest_salience_change, suggest_split, suggest_merge` },
+      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias, suggest_reclassify, suggest_confidence_change, suggest_salience_change, suggest_split, suggest_merge, suggest_retire_or_supersede` },
       { status: 400 }
     )
   }
@@ -89,6 +89,8 @@ export async function POST(request: NextRequest) {
     return handleSuggestSplit(payload)
   } else if (actionType === 'suggest_merge') {
     return handleSuggestMerge(payload)
+  } else if (actionType === 'suggest_retire_or_supersede') {
+    return handleSuggestRetireOrSupersede(payload)
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
@@ -867,5 +869,153 @@ async function handleSuggestMerge(payload: Record<string, unknown>) {
     ok: true,
     proposalId: result.proposalId,
     message: 'Merge proposal created for Ontology Lab review.',
+  }, { status: 201 })
+}
+
+// ─── Suggest Retire / Supersede Handler (Phase 37G.3c) ───────────────────
+
+async function handleSuggestRetireOrSupersede(payload: Record<string, unknown>) {
+  const mode = payload.lifecycle_mode as 'retire' | 'supersede'
+  const target = payload.target_node as Record<string, unknown>
+  const targetLabel = target.label as string
+  const targetNodeType = target.nodeType as string
+  const targetScope = target.presenceScope as string
+  const targetKey = target.runtimeKey as string
+  const rationale = (payload.lifecycle_rationale as string).trim()
+
+  // Proposed label and row scope
+  const successor = mode === 'supersede'
+    ? (payload.successor_node as Record<string, unknown>)
+    : undefined
+
+  const proposedLabel = mode === 'retire'
+    ? `Retire: ${targetLabel}`
+    : `Supersede: ${targetLabel} → ${successor?.label}`
+
+  const rowScope: GraphPresenceScope = mode === 'retire'
+    ? targetScope as GraphPresenceScope
+    : (targetScope === (successor?.presenceScope as string)
+        ? targetScope as GraphPresenceScope
+        : 'shared')
+
+  // Validate target is approved_graph
+  const { data: targetProposals } = await supabase
+    .from('graph_proposals')
+    .select('id, status')
+    .eq('proposal_type', 'node')
+    .eq('status', 'approved_graph')
+    .is('deleted_at', null)
+    .ilike('proposed_label', targetLabel)
+    .limit(1)
+
+  if (!targetProposals || targetProposals.length === 0) {
+    return NextResponse.json(
+      { error: `Target node "${targetLabel}" is not an approved graph node.`, code: 'target_not_approved' },
+      { status: 422 }
+    )
+  }
+
+  // Validate successor for supersede mode
+  if (mode === 'supersede' && successor) {
+    const successorLabel = successor.label as string
+    const { data: successorProposals } = await supabase
+      .from('graph_proposals')
+      .select('id, status')
+      .eq('proposal_type', 'node')
+      .eq('status', 'approved_graph')
+      .is('deleted_at', null)
+      .ilike('proposed_label', successorLabel)
+      .limit(1)
+
+    if (!successorProposals || successorProposals.length === 0) {
+      return NextResponse.json(
+        { error: `Successor node "${successorLabel}" is not an approved graph node.`, code: 'successor_not_approved' },
+        { status: 422 }
+      )
+    }
+  }
+
+  // Duplicate check
+  const { data: existingLifecycle } = await supabase
+    .from('graph_proposals')
+    .select('id, proposed_label, status')
+    .eq('proposal_type', 'node')
+    .is('deleted_at', null)
+    .in('status', ['pending_review', 'approved_graph'])
+    .ilike('proposed_label', proposedLabel)
+    .limit(1)
+
+  if (existingLifecycle && existingLifecycle.length > 0) {
+    const match = existingLifecycle[0]
+    return NextResponse.json(
+      {
+        error: match.status === 'approved_graph'
+          ? `A matching ${mode} proposal already exists (approved).`
+          : `A matching pending ${mode} proposal already exists.`,
+        code: 'duplicate',
+        existingId: match.id,
+      },
+      { status: 409 }
+    )
+  }
+
+  // Create lifecycle proposal
+  const result = await createProposal({
+    proposalType: 'node',
+    nodeType: targetNodeType as GraphNodeType,
+    label: proposedLabel,
+    summary: rationale,
+    payload: {
+      ...payload,
+      canonical_label: proposedLabel,
+      governance_note: `Lifecycle proposal only. Does not ${mode === 'retire' ? 'retire, delete, hide, or dim' : 'replace, redirect, or merge'} the node. Not Memory. Not Archive authority. Not prompt truth.`,
+    },
+    confidence: 0.7,
+    salience: 0.5,
+    reason: rationale,
+    safeWording: `Lifecycle proposal (${mode}): ${proposedLabel}.`,
+    authorityStatus: 'candidate' as const,
+    presenceScope: rowScope,
+    primarySourceType: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_type,
+    primarySourceId: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_id,
+    proposedBy: EDIT_ACTION_PROPOSAL_DEFAULTS.proposed_by,
+    generationVersion: '37G.3c',
+    sourceRecord: {
+      sourceType: 'map_ui' as const,
+      sourceId: 'relational_map_ui',
+      sourceLabel: 'Relational Map UI',
+      sourceExcerpt: `User proposed lifecycle change (${mode}): ${proposedLabel}`,
+      sourceMetadata: {
+        phase: '37G.3c',
+        edit_action_type: 'suggest_retire_or_supersede',
+        lifecycle_mode: mode,
+        origin: 'relational_map',
+        target_node_key: targetKey,
+        target_proposal_id: target.proposalId ?? null,
+        ...(mode === 'supersede' && successor ? {
+          successor_node_key: successor.runtimeKey as string,
+          successor_proposal_id: successor.proposalId ?? null,
+        } : {}),
+      },
+    },
+  })
+
+  if (!result.ok) {
+    if (result.code === 'duplicate_pending') {
+      return NextResponse.json(
+        { error: `A matching pending ${mode} proposal already exists.`, code: 'duplicate' },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json(
+      { error: result.error, code: result.code },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    proposalId: result.proposalId,
+    message: `Lifecycle proposal (${mode}) created for Ontology Lab review.`,
   }, { status: 201 })
 }

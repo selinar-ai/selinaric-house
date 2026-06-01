@@ -1007,3 +1007,159 @@ export function SuggestMergeForm({ sourceNode, approvedNodes, onClose }: Suggest
     </div>
   )
 }
+
+// ─── Suggest Lifecycle Form (Phase 37G.3c) ────────────────────────────────
+
+interface SuggestLifecycleFormProps {
+  targetNode: GraphMapNode
+  approvedNodes: GraphMapNode[]
+  onClose: () => void
+}
+
+export function SuggestLifecycleForm({ targetNode, approvedNodes, onClose }: SuggestLifecycleFormProps) {
+  const [lifecycleMode, setLifecycleMode] = useState<'retire' | 'supersede'>('retire')
+  const [successorId, setSuccessorId] = useState('')
+  const [lifecycleRationale, setLifecycleRationale] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Eligible successors: real approved nodes, not derived, not the target
+  const successorOptions = approvedNodes.filter(n =>
+    n.id !== targetNode.id &&
+    !n.derivedFromEdge &&
+    n.grainLevel !== 'evidence'
+  )
+
+  const selectedSuccessor = successorOptions.find(n => n.id === successorId)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (lifecycleMode === 'supersede' && !successorId) return
+    setSubmitting(true)
+    setResult(null)
+    try {
+      const body: Record<string, unknown> = {
+        edit_action_type: 'suggest_retire_or_supersede',
+        lifecycle_mode: lifecycleMode,
+        target_node: {
+          kind: 'node',
+          label: targetNode.label,
+          nodeType: targetNode.nodeType,
+          presenceScope: targetNode.presenceScope,
+          runtimeKey: targetNode.id,
+          proposalId: targetNode.proposalIds[0] ?? null,
+          grainLevel: targetNode.grainLevel,
+          derivedFromEdge: targetNode.derivedFromEdge,
+        },
+        lifecycle_rationale: lifecycleRationale.trim() || '',
+        grain_level: 'overview',
+        selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
+      }
+      if (lifecycleMode === 'supersede' && selectedSuccessor) {
+        body.successor_node = {
+          kind: 'node',
+          label: selectedSuccessor.label,
+          nodeType: selectedSuccessor.nodeType,
+          presenceScope: selectedSuccessor.presenceScope,
+          runtimeKey: selectedSuccessor.id,
+          proposalId: selectedSuccessor.proposalIds[0] ?? null,
+          grainLevel: selectedSuccessor.grainLevel,
+          derivedFromEdge: selectedSuccessor.derivedFromEdge,
+        }
+      }
+      const resp = await fetch('/api/graph-edit-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setResult({ ok: true, message: `Lifecycle proposal (${lifecycleMode}) created for Ontology Lab review.` })
+      } else if (resp.status === 409) {
+        setResult({ ok: false, message: data.error ?? `A matching ${lifecycleMode} proposal already exists.` })
+      } else {
+        setResult({ ok: false, message: data.error ?? 'Failed to create lifecycle proposal.' })
+      }
+    } catch {
+      setResult({ ok: false, message: 'Request failed.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] text-text-muted/70 italic font-body">
+        This creates a pending lifecycle proposal for Ontology Lab review.
+        It does not retire, delete, hide, replace, or mutate the node.
+        It does not move edges or create Memory or Archive authority.
+      </div>
+      <div className="text-[10px] font-body text-text-muted">
+        Node: <span className="text-text-secondary">{targetNode.label}</span>
+      </div>
+
+      {result ? (
+        <div className={`px-3 py-2 rounded text-xs font-body ${result.ok ? 'bg-emerald-900/20 text-emerald-300 border border-emerald-700/30' : 'bg-amber-900/20 text-amber-300 border border-amber-700/30'}`}>
+          {result.message}
+        </div>
+      ) : null}
+
+      {!result?.ok && (
+        <form onSubmit={handleSubmit} className="space-y-2.5">
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Lifecycle action</label>
+            <select value={lifecycleMode} onChange={e => { setLifecycleMode(e.target.value as 'retire' | 'supersede'); setSuccessorId('') }}
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+              <option value="retire">Retire</option>
+              <option value="supersede">Supersede</option>
+            </select>
+          </div>
+
+          {lifecycleMode === 'supersede' && (
+            <div>
+              <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">
+                Superseded by <span className="text-red-400">*</span>
+              </label>
+              <select value={successorId} onChange={e => setSuccessorId(e.target.value)} required
+                className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+                <option value="">Select successor node...</option>
+                {successorOptions.map(n => (
+                  <option key={n.id} value={n.id}>{n.label} ({n.nodeType})</option>
+                ))}
+              </select>
+              {selectedSuccessor && (
+                <p className="text-[9px] text-text-muted mt-0.5 opacity-60">
+                  Preview: Supersede: {targetNode.label} → {selectedSuccessor.label}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">
+              Rationale <span className="text-red-400">*</span> <span className="opacity-60">(min 10 chars)</span>
+            </label>
+            <input type="text" value={lifecycleRationale} onChange={e => setLifecycleRationale(e.target.value)} maxLength={300}
+              placeholder={lifecycleMode === 'retire' ? 'Why should this node be retired?' : 'Why should this node be superseded?'}
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted" />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button type="submit"
+              disabled={submitting || lifecycleRationale.trim().length < 10 || (lifecycleMode === 'supersede' && !successorId)}
+              className="font-body text-xs px-3 py-1.5 border border-purple-600/40 text-purple-300 hover:bg-purple-600/10 transition-all disabled:opacity-40">
+              {submitting ? 'Submitting...' : 'Submit for review'}
+            </button>
+            <button type="button" onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {result?.ok && (
+        <button onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">Close</button>
+      )}
+    </div>
+  )
+}

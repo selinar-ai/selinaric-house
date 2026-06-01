@@ -50,12 +50,15 @@ export const SUPPORTED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_salience_change',
   'suggest_split',
   'suggest_merge',
-] as const
-
-/** Actions deferred to later phases */
-export const DEFERRED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_retire_or_supersede',
 ] as const
+
+/**
+ * Actions deferred to later phases.
+ * All 37G actions have now been implemented through 37G.3c.
+ * New action types may be added to this list in future phases.
+ */
+export const DEFERRED_EDIT_ACTIONS: readonly GraphEditActionType[] = [] as const
 
 /**
  * Phase 37G.3 — Non-materialising edit action types.
@@ -69,7 +72,8 @@ export const NON_MATERIALISING_EDIT_ACTIONS = new Set<string>([
   'suggest_confidence_change',
   'suggest_salience_change',
   'suggest_split',   // Phase 37G.3a — split proposals must never materialise as nodes/edges
-  'suggest_merge',   // Phase 37G.3b — merge proposals must never materialise as nodes/edges
+  'suggest_merge',              // Phase 37G.3b — merge proposals must never materialise as nodes/edges
+  'suggest_retire_or_supersede', // Phase 37G.3c — lifecycle proposals must not materialise or hide nodes
 ])
 
 export function isValidEditActionType(value: string): value is GraphEditActionType {
@@ -291,6 +295,28 @@ export interface GraphEditSuggestMergePayload extends GraphEditActionPayloadBase
   cross_type_note?: string  // present when source and target have different nodeTypes
 }
 
+/** Lifecycle node context (Phase 37G.3c) */
+interface LifecycleNodeContext {
+  kind: 'node'
+  label: string
+  nodeType: string
+  presenceScope: string
+  runtimeKey: string
+  proposalId?: string
+  grainLevel?: string
+  derivedFromEdge?: boolean
+}
+
+/** Payload for suggest_retire_or_supersede (Phase 37G.3c) */
+export interface GraphEditSuggestLifecyclePayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_retire_or_supersede'
+  lifecycle_mode: 'retire' | 'supersede'
+  target_node: LifecycleNodeContext
+  successor_node?: LifecycleNodeContext  // required for supersede, absent for retire
+  lifecycle_rationale: string
+  canonical_label: string
+}
+
 export type GraphEditActionPayload =
   | GraphEditSuggestNodePayload
   | GraphEditSuggestEdgePayload
@@ -300,6 +326,7 @@ export type GraphEditActionPayload =
   | GraphEditSuggestSaliencePayload
   | GraphEditSuggestSplitPayload
   | GraphEditSuggestMergePayload
+  | GraphEditSuggestLifecyclePayload
 
 // ─── Validation ───────────────────────────────────────────────────────────
 
@@ -360,6 +387,8 @@ export function validateEditActionPayload(
     validateSuggestSplit(payload, errors)
   } else if (actionType === 'suggest_merge') {
     validateSuggestMerge(payload, errors)
+  } else if (actionType === 'suggest_retire_or_supersede') {
+    validateSuggestRetireOrSupersede(payload, errors)
   }
 
   return { valid: errors.length === 0, errors }
@@ -577,6 +606,59 @@ function validateSuggestSalienceChange(payload: Record<string, unknown>, errors:
   }
 }
 
+function validateLifecycleNode(node: Record<string, unknown> | undefined, role: 'target' | 'successor', errors: string[]): boolean {
+  if (!node || typeof node !== 'object') {
+    errors.push(`${role}_node is required`)
+    return false
+  }
+  if (node.kind !== 'node') errors.push(`${role}_node.kind must be "node"`)
+  if (typeof node.label !== 'string' || !node.label) errors.push(`${role}_node.label is required`)
+  if (typeof node.nodeType !== 'string' || !isValidGraphNodeType(node.nodeType as string)) {
+    errors.push(`Invalid ${role}_node.nodeType: "${node.nodeType}"`)
+  }
+  if (typeof node.presenceScope !== 'string' || !isValidGraphPresenceScope(node.presenceScope as string)) {
+    errors.push(`Invalid ${role}_node.presenceScope: "${node.presenceScope}"`)
+  }
+  if (typeof node.runtimeKey !== 'string' || !node.runtimeKey) errors.push(`${role}_node.runtimeKey is required`)
+  if (node.derivedFromEdge === true) errors.push(`${role}_node is a derived display node and cannot be used in lifecycle proposals`)
+  return errors.length === 0
+}
+
+function validateSuggestRetireOrSupersede(payload: Record<string, unknown>, errors: string[]): void {
+  const mode = payload.lifecycle_mode
+  if (typeof mode !== 'string' || (mode !== 'retire' && mode !== 'supersede')) {
+    errors.push('lifecycle_mode must be "retire" or "supersede"')
+    return
+  }
+
+  const target = payload.target_node as Record<string, unknown> | undefined
+  validateLifecycleNode(target, 'target', errors)
+
+  // Rationale: minimum 10 characters
+  const rationale = payload.lifecycle_rationale
+  if (typeof rationale !== 'string' || rationale.trim().length < 10) {
+    errors.push('lifecycle_rationale is required and must be at least 10 characters')
+  }
+
+  if (mode === 'retire') {
+    // Retire must NOT have a successor node
+    if (payload.successor_node !== undefined && payload.successor_node !== null) {
+      errors.push('Retire proposals must not include a successor_node')
+    }
+  } else {
+    // Supersede must have a valid successor node
+    const successor = payload.successor_node as Record<string, unknown> | undefined
+    validateLifecycleNode(successor, 'successor', errors)
+
+    // Successor must differ from target
+    if (target && successor &&
+        typeof target.runtimeKey === 'string' && typeof successor.runtimeKey === 'string' &&
+        target.runtimeKey === successor.runtimeKey) {
+      errors.push('target_node and successor_node must be different nodes (same runtimeKey)')
+    }
+  }
+}
+
 function validateMergeNode(node: Record<string, unknown> | undefined, role: 'source' | 'target', errors: string[]): boolean {
   if (!node || typeof node !== 'object') {
     errors.push(`${role}_node is required`)
@@ -751,6 +833,18 @@ export function generateEditActionDedupeKey(
       action === 'suggest_confidence_change' ? String(payload.proposed_confidence ?? '') :
       String(payload.proposed_salience ?? '')
     return `metadata:map_ui:relational_map_ui:${action}:${normalizeLabel(runtimeKey)}:${field}:${normalizeLabel(proposedValue)}`
+  }
+
+  if (action === 'suggest_retire_or_supersede') {
+    const mode = (payload.lifecycle_mode as string) || 'retire'
+    const target = payload.target_node as Record<string, unknown> | undefined
+    const targetKey = normalizeLabel((target?.runtimeKey as string) || '')
+    if (mode === 'retire') {
+      return `lifecycle:map_ui:relational_map_ui:retire:${targetKey}`
+    }
+    const successor = payload.successor_node as Record<string, unknown> | undefined
+    const successorKey = normalizeLabel((successor?.runtimeKey as string) || '')
+    return `lifecycle:map_ui:relational_map_ui:supersede:${targetKey}:${successorKey}`
   }
 
   if (action === 'suggest_merge') {

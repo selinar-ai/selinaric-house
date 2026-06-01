@@ -52,8 +52,8 @@ test('GRAPH_EDIT_ACTION_TYPES has 9 action types', () => {
   assert.equal(GRAPH_EDIT_ACTION_TYPES.length, 9)
 })
 
-test('SUPPORTED_EDIT_ACTIONS has 8 actions through 37G.3b', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 8)
+test('SUPPORTED_EDIT_ACTIONS has 9 actions through 37G.3c (all actions supported)', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 9)
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_node'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_edge'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_alias'))
@@ -62,14 +62,14 @@ test('SUPPORTED_EDIT_ACTIONS has 8 actions through 37G.3b', () => {
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_salience_change'))
 })
 
-test('DEFERRED_EDIT_ACTIONS has 1 deferred action (suggest_merge promoted in 37G.3b)', () => {
-  assert.equal(DEFERRED_EDIT_ACTIONS.length, 1)
+test('DEFERRED_EDIT_ACTIONS is now empty (all 37G actions implemented through 37G.3c)', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 0)
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_reclassify'), 'suggest_reclassify now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_confidence_change'), 'suggest_confidence_change now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_salience_change'), 'suggest_salience_change now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_split'), 'suggest_split now supported in 37G.3a')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_merge'), 'suggest_merge now supported in 37G.3b')
-  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'), 'suggest_retire_or_supersede now supported in 37G.3c')
 })
 
 test('supported + deferred = all action types', () => {
@@ -103,14 +103,15 @@ test('isSupportedEditAction accepts all supported actions', () => {
   assert.ok(isSupportedEditAction('suggest_salience_change'))
   assert.ok(isSupportedEditAction('suggest_split'), 'suggest_split now supported in 37G.3a')
   assert.ok(isSupportedEditAction('suggest_merge'), 'suggest_merge now supported in 37G.3b')
+  assert.ok(isSupportedEditAction('suggest_retire_or_supersede'), 'suggest_retire_or_supersede now supported in 37G.3c')
 })
 
-test('isDeferredEditAction correctly identifies deferred', () => {
+test('isDeferredEditAction — no actions deferred after 37G.3c', () => {
   assert.ok(!isDeferredEditAction('suggest_alias'), 'suggest_alias promoted to supported')
   assert.ok(!isDeferredEditAction('suggest_merge'), 'suggest_merge promoted in 37G.3b')
+  assert.ok(!isDeferredEditAction('suggest_retire_or_supersede'), 'suggest_retire_or_supersede promoted in 37G.3c')
   assert.ok(!isDeferredEditAction('suggest_node'))
   assert.ok(!isDeferredEditAction('suggest_edge'))
-  assert.ok(isDeferredEditAction('suggest_retire_or_supersede'))
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -440,17 +441,16 @@ test('suggest_alias is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'))
 })
 
-test('SUPPORTED_EDIT_ACTIONS now has 8 actions (through 37G.3b)', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 8)
+test('SUPPORTED_EDIT_ACTIONS now has 9 actions (all 37G actions supported through 37G.3c)', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 9)
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
 })
 
-test('deferred actions still rejected — suggest_retire_or_supersede blocked', () => {
-  const result = validateEditActionPayload({
-    edit_action_type: 'suggest_retire_or_supersede',
-    edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
-  })
-  assert.ok(!result.valid)
-  assert.ok(result.errors.some(e => e.includes('deferred')))
+test('no deferred actions remain after 37G.3c — suggest_retire_or_supersede now passes gate', () => {
+  // suggest_retire_or_supersede is now supported — the gate should pass it
+  // (it may fail validation for other reasons, but not the deferred gate)
+  assert.ok(isSupportedEditAction('suggest_retire_or_supersede'), 'must be supported')
+  assert.ok(!isDeferredEditAction('suggest_retire_or_supersede'), 'must not be deferred')
 })
 
 const VALID_ALIAS_PAYLOAD = {
@@ -549,18 +549,11 @@ test('NON_MATERIALISING_EDIT_ACTIONS set contains all six non-materialising type
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_salience_change'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'), 'suggest_split must be non-materialising')
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'), 'suggest_merge must be non-materialising')
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
 })
 
-test('still-deferred actions remain rejected', () => {
-  for (const action of ['suggest_retire_or_supersede']) {
-    const result = validateEditActionPayload({
-      edit_action_type: action,
-      edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
-    })
-    assert.ok(!result.valid, `${action} should be rejected`)
-    assert.ok(result.errors.some(e => e.includes('deferred')), `${action} error should mention deferred`)
-  }
+test('no actions remain deferred after 37G.3c — deferred array empty', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 0, 'DEFERRED_EDIT_ACTIONS must be empty')
 })
 
 const VALID_META_TARGET_NODE = {
@@ -725,16 +718,10 @@ test('suggest_split is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_split'))
 })
 
-test('suggest_retire_or_supersede remains deferred (37G.3b promoted merge)', () => {
+test('suggest_retire_or_supersede now supported in 37G.3c', () => {
   assert.ok(!isDeferredEditAction('suggest_merge'), 'suggest_merge is now supported')
-  assert.ok(isDeferredEditAction('suggest_retire_or_supersede'))
+  assert.ok(!isDeferredEditAction('suggest_retire_or_supersede'), 'suggest_retire_or_supersede now supported')
   assert.ok(!isDeferredEditAction('suggest_split'))
-})
-
-test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_split and suggest_merge', () => {
-  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'))
-  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
 })
 
 const VALID_SPLIT_PAYLOAD = {
@@ -897,14 +884,14 @@ test('suggest_merge is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_merge'))
 })
 
-test('suggest_retire_or_supersede remains the only deferred action', () => {
-  assert.equal(DEFERRED_EDIT_ACTIONS.length, 1)
-  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
+test('DEFERRED_EDIT_ACTIONS is empty (37G.3c promoted last action)', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 0)
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'), 'all actions now supported')
 })
-
-test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_merge (6 total)', () => {
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
+test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_merge (7 total after 37G.3c)', () => {
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
 })
 
 const VALID_MERGE_PAYLOAD = {
@@ -1035,8 +1022,170 @@ test('cross-type merge passes validation (types preserved in payload)', () => {
   assert.ok(result.valid, 'cross-type merge must be allowed, not rejected')
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3c — Lifecycle (Retire/Supersede) Contract Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3c Lifecycle action contract ──')
+
+test('suggest_retire_or_supersede is now in SUPPORTED_EDIT_ACTIONS', () => {
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 9) // all 9 actions supported
+})
+
+test('DEFERRED_EDIT_ACTIONS is empty — all 37G actions implemented', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 0)
+})
+
+test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_retire_or_supersede (7 total)', () => {
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_retire_or_supersede'))
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
+})
+
+const VALID_RETIRE_PAYLOAD = {
+  edit_action_type: 'suggest_retire_or_supersede',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.3c',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Lifecycle proposal only.',
+  lifecycle_mode: 'retire' as const,
+  target_node: {
+    kind: 'node' as const,
+    label: 'Temporary Test Concept',
+    nodeType: 'concept',
+    presenceScope: 'house',
+    runtimeKey: 'node:house:concept:temporary test concept',
+    proposalId: '08a72feb-b37d-46c3-99b8-ee0c00ec5357',
+    derivedFromEdge: false,
+  },
+  lifecycle_rationale: 'Created for smoke testing and should be retired.',
+}
+
+const VALID_SUPERSEDE_PAYLOAD = {
+  ...VALID_RETIRE_PAYLOAD,
+  lifecycle_mode: 'supersede' as const,
+  target_node: {
+    kind: 'node' as const,
+    label: 'Ari Archives',
+    nodeType: 'concept',
+    presenceScope: 'ari',
+    runtimeKey: 'node:ari:concept:ari archives',
+    proposalId: '79284094-b888-4309-847f-808f5316da45',
+    derivedFromEdge: false,
+  },
+  successor_node: {
+    kind: 'node' as const,
+    label: 'Velvet Archives',
+    nodeType: 'room',
+    presenceScope: 'ari',
+    runtimeKey: 'node:ari:room:velvet archives',
+    proposalId: 'b25938a4-6827-4c29-9181-870935f15a8e',
+    derivedFromEdge: false,
+  },
+  lifecycle_rationale: 'Velvet Archives is the preferred canonical archive node for Ari.',
+}
+
+test('valid retire payload passes', () => {
+  const result = validateEditActionPayload(VALID_RETIRE_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('valid supersede payload passes', () => {
+  const result = validateEditActionPayload(VALID_SUPERSEDE_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('missing lifecycle_mode rejected', () => {
+  const { lifecycle_mode, ...rest } = VALID_RETIRE_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('lifecycle_mode')))
+})
+
+test('invalid lifecycle_mode rejected', () => {
+  const result = validateEditActionPayload({ ...VALID_RETIRE_PAYLOAD, lifecycle_mode: 'delete' as any })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('lifecycle_mode')))
+})
+
+test('missing target_node rejected', () => {
+  const { target_node, ...rest } = VALID_RETIRE_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('target_node')))
+})
+
+test('derived target rejected', () => {
+  const result = validateEditActionPayload({
+    ...VALID_RETIRE_PAYLOAD,
+    target_node: { ...VALID_RETIRE_PAYLOAD.target_node, derivedFromEdge: true },
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('derived display node')))
+})
+
+test('retire rejects successor_node when supplied', () => {
+  const result = validateEditActionPayload({
+    ...VALID_RETIRE_PAYLOAD,
+    successor_node: VALID_SUPERSEDE_PAYLOAD.successor_node,
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('Retire proposals must not include a successor_node')))
+})
+
+test('supersede requires successor_node', () => {
+  const { successor_node, ...rest } = VALID_SUPERSEDE_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('successor_node')))
+})
+
+test('supersede rejects same target and successor runtimeKey', () => {
+  const result = validateEditActionPayload({
+    ...VALID_SUPERSEDE_PAYLOAD,
+    successor_node: { ...VALID_SUPERSEDE_PAYLOAD.target_node },
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same runtimeKey')))
+})
+
+test('rationale too short rejected', () => {
+  const result = validateEditActionPayload({ ...VALID_RETIRE_PAYLOAD, lifecycle_rationale: 'short' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('10 characters')))
+})
+
+test('retire dedupe key format', () => {
+  const key = generateEditActionDedupeKey(VALID_RETIRE_PAYLOAD)
+  assert.ok(key.startsWith('lifecycle:map_ui:relational_map_ui:retire:'), `key: ${key}`)
+  assert.ok(key.includes('temporary test concept'), `key: ${key}`)
+})
+
+test('supersede dedupe key format', () => {
+  const key = generateEditActionDedupeKey(VALID_SUPERSEDE_PAYLOAD)
+  assert.ok(key.startsWith('lifecycle:map_ui:relational_map_ui:supersede:'), `key: ${key}`)
+  assert.ok(key.includes(':'), 'must contain target and successor keys')
+})
+
+test('supersede dedupe is directional (A→B ≠ B→A)', () => {
+  const keyAB = generateEditActionDedupeKey(VALID_SUPERSEDE_PAYLOAD)
+  const keyBA = generateEditActionDedupeKey({
+    ...VALID_SUPERSEDE_PAYLOAD,
+    target_node: VALID_SUPERSEDE_PAYLOAD.successor_node,
+    successor_node: VALID_SUPERSEDE_PAYLOAD.target_node,
+  })
+  assert.notEqual(keyAB, keyBA, 'supersede A→B and B→A must produce different dedupe keys')
+})
+
+test('suggest_retire_or_supersede maps to proposal_type=node', () => {
+  assert.equal(editActionToProposalType('suggest_retire_or_supersede'), 'node')
+})
+
 console.log('\n═════════════════════════════════════════════════')
-console.log(`  Phase 37G.0/37G.2/37G.3/37G.3a/37G.3b Contract Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.0/37G.2/37G.3/37G.3a/37G.3b/37G.3c Contract Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

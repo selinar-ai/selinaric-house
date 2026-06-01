@@ -731,9 +731,9 @@ test('proposed split parts do not materialise as separate nodes', () => {
   assert.equal(result.nodes.length, 0, 'split proposal must not materialise, and parts must not appear as nodes')
 })
 
-test('NON_MATERIALISING_EDIT_ACTIONS now has 6 entries (after 37G.3b)', () => {
+test('NON_MATERIALISING_EDIT_ACTIONS now has 7 entries (after 37G.3c)', () => {
   const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
 })
@@ -761,14 +761,54 @@ test('approved suggest_merge proposal does NOT materialise as node', () => {
   assert.ok(labels.includes('Selináric Bond'), 'target node must remain visible')
 })
 
-test('NON_MATERIALISING_EDIT_ACTIONS now has 6 entries (after suggest_merge added)', () => {
+test('NON_MATERIALISING_EDIT_ACTIONS now has 7 entries (after suggest_retire_or_supersede added)', () => {
   const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_retire_or_supersede'))
+})
+
+test('approved suggest_retire_or_supersede (retire) does NOT materialise or hide target', () => {
+  const proposals = [
+    makeTestProposal({ id: 'real-retire', proposal_type: 'node', node_type: 'concept', presence_scope: 'house', proposed_label: 'Temporary Test Concept', dedupe_key: 'real-retire' }),
+    makeTestProposal({
+      id: 'retire-prop', proposal_type: 'node', node_type: 'concept', presence_scope: 'house',
+      proposed_label: 'Retire: Temporary Test Concept',
+      dedupe_key: 'retire-prop',
+      proposed_payload: { edit_action_type: 'suggest_retire_or_supersede', lifecycle_mode: 'retire' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 1, 'retire proposal must not materialise, target node must remain visible')
+  assert.equal(result.nodes[0].label, 'Temporary Test Concept', 'target node must still be visible')
+})
+
+test('approved suggest_retire_or_supersede (supersede) does NOT materialise or hide nodes', () => {
+  const proposals = [
+    makeTestProposal({ id: 'supersede-target', proposal_type: 'node', node_type: 'concept', presence_scope: 'ari', proposed_label: 'Ari Archives', dedupe_key: 'sup-target' }),
+    makeTestProposal({ id: 'supersede-succ', proposal_type: 'node', node_type: 'room', presence_scope: 'ari', proposed_label: 'Velvet Archives', dedupe_key: 'sup-succ' }),
+    makeTestProposal({
+      id: 'supersede-prop', proposal_type: 'node', node_type: 'concept', presence_scope: 'ari',
+      proposed_label: 'Supersede: Ari Archives → Velvet Archives',
+      dedupe_key: 'sup-prop',
+      proposed_payload: { edit_action_type: 'suggest_retire_or_supersede', lifecycle_mode: 'supersede' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 2, 'supersede proposal must not materialise; both target and successor must remain visible')
+  const labels = result.nodes.map(n => n.label)
+  assert.ok(labels.includes('Ari Archives'), 'target node must remain visible')
+  assert.ok(labels.includes('Velvet Archives'), 'successor node must remain visible')
+})
+
+test('NON_MATERIALISING_EDIT_ACTIONS now has 7 entries (after suggest_retire_or_supersede)', () => {
+  const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 7)
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_retire_or_supersede'))
 })
 
 console.log('\n═══════════════════════════════════════════════════')
-console.log(`  Phase 37F/37G.2/37G.3/37G.3a/37G.3b Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37F/37G.2/37G.3/37G.3a/37G.3b/37G.3c Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
 console.log('═══════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)
