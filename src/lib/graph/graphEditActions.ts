@@ -49,11 +49,11 @@ export const SUPPORTED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_confidence_change',
   'suggest_salience_change',
   'suggest_split',
+  'suggest_merge',
 ] as const
 
 /** Actions deferred to later phases */
 export const DEFERRED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
-  'suggest_merge',
   'suggest_retire_or_supersede',
 ] as const
 
@@ -69,6 +69,7 @@ export const NON_MATERIALISING_EDIT_ACTIONS = new Set<string>([
   'suggest_confidence_change',
   'suggest_salience_change',
   'suggest_split',   // Phase 37G.3a — split proposals must never materialise as nodes/edges
+  'suggest_merge',   // Phase 37G.3b — merge proposals must never materialise as nodes/edges
 ])
 
 export function isValidEditActionType(value: string): value is GraphEditActionType {
@@ -267,6 +268,29 @@ export interface GraphEditSuggestSplitPayload extends GraphEditActionPayloadBase
   canonical_label: string
 }
 
+/** Merge node context (Phase 37G.3b) */
+interface MergeNodeContext {
+  kind: 'node'
+  label: string
+  nodeType: string
+  presenceScope: string
+  runtimeKey: string
+  proposalId?: string
+  grainLevel?: string
+  derivedFromEdge?: boolean
+}
+
+/** Payload for suggest_merge (Phase 37G.3b) */
+export interface GraphEditSuggestMergePayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_merge'
+  source_node: MergeNodeContext
+  target_node: MergeNodeContext
+  preferred_canonical_label: string
+  merge_rationale: string
+  canonical_label: string
+  cross_type_note?: string  // present when source and target have different nodeTypes
+}
+
 export type GraphEditActionPayload =
   | GraphEditSuggestNodePayload
   | GraphEditSuggestEdgePayload
@@ -275,6 +299,7 @@ export type GraphEditActionPayload =
   | GraphEditSuggestConfidencePayload
   | GraphEditSuggestSaliencePayload
   | GraphEditSuggestSplitPayload
+  | GraphEditSuggestMergePayload
 
 // ─── Validation ───────────────────────────────────────────────────────────
 
@@ -333,6 +358,8 @@ export function validateEditActionPayload(
     validateSuggestSalienceChange(payload, errors)
   } else if (actionType === 'suggest_split') {
     validateSuggestSplit(payload, errors)
+  } else if (actionType === 'suggest_merge') {
+    validateSuggestMerge(payload, errors)
   }
 
   return { valid: errors.length === 0, errors }
@@ -550,6 +577,58 @@ function validateSuggestSalienceChange(payload: Record<string, unknown>, errors:
   }
 }
 
+function validateMergeNode(node: Record<string, unknown> | undefined, role: 'source' | 'target', errors: string[]): boolean {
+  if (!node || typeof node !== 'object') {
+    errors.push(`${role}_node is required`)
+    return false
+  }
+  if (node.kind !== 'node') errors.push(`${role}_node.kind must be "node"`)
+  if (typeof node.label !== 'string' || !node.label) errors.push(`${role}_node.label is required`)
+  if (typeof node.nodeType !== 'string' || !isValidGraphNodeType(node.nodeType as string)) {
+    errors.push(`Invalid ${role}_node.nodeType: "${node.nodeType}"`)
+  }
+  if (typeof node.presenceScope !== 'string' || !isValidGraphPresenceScope(node.presenceScope as string)) {
+    errors.push(`Invalid ${role}_node.presenceScope: "${node.presenceScope}"`)
+  }
+  if (typeof node.runtimeKey !== 'string' || !node.runtimeKey) errors.push(`${role}_node.runtimeKey is required`)
+  if (node.derivedFromEdge === true) errors.push(`${role}_node is a derived display node and cannot be merged`)
+  return errors.length === 0
+}
+
+function validateSuggestMerge(payload: Record<string, unknown>, errors: string[]): void {
+  const source = payload.source_node as Record<string, unknown> | undefined
+  const target = payload.target_node as Record<string, unknown> | undefined
+
+  validateMergeNode(source, 'source', errors)
+  validateMergeNode(target, 'target', errors)
+
+  // Check source !== target
+  if (source && target &&
+      typeof source.runtimeKey === 'string' && typeof target.runtimeKey === 'string' &&
+      source.runtimeKey === target.runtimeKey) {
+    errors.push('source_node and target_node must be different nodes (same runtimeKey)')
+  }
+
+  // Preferred canonical label must match source or target label
+  const pcl = payload.preferred_canonical_label
+  if (typeof pcl !== 'string' || pcl.trim().length === 0) {
+    errors.push('preferred_canonical_label is required')
+  } else if (pcl.trim().length > 100) {
+    errors.push(`preferred_canonical_label too long (${pcl.trim().length} chars, max 100)`)
+  } else {
+    const pclNorm = pcl.trim().toLowerCase().replace(/\s+/g, ' ')
+    const sourceLabel = typeof source?.label === 'string' ? source.label.trim().toLowerCase().replace(/\s+/g, ' ') : ''
+    const targetLabel = typeof target?.label === 'string' ? target.label.trim().toLowerCase().replace(/\s+/g, ' ') : ''
+    if (pclNorm !== sourceLabel && pclNorm !== targetLabel) {
+      errors.push('preferred_canonical_label must be either the source node label or the target node label')
+    }
+  }
+
+  if (typeof payload.merge_rationale !== 'undefined' && typeof payload.merge_rationale !== 'string') {
+    errors.push('merge_rationale must be a string if provided')
+  }
+}
+
 function validateSuggestSplit(payload: Record<string, unknown>, errors: string[]): void {
   const target = payload.target as Record<string, unknown> | undefined
 
@@ -672,6 +751,16 @@ export function generateEditActionDedupeKey(
       action === 'suggest_confidence_change' ? String(payload.proposed_confidence ?? '') :
       String(payload.proposed_salience ?? '')
     return `metadata:map_ui:relational_map_ui:${action}:${normalizeLabel(runtimeKey)}:${field}:${normalizeLabel(proposedValue)}`
+  }
+
+  if (action === 'suggest_merge') {
+    const source = payload.source_node as Record<string, unknown> | undefined
+    const target = payload.target_node as Record<string, unknown> | undefined
+    const keyA = normalizeLabel((source?.runtimeKey as string) || '')
+    const keyB = normalizeLabel((target?.runtimeKey as string) || '')
+    const sortedKeys = [keyA, keyB].sort().join('+')
+    const pcl = normalizeLabel((payload.preferred_canonical_label as string) || '')
+    return `merge:map_ui:relational_map_ui:${sortedKeys}:${pcl}`
   }
 
   if (action === 'suggest_split') {

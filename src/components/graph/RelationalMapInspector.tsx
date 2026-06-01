@@ -8,7 +8,7 @@
 
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
-import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm, SuggestMetadataChangeForm, SuggestSplitForm } from './RelationalMapSuggestPanel'
+import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm, SuggestMetadataChangeForm, SuggestSplitForm, SuggestMergeForm } from './RelationalMapSuggestPanel'
 import type {
   GraphMapNode,
   GraphMapEdge,
@@ -161,6 +161,7 @@ export default function RelationalMapInspector({
   const [suggestAliasOpen, setSuggestAliasOpen] = useState(false)
   const [suggestMetaOpen, setSuggestMetaOpen] = useState(false)
   const [suggestSplitOpen, setSuggestSplitOpen] = useState(false)
+  const [suggestMergeOpen, setSuggestMergeOpen] = useState(false)
 
   if (!selection) {
     // Collapsed state — minimal width when nothing is selected
@@ -471,6 +472,31 @@ export default function RelationalMapInspector({
         {isNode && !arrangeMode && selection.node.derivedFromEdge && (
           <p className="text-[10px] text-text-muted opacity-50 italic">
             Split proposals require an approved graph node. Derived display nodes cannot be split.
+          </p>
+        )}
+
+        {/* Phase 37G.3b — Suggest Merge (Inspect mode, real nodes only) */}
+        {isNode && !arrangeMode && !selection.node.derivedFromEdge && (
+          <div>
+            {suggestMergeOpen ? (
+              <SuggestMergeForm
+                sourceNode={selection.node}
+                approvedNodes={allNodes.filter(n => !n.derivedFromEdge)}
+                onClose={() => setSuggestMergeOpen(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setSuggestMergeOpen(true)}
+                className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-purple-300 hover:border-purple-600/40 transition-all"
+              >
+                ⊕ Suggest Merge
+              </button>
+            )}
+          </div>
+        )}
+        {isNode && !arrangeMode && selection.node.derivedFromEdge && (
+          <p className="text-[10px] text-text-muted opacity-50 italic">
+            Merge proposals require approved graph nodes. Derived display nodes cannot be merged.
           </p>
         )}
         {isNode && arrangeMode && (

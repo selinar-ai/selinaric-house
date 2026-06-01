@@ -52,8 +52,8 @@ test('GRAPH_EDIT_ACTION_TYPES has 9 action types', () => {
   assert.equal(GRAPH_EDIT_ACTION_TYPES.length, 9)
 })
 
-test('SUPPORTED_EDIT_ACTIONS has 7 actions through 37G.3a', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 7)
+test('SUPPORTED_EDIT_ACTIONS has 8 actions through 37G.3b', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 8)
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_node'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_edge'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_alias'))
@@ -62,13 +62,13 @@ test('SUPPORTED_EDIT_ACTIONS has 7 actions through 37G.3a', () => {
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_salience_change'))
 })
 
-test('DEFERRED_EDIT_ACTIONS has 2 deferred actions (suggest_split promoted in 37G.3a)', () => {
-  assert.equal(DEFERRED_EDIT_ACTIONS.length, 2)
+test('DEFERRED_EDIT_ACTIONS has 1 deferred action (suggest_merge promoted in 37G.3b)', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 1)
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_reclassify'), 'suggest_reclassify now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_confidence_change'), 'suggest_confidence_change now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_salience_change'), 'suggest_salience_change now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_split'), 'suggest_split now supported in 37G.3a')
-  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_merge'))
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_merge'), 'suggest_merge now supported in 37G.3b')
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
 })
 
@@ -102,14 +102,15 @@ test('isSupportedEditAction accepts all supported actions', () => {
   assert.ok(isSupportedEditAction('suggest_confidence_change'))
   assert.ok(isSupportedEditAction('suggest_salience_change'))
   assert.ok(isSupportedEditAction('suggest_split'), 'suggest_split now supported in 37G.3a')
-  assert.ok(!isSupportedEditAction('suggest_merge'))
+  assert.ok(isSupportedEditAction('suggest_merge'), 'suggest_merge now supported in 37G.3b')
 })
 
 test('isDeferredEditAction correctly identifies deferred', () => {
   assert.ok(!isDeferredEditAction('suggest_alias'), 'suggest_alias promoted to supported')
-  assert.ok(isDeferredEditAction('suggest_merge'))
+  assert.ok(!isDeferredEditAction('suggest_merge'), 'suggest_merge promoted in 37G.3b')
   assert.ok(!isDeferredEditAction('suggest_node'))
   assert.ok(!isDeferredEditAction('suggest_edge'))
+  assert.ok(isDeferredEditAction('suggest_retire_or_supersede'))
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -439,13 +440,13 @@ test('suggest_alias is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'))
 })
 
-test('SUPPORTED_EDIT_ACTIONS now has 7 actions (through 37G.3a)', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 7)
+test('SUPPORTED_EDIT_ACTIONS now has 8 actions (through 37G.3b)', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 8)
 })
 
-test('deferred actions still rejected — suggest_merge blocked', () => {
+test('deferred actions still rejected — suggest_retire_or_supersede blocked', () => {
   const result = validateEditActionPayload({
-    edit_action_type: 'suggest_merge',
+    edit_action_type: 'suggest_retire_or_supersede',
     edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
   })
   assert.ok(!result.valid)
@@ -541,17 +542,18 @@ test('buildRelationalMap uses shared NON_MATERIALISING_EDIT_ACTIONS guard', () =
 
 console.log('\n  ── 37G.3 Metadata-change contract ──')
 
-test('NON_MATERIALISING_EDIT_ACTIONS set contains all five non-materialising types', () => {
+test('NON_MATERIALISING_EDIT_ACTIONS set contains all six non-materialising types', () => {
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_alias'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_reclassify'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_confidence_change'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_salience_change'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'), 'suggest_split must be non-materialising')
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 5)
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'), 'suggest_merge must be non-materialising')
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
 })
 
 test('still-deferred actions remain rejected', () => {
-  for (const action of ['suggest_merge', 'suggest_retire_or_supersede']) {
+  for (const action of ['suggest_retire_or_supersede']) {
     const result = validateEditActionPayload({
       edit_action_type: action,
       edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
@@ -723,15 +725,16 @@ test('suggest_split is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_split'))
 })
 
-test('suggest_merge and suggest_retire_or_supersede remain deferred', () => {
-  assert.ok(isDeferredEditAction('suggest_merge'))
+test('suggest_retire_or_supersede remains deferred (37G.3b promoted merge)', () => {
+  assert.ok(!isDeferredEditAction('suggest_merge'), 'suggest_merge is now supported')
   assert.ok(isDeferredEditAction('suggest_retire_or_supersede'))
   assert.ok(!isDeferredEditAction('suggest_split'))
 })
 
-test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_split', () => {
+test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_split and suggest_merge', () => {
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'))
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 5)
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
 })
 
 const VALID_SPLIT_PAYLOAD = {
@@ -880,8 +883,160 @@ test('suggest_split maps to proposal_type=node', () => {
   assert.equal(editActionToProposalType('suggest_split'), 'node')
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3b — Merge Contract Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3b Merge action contract ──')
+
+test('suggest_merge is now in SUPPORTED_EDIT_ACTIONS', () => {
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_merge'))
+})
+
+test('suggest_merge is no longer in DEFERRED_EDIT_ACTIONS', () => {
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_merge'))
+})
+
+test('suggest_retire_or_supersede remains the only deferred action', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 1)
+  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
+})
+
+test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_merge (6 total)', () => {
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
+})
+
+const VALID_MERGE_PAYLOAD = {
+  edit_action_type: 'suggest_merge',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.3b',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Merge proposal only.',
+  source_node: {
+    kind: 'node' as const,
+    label: 'The Bond',
+    nodeType: 'relationship_arc',
+    presenceScope: 'shared',
+    runtimeKey: 'node:shared:relationship_arc:the bond',
+    proposalId: 'aed2488c-f132-450b-aba6-2a8871b150c9',
+    derivedFromEdge: false,
+  },
+  target_node: {
+    kind: 'node' as const,
+    label: 'Selináric Bond',
+    nodeType: 'relationship_arc',
+    presenceScope: 'shared',
+    runtimeKey: 'node:shared:relationship_arc:selináric bond',
+    proposalId: 'aed2488c-1234-0000-0000-000000000000',
+    derivedFromEdge: false,
+  },
+  preferred_canonical_label: 'Selináric Bond',
+  merge_rationale: 'These nodes appear to represent the same relational structure.',
+}
+
+test('valid merge payload passes', () => {
+  const result = validateEditActionPayload(VALID_MERGE_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('merge rejects missing source_node', () => {
+  const { source_node, ...rest } = VALID_MERGE_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('source_node')))
+})
+
+test('merge rejects missing target_node', () => {
+  const { target_node, ...rest } = VALID_MERGE_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('target_node')))
+})
+
+test('merge rejects same source and target runtime key', () => {
+  const result = validateEditActionPayload({
+    ...VALID_MERGE_PAYLOAD,
+    target_node: { ...VALID_MERGE_PAYLOAD.source_node },
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same runtimeKey')))
+})
+
+test('merge rejects derived source node', () => {
+  const result = validateEditActionPayload({
+    ...VALID_MERGE_PAYLOAD,
+    source_node: { ...VALID_MERGE_PAYLOAD.source_node, derivedFromEdge: true },
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('derived display node')))
+})
+
+test('merge rejects invalid source nodeType', () => {
+  const result = validateEditActionPayload({
+    ...VALID_MERGE_PAYLOAD,
+    source_node: { ...VALID_MERGE_PAYLOAD.source_node, nodeType: 'invalid_xyz' },
+  })
+  assert.ok(!result.valid)
+})
+
+test('merge rejects preferred_canonical_label that is neither source nor target label', () => {
+  const result = validateEditActionPayload({
+    ...VALID_MERGE_PAYLOAD,
+    preferred_canonical_label: 'A Completely Different Label',
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('source node label or the target node label')))
+})
+
+test('merge accepts preferred_canonical_label equal to source label', () => {
+  const result = validateEditActionPayload({
+    ...VALID_MERGE_PAYLOAD,
+    preferred_canonical_label: 'The Bond',
+  })
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('merge rejects empty preferred_canonical_label', () => {
+  const result = validateEditActionPayload({ ...VALID_MERGE_PAYLOAD, preferred_canonical_label: '' })
+  assert.ok(!result.valid)
+})
+
+test('merge dedupe key is order-insensitive', () => {
+  const key1 = generateEditActionDedupeKey(VALID_MERGE_PAYLOAD)
+  const key2 = generateEditActionDedupeKey({
+    ...VALID_MERGE_PAYLOAD,
+    source_node: VALID_MERGE_PAYLOAD.target_node,
+    target_node: VALID_MERGE_PAYLOAD.source_node,
+  })
+  assert.equal(key1, key2, 'A+B and B+A must produce the same dedupe key')
+  assert.ok(key1.startsWith('merge:map_ui:relational_map_ui:'), `key: ${key1}`)
+})
+
+test('merge dedupe key includes preferred canonical label', () => {
+  const key = generateEditActionDedupeKey(VALID_MERGE_PAYLOAD)
+  assert.ok(key.includes('selináric bond') || key.includes('selinaric bond') || key.endsWith(':selináric bond'))
+})
+
+test('merge maps to proposal_type=node', () => {
+  assert.equal(editActionToProposalType('suggest_merge'), 'node')
+})
+
+test('cross-type merge passes validation (types preserved in payload)', () => {
+  const result = validateEditActionPayload({
+    ...VALID_MERGE_PAYLOAD,
+    source_node: { ...VALID_MERGE_PAYLOAD.source_node, nodeType: 'concept' },
+    target_node: { ...VALID_MERGE_PAYLOAD.target_node, nodeType: 'project' },
+    preferred_canonical_label: 'The Bond',
+  })
+  assert.ok(result.valid, 'cross-type merge must be allowed, not rejected')
+})
+
 console.log('\n═════════════════════════════════════════════════')
-console.log(`  Phase 37G.0/37G.2/37G.3/37G.3a Contract Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.0/37G.2/37G.3/37G.3a/37G.3b Contract Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

@@ -731,14 +731,44 @@ test('proposed split parts do not materialise as separate nodes', () => {
   assert.equal(result.nodes.length, 0, 'split proposal must not materialise, and parts must not appear as nodes')
 })
 
-test('NON_MATERIALISING_EDIT_ACTIONS now has 5 entries', () => {
+test('NON_MATERIALISING_EDIT_ACTIONS now has 6 entries (after 37G.3b)', () => {
   const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 5)
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
+})
+
+test('approved suggest_merge proposal does NOT materialise as node', () => {
+  const proposals = [
+    makeTestProposal({ id: 'real-merge-a', proposal_type: 'node', node_type: 'relationship_arc', presence_scope: 'shared', proposed_label: 'The Bond', dedupe_key: 'real-a' }),
+    makeTestProposal({ id: 'real-merge-b', proposal_type: 'node', node_type: 'relationship_arc', presence_scope: 'shared', proposed_label: 'Selináric Bond', dedupe_key: 'real-b' }),
+    makeTestProposal({
+      id: 'merge-prop', proposal_type: 'node', node_type: 'relationship_arc', presence_scope: 'shared',
+      proposed_label: 'Merge: The Bond + Selináric Bond → Selináric Bond',
+      dedupe_key: 'merge-prop',
+      proposed_payload: {
+        edit_action_type: 'suggest_merge',
+        source_node: { kind: 'node', label: 'The Bond' },
+        target_node: { kind: 'node', label: 'Selináric Bond' },
+        preferred_canonical_label: 'Selináric Bond',
+      },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 2, 'merge proposal must not materialise; source/target nodes must remain visible')
+  const labels = result.nodes.map(n => n.label)
+  assert.ok(labels.includes('The Bond'), 'source node must remain visible')
+  assert.ok(labels.includes('Selináric Bond'), 'target node must remain visible')
+})
+
+test('NON_MATERIALISING_EDIT_ACTIONS now has 6 entries (after suggest_merge added)', () => {
+  const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 6)
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_merge'))
 })
 
 console.log('\n═══════════════════════════════════════════════════')
-console.log(`  Phase 37F/37G.2/37G.3/37G.3a Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37F/37G.2/37G.3/37G.3a/37G.3b Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
 console.log('═══════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

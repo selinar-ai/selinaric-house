@@ -6,7 +6,7 @@
 // A suggestion is not a graph edit. A graph proposal is not Memory.
 // No UI action creates truth directly.
 //
-// Supported actions: suggest_node, suggest_edge, suggest_alias, suggest_reclassify/confidence/salience, suggest_split
+// Supported actions: suggest_node, suggest_edge, suggest_alias, suggest_reclassify/confidence/salience, suggest_split, suggest_merge
 // All proposals: pending_review, prompt_eligible=false, proposed_by=tara
 //
 // Writes ONLY to: graph_proposals, graph_proposal_sources, graph_proposal_events
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   // 1. Reject unsupported/deferred actions
   if (!actionType || !isSupportedEditAction(actionType)) {
     return NextResponse.json(
-      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias, suggest_reclassify, suggest_confidence_change, suggest_salience_change, suggest_split` },
+      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias, suggest_reclassify, suggest_confidence_change, suggest_salience_change, suggest_split, suggest_merge` },
       { status: 400 }
     )
   }
@@ -87,6 +87,8 @@ export async function POST(request: NextRequest) {
     return handleSuggestMetadataChange(payload)
   } else if (actionType === 'suggest_split') {
     return handleSuggestSplit(payload)
+  } else if (actionType === 'suggest_merge') {
+    return handleSuggestMerge(payload)
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
@@ -736,5 +738,134 @@ async function handleSuggestSplit(payload: Record<string, unknown>) {
     ok: true,
     proposalId: result.proposalId,
     message: 'Split proposal created for Ontology Lab review.',
+  }, { status: 201 })
+}
+
+// ─── Suggest Merge Handler (Phase 37G.3b) ────────────────────────────────
+
+async function handleSuggestMerge(payload: Record<string, unknown>) {
+  const source = payload.source_node as Record<string, unknown>
+  const target = payload.target_node as Record<string, unknown>
+  const sourceLabel = source.label as string
+  const targetLabel = target.label as string
+  const sourceNodeType = source.nodeType as string
+  const targetNodeType = target.nodeType as string
+  const sourceScope = source.presenceScope as string
+  const targetScope = target.presenceScope as string
+  const sourceKey = source.runtimeKey as string
+  const targetKey = target.runtimeKey as string
+  const preferredLabel = (payload.preferred_canonical_label as string).trim()
+  const mergeRationale = (payload.merge_rationale as string)?.trim() || 'Proposed merge from Relational Map UI.'
+
+  // Row-level scope: same scope → that scope; cross-scope → shared
+  const rowScope: GraphPresenceScope = sourceScope === targetScope ? sourceScope as GraphPresenceScope : 'shared'
+
+  // Cross-type note
+  const crossTypeNote = sourceNodeType !== targetNodeType
+    ? `Note: source node type (${sourceNodeType}) differs from target node type (${targetNodeType}). Ontology Lab reviewers should consider the final type.`
+    : undefined
+
+  const proposedLabel = `Merge: ${sourceLabel} + ${targetLabel} → ${preferredLabel}`
+
+  // Validate both source and target are approved_graph
+  for (const [nodeLabel, role] of [[sourceLabel, 'source'], [targetLabel, 'target']] as const) {
+    const { data: nodeProposals } = await supabase
+      .from('graph_proposals')
+      .select('id, status')
+      .eq('proposal_type', 'node')
+      .eq('status', 'approved_graph')
+      .is('deleted_at', null)
+      .ilike('proposed_label', nodeLabel)
+      .limit(1)
+
+    if (!nodeProposals || nodeProposals.length === 0) {
+      return NextResponse.json(
+        { error: `${role} node "${nodeLabel}" is not an approved graph node.`, code: 'node_not_approved' },
+        { status: 422 }
+      )
+    }
+  }
+
+  // Duplicate check (order-insensitive: sort runtime keys)
+  const { data: existingMerge } = await supabase
+    .from('graph_proposals')
+    .select('id, proposed_label, status')
+    .eq('proposal_type', 'node')
+    .is('deleted_at', null)
+    .in('status', ['pending_review', 'approved_graph'])
+    .ilike('proposed_label', proposedLabel)
+    .limit(1)
+
+  if (existingMerge && existingMerge.length > 0) {
+    const match = existingMerge[0]
+    return NextResponse.json(
+      {
+        error: match.status === 'approved_graph'
+          ? 'A matching merge proposal already exists (approved).'
+          : 'A matching pending merge proposal already exists.',
+        code: 'duplicate',
+        existingId: match.id,
+      },
+      { status: 409 }
+    )
+  }
+
+  // Create merge proposal
+  const result = await createProposal({
+    proposalType: 'node',
+    nodeType: sourceNodeType as GraphNodeType,
+    label: proposedLabel,
+    summary: mergeRationale,
+    payload: {
+      ...payload,
+      canonical_label: proposedLabel,
+      ...(crossTypeNote ? { cross_type_note: crossTypeNote } : {}),
+      governance_note: 'Merge proposal only. Does not merge nodes. Does not retire nodes. Does not move edges. Not Memory. Not Archive authority. Not prompt truth.',
+    },
+    confidence: 0.7,
+    salience: 0.5,
+    reason: mergeRationale,
+    safeWording: `Merge proposal: ${proposedLabel}.`,
+    authorityStatus: 'candidate' as const,
+    presenceScope: rowScope,
+    primarySourceType: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_type,
+    primarySourceId: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_id,
+    proposedBy: EDIT_ACTION_PROPOSAL_DEFAULTS.proposed_by,
+    generationVersion: '37G.3b',
+    sourceRecord: {
+      sourceType: 'map_ui' as const,
+      sourceId: 'relational_map_ui',
+      sourceLabel: 'Relational Map UI',
+      sourceExcerpt: `User proposed merge: ${proposedLabel}`,
+      sourceMetadata: {
+        phase: '37G.3b',
+        edit_action_type: 'suggest_merge',
+        origin: 'relational_map',
+        source_node_key: sourceKey,
+        source_proposal_id: source.proposalId ?? null,
+        target_node_key: targetKey,
+        target_proposal_id: target.proposalId ?? null,
+        preferred_canonical_label: preferredLabel,
+      },
+    },
+  })
+
+  if (!result.ok) {
+    if (result.code === 'duplicate_pending') {
+      return NextResponse.json(
+        { error: 'A matching pending merge proposal already exists.', code: 'duplicate' },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json(
+      { error: result.error, code: result.code },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    proposalId: result.proposalId,
+    message: 'Merge proposal created for Ontology Lab review.',
   }, { status: 201 })
 }

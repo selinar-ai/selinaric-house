@@ -825,3 +825,185 @@ export function SuggestSplitForm({ targetNode, onClose }: SuggestSplitFormProps)
     </div>
   )
 }
+
+// ─── Suggest Merge Form (Phase 37G.3b) ────────────────────────────────────
+
+interface SuggestMergeFormProps {
+  sourceNode: GraphMapNode
+  approvedNodes: GraphMapNode[]
+  onClose: () => void
+}
+
+export function SuggestMergeForm({ sourceNode, approvedNodes, onClose }: SuggestMergeFormProps) {
+  const [targetId, setTargetId] = useState('')
+  const [mergeRationale, setMergeRationale] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Eligible targets: real approved overview nodes, not derived, not the source
+  const targetOptions = approvedNodes.filter(n =>
+    n.id !== sourceNode.id &&
+    !n.derivedFromEdge &&
+    n.grainLevel !== 'evidence'
+  )
+
+  const selectedTarget = targetOptions.find(n => n.id === targetId)
+
+  // Preferred canonical label is either source or target label
+  const [preferredLabel, setPreferredLabel] = useState<string>(sourceNode.label)
+  // Update options when target changes
+  const labelOptions = selectedTarget
+    ? [sourceNode.label, selectedTarget.label]
+    : [sourceNode.label]
+
+  const crossTypeWarning = selectedTarget && selectedTarget.nodeType !== sourceNode.nodeType
+    ? `Note: node types differ (${sourceNode.nodeType} vs ${selectedTarget.nodeType}). Ontology Lab will decide the final type.`
+    : null
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!targetId || !selectedTarget) return
+    setSubmitting(true)
+    setResult(null)
+    try {
+      const resp = await fetch('/api/graph-edit-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          edit_action_type: 'suggest_merge',
+          source_node: {
+            kind: 'node',
+            label: sourceNode.label,
+            nodeType: sourceNode.nodeType,
+            presenceScope: sourceNode.presenceScope,
+            runtimeKey: sourceNode.id,
+            proposalId: sourceNode.proposalIds[0] ?? null,
+            grainLevel: sourceNode.grainLevel,
+            derivedFromEdge: sourceNode.derivedFromEdge,
+          },
+          target_node: {
+            kind: 'node',
+            label: selectedTarget.label,
+            nodeType: selectedTarget.nodeType,
+            presenceScope: selectedTarget.presenceScope,
+            runtimeKey: selectedTarget.id,
+            proposalId: selectedTarget.proposalIds[0] ?? null,
+            grainLevel: selectedTarget.grainLevel,
+            derivedFromEdge: selectedTarget.derivedFromEdge,
+          },
+          preferred_canonical_label: preferredLabel,
+          merge_rationale: mergeRationale.trim() || 'Proposed merge from Relational Map UI.',
+          grain_level: 'overview',
+          selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
+        }),
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setResult({ ok: true, message: 'Merge proposal created for Ontology Lab review.' })
+      } else if (resp.status === 409) {
+        setResult({ ok: false, message: data.error ?? 'A matching merge proposal already exists.' })
+      } else {
+        setResult({ ok: false, message: data.error ?? 'Failed to create merge proposal.' })
+      }
+    } catch {
+      setResult({ ok: false, message: 'Request failed.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] text-text-muted/70 italic font-body">
+        This creates a pending merge proposal for Ontology Lab review.
+        It does not merge nodes, retire either node, or move edges.
+        It does not create Memory or Archive authority.
+      </div>
+      <div className="text-[10px] font-body text-text-muted">
+        Source: <span className="text-text-secondary">{sourceNode.label}</span>
+      </div>
+
+      {result ? (
+        <div className={`px-3 py-2 rounded text-xs font-body ${result.ok ? 'bg-emerald-900/20 text-emerald-300 border border-emerald-700/30' : 'bg-amber-900/20 text-amber-300 border border-amber-700/30'}`}>
+          {result.message}
+        </div>
+      ) : null}
+
+      {!result?.ok && (
+        <form onSubmit={handleSubmit} className="space-y-2.5">
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">
+              Merge with <span className="text-red-400">*</span>
+            </label>
+            <select
+              value={targetId}
+              onChange={e => { setTargetId(e.target.value); setPreferredLabel(sourceNode.label) }}
+              required
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted"
+            >
+              <option value="">Select target node...</option>
+              {targetOptions.map(n => (
+                <option key={n.id} value={n.id}>{n.label} ({n.nodeType})</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedTarget && (
+            <>
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">
+                  Preferred canonical label <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={preferredLabel}
+                  onChange={e => setPreferredLabel(e.target.value)}
+                  className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted"
+                >
+                  {labelOptions.map(l => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </select>
+                <p className="text-[9px] text-text-muted mt-0.5 opacity-60">
+                  Preview: Merge: {sourceNode.label} + {selectedTarget.label} → {preferredLabel}
+                </p>
+              </div>
+
+              {crossTypeWarning && (
+                <p className="text-[10px] text-amber-400/70 italic font-body">{crossTypeWarning}</p>
+              )}
+            </>
+          )}
+
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Rationale (optional)</label>
+            <input
+              type="text"
+              value={mergeRationale}
+              onChange={e => setMergeRationale(e.target.value)}
+              maxLength={200}
+              placeholder="Why should these nodes be merged?"
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={submitting || !targetId || !preferredLabel}
+              className="font-body text-xs px-3 py-1.5 border border-purple-600/40 text-purple-300 hover:bg-purple-600/10 transition-all disabled:opacity-40"
+            >
+              {submitting ? 'Submitting...' : 'Submit for review'}
+            </button>
+            <button type="button" onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {result?.ok && (
+        <button onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">Close</button>
+      )}
+    </div>
+  )
+}

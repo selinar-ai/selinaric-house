@@ -523,8 +523,80 @@ test('renderer guard catches suggest_split via NON_MATERIALISING_EDIT_ACTIONS', 
   assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard uses shared set which now includes suggest_split')
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3b — Merge Proposal API + UI Structure Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3b Merge proposal structure ──')
+
+test('merge handler exists in API route', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('handleSuggestMerge'), 'handleSuggestMerge must exist')
+})
+
+test('merge handler uses generation_version=37G.3b', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes("generationVersion: '37G.3b'"))
+})
+
+test('merge handler validates both nodes are approved_graph', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('node_not_approved'), 'must validate both nodes are approved')
+})
+
+test('merge handler uses Merge: format for proposed_label', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('`Merge: ${sourceLabel} + ${targetLabel} → ${preferredLabel}`') || code.includes('Merge: '), 'must use Merge: prefix format')
+})
+
+test('merge handler adds cross_type_note when types differ', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('crossTypeNote'), 'must add cross_type_note for different node types')
+})
+
+test('merge handler does not mutate source or target nodes', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(!code.includes("status: 'approved_graph'"), 'must not directly set approved status')
+})
+
+test('merge handler uses map_ui source type', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  const lastMapUi = code.lastIndexOf("sourceType: 'map_ui'")
+  assert.ok(lastMapUi > -1)
+})
+
+test('SuggestMergeForm exists in suggest panel', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestMergeForm'), 'SuggestMergeForm must exist')
+  assert.ok(code.includes('suggest_merge'), 'must use suggest_merge action type')
+  assert.ok(code.includes('preferred_canonical_label'), 'must include preferred_canonical_label')
+})
+
+test('SuggestMergeForm target dropdown excludes source and derived nodes', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('n.id !== sourceNode.id'), 'target dropdown must exclude source node')
+  assert.ok(code.includes('!n.derivedFromEdge'), 'target dropdown must exclude derived nodes')
+})
+
+test('SuggestMergeForm preferred label is source/target only', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('labelOptions'), 'must restrict label options to source/target')
+  assert.ok(code.includes('sourceNode.label'), 'must include source label option')
+})
+
+test('Suggest Merge hidden for derived nodes in inspector', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestMergeForm'), 'inspector must include SuggestMergeForm')
+  assert.ok(code.includes('Derived display nodes cannot be merged'), 'must show derived node helper text')
+})
+
+test('renderer guard catches suggest_merge via shared set', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard uses shared set which now includes suggest_merge')
+})
+
 console.log('\n═════════════════════════════════════════════════════')
-console.log(`  Phase 37G.1/37G.2/37G.3/37G.3a Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.1/37G.2/37G.3/37G.3a/37G.3b Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)
