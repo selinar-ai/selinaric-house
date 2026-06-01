@@ -639,3 +639,189 @@ export function SuggestMetadataChangeForm({ targetNode, targetEdge, onClose }: S
     </div>
   )
 }
+
+// ─── Suggest Split Form (Phase 37G.3a) ────────────────────────────────────
+
+interface SplitPart {
+  label: string
+  nodeType: string
+  presenceScope: string
+  grainLevel: string
+  rationale: string
+}
+
+const BLANK_PART = (): SplitPart => ({
+  label: '', nodeType: 'concept', presenceScope: 'shared', grainLevel: 'overview', rationale: '',
+})
+
+interface SuggestSplitFormProps {
+  targetNode: GraphMapNode
+  onClose: () => void
+}
+
+export function SuggestSplitForm({ targetNode, onClose }: SuggestSplitFormProps) {
+  const [parts, setParts] = useState<SplitPart[]>([BLANK_PART(), BLANK_PART()])
+  const [splitRationale, setSplitRationale] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  function updatePart(i: number, field: keyof SplitPart, value: string) {
+    setParts(prev => prev.map((p, idx) => idx === i ? { ...p, [field]: value } : p))
+  }
+
+  function addPart() {
+    if (parts.length < 5) setParts(prev => [...prev, BLANK_PART()])
+  }
+
+  function removePart(i: number) {
+    if (parts.length > 2) setParts(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setResult(null)
+    try {
+      const resp = await fetch('/api/graph-edit-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          edit_action_type: 'suggest_split',
+          target: {
+            kind: 'node',
+            label: targetNode.label,
+            nodeType: targetNode.nodeType,
+            presenceScope: targetNode.presenceScope,
+            runtimeKey: targetNode.id,
+            proposalId: targetNode.proposalIds[0] ?? null,
+            grainLevel: targetNode.grainLevel,
+            derivedFromEdge: targetNode.derivedFromEdge,
+          },
+          proposed_parts: parts.map(p => ({
+            label: p.label.trim(),
+            nodeType: p.nodeType,
+            presenceScope: p.presenceScope,
+            grainLevel: p.grainLevel,
+            rationale: p.rationale.trim() || undefined,
+          })),
+          split_rationale: splitRationale.trim() || 'Proposed split from Relational Map UI.',
+          grain_level: 'overview',
+          selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
+        }),
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setResult({ ok: true, message: 'Split proposal created for Ontology Lab review.' })
+      } else if (resp.status === 409) {
+        setResult({ ok: false, message: data.error ?? 'A matching split proposal already exists.' })
+      } else {
+        setResult({ ok: false, message: data.error ?? 'Failed to create split proposal.' })
+      }
+    } catch {
+      setResult({ ok: false, message: 'Request failed.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const canSubmit = parts.length >= 2 && parts.every(p => p.label.trim().length > 0) && !submitting
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] text-text-muted/70 italic font-body">
+        This creates a pending split proposal for Ontology Lab review.
+        It does not split the node, create replacement nodes, or move edges.
+        It does not create Memory or Archive authority.
+      </div>
+      <div className="text-[10px] font-body text-text-muted">
+        Node: <span className="text-text-secondary">{targetNode.label}</span>
+      </div>
+
+      {result ? (
+        <div className={`px-3 py-2 rounded text-xs font-body ${result.ok ? 'bg-emerald-900/20 text-emerald-300 border border-emerald-700/30' : 'bg-amber-900/20 text-amber-300 border border-amber-700/30'}`}>
+          {result.message}
+        </div>
+      ) : null}
+
+      {!result?.ok && (
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Split rationale (optional)</label>
+            <input
+              type="text"
+              value={splitRationale}
+              onChange={e => setSplitRationale(e.target.value)}
+              maxLength={200}
+              placeholder="Why should this node be split?"
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted"
+            />
+          </div>
+
+          {parts.map((part, i) => (
+            <div key={i} className="border border-house-border/60 rounded px-3 py-2.5 space-y-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-body text-[10px] text-text-muted uppercase tracking-wider">Part {i + 1}</span>
+                {parts.length > 2 && (
+                  <button type="button" onClick={() => removePart(i)} className="font-body text-[10px] text-text-muted hover:text-red-400 transition-colors">
+                    Remove
+                  </button>
+                )}
+              </div>
+              <div>
+                <label className="font-body text-[10px] text-text-muted block mb-1">
+                  Label <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={part.label}
+                  onChange={e => updatePart(i, 'label', e.target.value)}
+                  maxLength={80}
+                  required
+                  placeholder={`e.g. ${targetNode.label} Part ${i + 1}`}
+                  className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-body text-[10px] text-text-muted block mb-1">Node type</label>
+                  <select value={part.nodeType} onChange={e => updatePart(i, 'nodeType', e.target.value)}
+                    className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+                    {GRAPH_NODE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-body text-[10px] text-text-muted block mb-1">Scope</label>
+                  <select value={part.presenceScope} onChange={e => updatePart(i, 'presenceScope', e.target.value)}
+                    className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+                    {GRAPH_PRESENCE_SCOPES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {parts.length < 5 && (
+            <button type="button" onClick={addPart}
+              className="font-body text-[10px] text-text-muted hover:text-purple-300 border border-house-border/50 hover:border-purple-600/30 px-2.5 py-1 transition-all">
+              + Add part (max 5)
+            </button>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={!canSubmit}
+              className="font-body text-xs px-3 py-1.5 border border-purple-600/40 text-purple-300 hover:bg-purple-600/10 transition-all disabled:opacity-40">
+              {submitting ? 'Submitting...' : 'Submit for review'}
+            </button>
+            <button type="button" onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {result?.ok && (
+        <button onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">Close</button>
+      )}
+    </div>
+  )
+}

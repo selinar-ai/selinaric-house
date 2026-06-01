@@ -8,7 +8,7 @@
 
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
-import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm, SuggestMetadataChangeForm } from './RelationalMapSuggestPanel'
+import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm, SuggestMetadataChangeForm, SuggestSplitForm } from './RelationalMapSuggestPanel'
 import type {
   GraphMapNode,
   GraphMapEdge,
@@ -160,6 +160,7 @@ export default function RelationalMapInspector({
   const [suggestEdgeOpen, setSuggestEdgeOpen] = useState(false)
   const [suggestAliasOpen, setSuggestAliasOpen] = useState(false)
   const [suggestMetaOpen, setSuggestMetaOpen] = useState(false)
+  const [suggestSplitOpen, setSuggestSplitOpen] = useState(false)
 
   if (!selection) {
     // Collapsed state — minimal width when nothing is selected
@@ -446,6 +447,30 @@ export default function RelationalMapInspector({
         {isNode && !arrangeMode && selection.node.derivedFromEdge && (
           <p className="text-[10px] text-text-muted opacity-50 italic">
             Metadata changes require an approved graph node. Derived display nodes cannot be changed.
+          </p>
+        )}
+
+        {/* Phase 37G.3a — Suggest Split (Inspect mode, real nodes only) */}
+        {isNode && !arrangeMode && !selection.node.derivedFromEdge && (
+          <div>
+            {suggestSplitOpen ? (
+              <SuggestSplitForm
+                targetNode={selection.node}
+                onClose={() => setSuggestSplitOpen(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setSuggestSplitOpen(true)}
+                className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-purple-300 hover:border-purple-600/40 transition-all"
+              >
+                ⑂ Suggest Split
+              </button>
+            )}
+          </div>
+        )}
+        {isNode && !arrangeMode && selection.node.derivedFromEdge && (
+          <p className="text-[10px] text-text-muted opacity-50 italic">
+            Split proposals require an approved graph node. Derived display nodes cannot be split.
           </p>
         )}
         {isNode && arrangeMode && (

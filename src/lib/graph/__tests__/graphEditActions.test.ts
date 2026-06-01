@@ -52,8 +52,8 @@ test('GRAPH_EDIT_ACTION_TYPES has 9 action types', () => {
   assert.equal(GRAPH_EDIT_ACTION_TYPES.length, 9)
 })
 
-test('SUPPORTED_EDIT_ACTIONS has 6 actions through 37G.3', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 6)
+test('SUPPORTED_EDIT_ACTIONS has 7 actions through 37G.3a', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 7)
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_node'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_edge'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_alias'))
@@ -62,13 +62,13 @@ test('SUPPORTED_EDIT_ACTIONS has 6 actions through 37G.3', () => {
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_salience_change'))
 })
 
-test('DEFERRED_EDIT_ACTIONS has 3 deferred actions (37G.3 promoted three)', () => {
-  assert.equal(DEFERRED_EDIT_ACTIONS.length, 3)
+test('DEFERRED_EDIT_ACTIONS has 2 deferred actions (suggest_split promoted in 37G.3a)', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 2)
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_reclassify'), 'suggest_reclassify now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_confidence_change'), 'suggest_confidence_change now supported')
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_salience_change'), 'suggest_salience_change now supported')
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_split'), 'suggest_split now supported in 37G.3a')
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_merge'))
-  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_split'))
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
 })
 
@@ -98,9 +98,10 @@ test('isSupportedEditAction accepts all supported actions', () => {
   assert.ok(isSupportedEditAction('suggest_node'))
   assert.ok(isSupportedEditAction('suggest_edge'))
   assert.ok(isSupportedEditAction('suggest_alias'))
-  assert.ok(isSupportedEditAction('suggest_reclassify'), 'suggest_reclassify now supported in 37G.3')
-  assert.ok(isSupportedEditAction('suggest_confidence_change'), 'suggest_confidence_change now supported')
-  assert.ok(isSupportedEditAction('suggest_salience_change'), 'suggest_salience_change now supported')
+  assert.ok(isSupportedEditAction('suggest_reclassify'))
+  assert.ok(isSupportedEditAction('suggest_confidence_change'))
+  assert.ok(isSupportedEditAction('suggest_salience_change'))
+  assert.ok(isSupportedEditAction('suggest_split'), 'suggest_split now supported in 37G.3a')
   assert.ok(!isSupportedEditAction('suggest_merge'))
 })
 
@@ -438,8 +439,8 @@ test('suggest_alias is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'))
 })
 
-test('SUPPORTED_EDIT_ACTIONS now has 6 actions (through 37G.3)', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 6)
+test('SUPPORTED_EDIT_ACTIONS now has 7 actions (through 37G.3a)', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 7)
 })
 
 test('deferred actions still rejected — suggest_merge blocked', () => {
@@ -540,16 +541,17 @@ test('buildRelationalMap uses shared NON_MATERIALISING_EDIT_ACTIONS guard', () =
 
 console.log('\n  ── 37G.3 Metadata-change contract ──')
 
-test('NON_MATERIALISING_EDIT_ACTIONS set contains all four non-materialising types', () => {
+test('NON_MATERIALISING_EDIT_ACTIONS set contains all five non-materialising types', () => {
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_alias'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_reclassify'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_confidence_change'))
   assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_salience_change'))
-  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 4)
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'), 'suggest_split must be non-materialising')
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 5)
 })
 
 test('still-deferred actions remain rejected', () => {
-  for (const action of ['suggest_merge', 'suggest_split', 'suggest_retire_or_supersede']) {
+  for (const action of ['suggest_merge', 'suggest_retire_or_supersede']) {
     const result = validateEditActionPayload({
       edit_action_type: action,
       edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
@@ -707,8 +709,179 @@ test('node reclassify field rejects edge fields', () => {
   assert.ok(result.errors.some(e => e.includes('not supported')))
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3a — Split Contract Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3a Split action contract ──')
+
+test('suggest_split is now in SUPPORTED_EDIT_ACTIONS', () => {
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_split'))
+})
+
+test('suggest_split is no longer in DEFERRED_EDIT_ACTIONS', () => {
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_split'))
+})
+
+test('suggest_merge and suggest_retire_or_supersede remain deferred', () => {
+  assert.ok(isDeferredEditAction('suggest_merge'))
+  assert.ok(isDeferredEditAction('suggest_retire_or_supersede'))
+  assert.ok(!isDeferredEditAction('suggest_split'))
+})
+
+test('NON_MATERIALISING_EDIT_ACTIONS now includes suggest_split', () => {
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'))
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 5)
+})
+
+const VALID_SPLIT_PAYLOAD = {
+  edit_action_type: 'suggest_split',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.3a',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Split proposal only.',
+  target: {
+    kind: 'node' as const,
+    label: 'Continuity',
+    nodeType: 'concept',
+    presenceScope: 'shared',
+    runtimeKey: 'node:shared:concept:continuity',
+    proposalId: '07480668-11cd-4176-8dcb-73fd34187645',
+    derivedFromEdge: false,
+  },
+  proposed_parts: [
+    { label: 'Memory Continuity', nodeType: 'concept', presenceScope: 'shared', grainLevel: 'overview' },
+    { label: 'Technical Continuity', nodeType: 'concept', presenceScope: 'house', grainLevel: 'overview' },
+  ],
+  split_rationale: 'Continuity blends two distinct concerns.',
+  canonical_label: 'Split: Continuity → Memory Continuity + Technical Continuity',
+}
+
+test('valid split payload passes', () => {
+  const result = validateEditActionPayload(VALID_SPLIT_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('split rejects missing target', () => {
+  const { target, ...rest } = VALID_SPLIT_PAYLOAD
+  const result = validateEditActionPayload(rest)
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('target')))
+})
+
+test('split rejects non-node target', () => {
+  const result = validateEditActionPayload({ ...VALID_SPLIT_PAYLOAD, target: { ...VALID_SPLIT_PAYLOAD.target, kind: 'edge' as any } })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('kind must be "node"')))
+})
+
+test('split rejects derived target', () => {
+  const result = validateEditActionPayload({ ...VALID_SPLIT_PAYLOAD, target: { ...VALID_SPLIT_PAYLOAD.target, derivedFromEdge: true } })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('Derived')))
+})
+
+test('split rejects fewer than 2 parts', () => {
+  const result = validateEditActionPayload({ ...VALID_SPLIT_PAYLOAD, proposed_parts: [{ label: 'X', nodeType: 'concept', presenceScope: 'shared' }] })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('At least 2')))
+})
+
+test('split rejects more than 5 parts', () => {
+  const sixParts = Array(6).fill(null).map((_, i) => ({ label: `Part ${i}`, nodeType: 'concept', presenceScope: 'shared' }))
+  const result = validateEditActionPayload({ ...VALID_SPLIT_PAYLOAD, proposed_parts: sixParts })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('Maximum 5')))
+})
+
+test('split rejects duplicate part labels', () => {
+  const result = validateEditActionPayload({
+    ...VALID_SPLIT_PAYLOAD,
+    proposed_parts: [
+      { label: 'Memory Continuity', nodeType: 'concept', presenceScope: 'shared' },
+      { label: 'Memory Continuity', nodeType: 'concept', presenceScope: 'house' },
+    ],
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('duplicates another part')))
+})
+
+test('split rejects part label equal to target label', () => {
+  const result = validateEditActionPayload({
+    ...VALID_SPLIT_PAYLOAD,
+    proposed_parts: [
+      { label: 'Continuity', nodeType: 'concept', presenceScope: 'shared' },
+      { label: 'Technical Continuity', nodeType: 'concept', presenceScope: 'house' },
+    ],
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same as the target')))
+})
+
+test('split rejects invalid part nodeType', () => {
+  const result = validateEditActionPayload({
+    ...VALID_SPLIT_PAYLOAD,
+    proposed_parts: [
+      { label: 'Part A', nodeType: 'invalid_xyz', presenceScope: 'shared' },
+      { label: 'Part B', nodeType: 'concept', presenceScope: 'shared' },
+    ],
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('invalid nodeType')))
+})
+
+test('split rejects invalid part presenceScope', () => {
+  const result = validateEditActionPayload({
+    ...VALID_SPLIT_PAYLOAD,
+    proposed_parts: [
+      { label: 'Part A', nodeType: 'concept', presenceScope: 'invalid_scope' },
+      { label: 'Part B', nodeType: 'concept', presenceScope: 'shared' },
+    ],
+  })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('invalid presenceScope')))
+})
+
+test('split allows 3-5 parts', () => {
+  const fiveParts = ['Part A', 'Part B', 'Part C', 'Part D', 'Part E'].map(l => ({ label: l, nodeType: 'concept', presenceScope: 'shared' }))
+  const result = validateEditActionPayload({ ...VALID_SPLIT_PAYLOAD, proposed_parts: fiveParts })
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('split dedupe key is order-insensitive (sorted parts)', () => {
+  const key1 = generateEditActionDedupeKey({
+    ...VALID_SPLIT_PAYLOAD,
+    proposed_parts: [
+      { label: 'Memory Continuity', nodeType: 'concept', presenceScope: 'shared' },
+      { label: 'Technical Continuity', nodeType: 'concept', presenceScope: 'house' },
+    ],
+  })
+  const key2 = generateEditActionDedupeKey({
+    ...VALID_SPLIT_PAYLOAD,
+    proposed_parts: [
+      { label: 'Technical Continuity', nodeType: 'concept', presenceScope: 'house' },
+      { label: 'Memory Continuity', nodeType: 'concept', presenceScope: 'shared' },
+    ],
+  })
+  assert.equal(key1, key2, 'dedupe key must be same regardless of part order')
+  assert.ok(key1.startsWith('split:map_ui:relational_map_ui:'), `key: ${key1}`)
+})
+
+test('split dedupe key contains normalised part labels', () => {
+  const key = generateEditActionDedupeKey(VALID_SPLIT_PAYLOAD)
+  assert.ok(key.includes('memory continuity'), `key: ${key}`)
+  assert.ok(key.includes('technical continuity'), `key: ${key}`)
+})
+
+test('suggest_split maps to proposal_type=node', () => {
+  assert.equal(editActionToProposalType('suggest_split'), 'node')
+})
+
 console.log('\n═════════════════════════════════════════════════')
-console.log(`  Phase 37G.0/37G.2/37G.3 Contract Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.0/37G.2/37G.3/37G.3a Contract Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

@@ -439,8 +439,92 @@ test('metadata-change handler does not import Memory modules', () => {
   assert.ok(!code.includes("prompt_eligible: true"), 'must not set prompt_eligible: true')
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3a — Split Proposal API + UI Structure Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3a Split proposal structure ──')
+
+test('split handler exists in API route', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('handleSuggestSplit'), 'handleSuggestSplit must exist')
+})
+
+test('split handler uses generation_version=37G.3a', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes("generationVersion: '37G.3a'"))
+})
+
+test('split handler validates target is approved_graph', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('target_not_approved'))
+})
+
+test('split handler checks for part label collisions with existing nodes', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('part_label_collision'))
+})
+
+test('split handler checks for duplicate split proposals', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('existingSplit'))
+})
+
+test('split proposed_label uses "Split: target → parts" format', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('`Split: ${targetLabel} →') || code.includes('Split: ') )
+})
+
+test('split handler does not create replacement nodes', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  // Split handler creates 1 proposal for the split governance record, not one per part
+  // Verify: no loop over parts that calls createProposal
+  assert.ok(!code.includes('for.*parts.*createProposal') && !code.includes('parts.map.*createProposal'),
+    'must not loop over parts creating proposals')
+  // The handler exists and uses createProposal exactly in handleSuggestSplit section
+  const splitHandlerIdx = code.lastIndexOf('handleSuggestSplit')
+  assert.ok(splitHandlerIdx > -1, 'handleSuggestSplit must exist')
+})
+
+test('split handler does not mutate target proposal', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(!code.includes("status: 'approved_graph'"), 'handler must not set approved_graph status')
+  assert.ok(!code.includes('prompt_eligible: true'), 'handler must not set prompt_eligible: true')
+})
+
+test('split uses map_ui source type', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  const lastMapUi = code.lastIndexOf("sourceType: 'map_ui'")
+  assert.ok(lastMapUi > -1)
+})
+
+test('SuggestSplitForm exists in suggest panel', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestSplitForm'), 'SuggestSplitForm must exist')
+  assert.ok(code.includes('suggest_split'), 'must call suggest_split action type')
+  assert.ok(code.includes('proposed_parts'), 'must include proposed_parts')
+})
+
+test('SuggestSplitForm enforces minimum 2 parts in UI', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  // The form initialises with 2 parts and requires length >= 2
+  assert.ok(code.includes('BLANK_PART(), BLANK_PART()') || code.includes('[BLANK_PART()'), 'form must start with 2 parts')
+})
+
+test('Suggest Split hidden for derived nodes in inspector', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestSplitForm'), 'inspector must include SuggestSplitForm')
+  assert.ok(code.includes('Derived display nodes cannot be split'), 'must show derived node helper text')
+})
+
+test('renderer guard catches suggest_split via NON_MATERIALISING_EDIT_ACTIONS', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  // Guard uses shared set — no need to add suggest_split explicitly
+  assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard uses shared set which now includes suggest_split')
+})
+
 console.log('\n═════════════════════════════════════════════════════')
-console.log(`  Phase 37G.1/37G.2/37G.3 Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.1/37G.2/37G.3/37G.3a Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

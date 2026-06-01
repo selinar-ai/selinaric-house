@@ -6,7 +6,7 @@
 // A suggestion is not a graph edit. A graph proposal is not Memory.
 // No UI action creates truth directly.
 //
-// Supported actions: suggest_node, suggest_edge, suggest_alias
+// Supported actions: suggest_node, suggest_edge, suggest_alias, suggest_reclassify/confidence/salience, suggest_split
 // All proposals: pending_review, prompt_eligible=false, proposed_by=tara
 //
 // Writes ONLY to: graph_proposals, graph_proposal_sources, graph_proposal_events
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   // 1. Reject unsupported/deferred actions
   if (!actionType || !isSupportedEditAction(actionType)) {
     return NextResponse.json(
-      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias` },
+      { error: `Unsupported edit action: "${actionType}". Supported: suggest_node, suggest_edge, suggest_alias, suggest_reclassify, suggest_confidence_change, suggest_salience_change, suggest_split` },
       { status: 400 }
     )
   }
@@ -85,6 +85,8 @@ export async function POST(request: NextRequest) {
     return handleSuggestEdge(payload)
   } else if (actionType === 'suggest_reclassify' || actionType === 'suggest_confidence_change' || actionType === 'suggest_salience_change') {
     return handleSuggestMetadataChange(payload)
+  } else if (actionType === 'suggest_split') {
+    return handleSuggestSplit(payload)
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
@@ -597,5 +599,142 @@ async function handleSuggestMetadataChange(payload: Record<string, unknown>) {
     ok: true,
     proposalId: result.proposalId,
     message: 'Metadata-change proposal created for Ontology Lab review.',
+  }, { status: 201 })
+}
+
+// ─── Suggest Split Handler (Phase 37G.3a) ────────────────────────────────
+
+async function handleSuggestSplit(payload: Record<string, unknown>) {
+  const target = payload.target as Record<string, unknown>
+  const targetLabel = target.label as string
+  const targetNodeType = target.nodeType as string
+  const targetScope = target.presenceScope as string
+  const targetRuntimeKey = target.runtimeKey as string
+  const parts = (payload.proposed_parts as Array<Record<string, unknown>>) || []
+  const splitRationale = (payload.split_rationale as string)?.trim() || 'Proposed split from Relational Map UI.'
+
+  // Build proposed label: Split: <target> → <part1> + <part2> [+ ...]
+  const partLabels = parts.map(p => (p.label as string).trim())
+  const proposedLabel = `Split: ${targetLabel} → ${partLabels.join(' + ')}`
+
+  // Validate target is approved_graph
+  const { data: targetProposals } = await supabase
+    .from('graph_proposals')
+    .select('id, status')
+    .eq('proposal_type', 'node')
+    .eq('status', 'approved_graph')
+    .is('deleted_at', null)
+    .ilike('proposed_label', targetLabel)
+    .limit(1)
+
+  if (!targetProposals || targetProposals.length === 0) {
+    return NextResponse.json(
+      { error: `Target node "${targetLabel}" is not an approved graph node.`, code: 'target_not_approved' },
+      { status: 422 }
+    )
+  }
+
+  // Collision check: no proposed part label may match existing approved/pending node labels
+  for (const partLabel of partLabels) {
+    const { data: collision } = await supabase
+      .from('graph_proposals')
+      .select('id, proposed_label')
+      .eq('proposal_type', 'node')
+      .is('deleted_at', null)
+      .in('status', ['pending_review', 'approved_graph'])
+      .ilike('proposed_label', partLabel)
+      .limit(1)
+
+    if (collision && collision.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Proposed split part "${partLabel}" conflicts with an existing graph node: "${collision[0].proposed_label}"`,
+          code: 'part_label_collision',
+        },
+        { status: 409 }
+      )
+    }
+  }
+
+  // Duplicate split proposal check (order-insensitive: sort part labels)
+  const { data: existingSplit } = await supabase
+    .from('graph_proposals')
+    .select('id, proposed_label, status')
+    .eq('proposal_type', 'node')
+    .is('deleted_at', null)
+    .in('status', ['pending_review', 'approved_graph'])
+    .ilike('proposed_label', proposedLabel)
+    .limit(1)
+
+  if (existingSplit && existingSplit.length > 0) {
+    const match = existingSplit[0]
+    return NextResponse.json(
+      {
+        error: match.status === 'approved_graph'
+          ? 'A matching split proposal already exists (approved).'
+          : 'A matching pending split proposal already exists.',
+        code: 'duplicate',
+        existingId: match.id,
+      },
+      { status: 409 }
+    )
+  }
+
+  // Create split proposal
+  const result = await createProposal({
+    proposalType: 'node',
+    nodeType: targetNodeType as GraphNodeType,
+    label: proposedLabel,
+    summary: splitRationale,
+    payload: {
+      ...payload,
+      canonical_label: proposedLabel,
+      governance_note: 'Split proposal only. Does not split the node. Does not create replacement nodes. Not Memory. Not Archive authority. Not prompt truth.',
+    },
+    confidence: 0.7,
+    salience: 0.5,
+    reason: splitRationale,
+    safeWording: `Split proposal: ${proposedLabel}.`,
+    authorityStatus: 'candidate' as const,
+    presenceScope: targetScope as GraphPresenceScope,
+    primarySourceType: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_type,
+    primarySourceId: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_id,
+    proposedBy: EDIT_ACTION_PROPOSAL_DEFAULTS.proposed_by,
+    generationVersion: '37G.3a',
+    sourceRecord: {
+      sourceType: 'map_ui' as const,
+      sourceId: 'relational_map_ui',
+      sourceLabel: 'Relational Map UI',
+      sourceExcerpt: `User proposed split: ${proposedLabel}`,
+      sourceMetadata: {
+        phase: '37G.3a',
+        edit_action_type: 'suggest_split',
+        origin: 'relational_map',
+        target_kind: 'node',
+        target_key: targetRuntimeKey,
+        target_proposal_id: target.proposalId ?? null,
+        proposed_part_count: parts.length,
+        proposed_part_labels: partLabels,
+      },
+    },
+  })
+
+  if (!result.ok) {
+    if (result.code === 'duplicate_pending') {
+      return NextResponse.json(
+        { error: 'A matching pending split proposal already exists.', code: 'duplicate' },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json(
+      { error: result.error, code: result.code },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    proposalId: result.proposalId,
+    message: 'Split proposal created for Ontology Lab review.',
   }, { status: 201 })
 }

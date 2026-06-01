@@ -698,8 +698,47 @@ test('suggest_alias skipped proposals appear in diagnostics.skippedProposals', (
 // Summary
 // ═══════════════════════════════════════════════════════════════════════════
 
+test('approved suggest_split proposal does NOT materialise as node', () => {
+  const proposals = [
+    makeTestProposal({ id: 'real-split', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared', proposed_label: 'Continuity', dedupe_key: 'real-split' }),
+    makeTestProposal({
+      id: 'split-prop', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared',
+      proposed_label: 'Split: Continuity → Memory Continuity + Technical Continuity',
+      dedupe_key: 'split-prop',
+      proposed_payload: {
+        edit_action_type: 'suggest_split',
+        target: { kind: 'node', label: 'Continuity' },
+        proposed_parts: [{ label: 'Memory Continuity' }, { label: 'Technical Continuity' }],
+      },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 1, 'split proposal must not materialise as a node')
+  assert.equal(result.nodes[0].label, 'Continuity')
+})
+
+test('proposed split parts do not materialise as separate nodes', () => {
+  // Parts are only in the payload — they are never in their own proposals
+  const proposals = [
+    makeTestProposal({
+      id: 'split-only', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared',
+      proposed_label: 'Split: Node → Part A + Part B',
+      dedupe_key: 'split-only',
+      proposed_payload: { edit_action_type: 'suggest_split', proposed_parts: [{ label: 'Part A' }, { label: 'Part B' }] },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 0, 'split proposal must not materialise, and parts must not appear as nodes')
+})
+
+test('NON_MATERIALISING_EDIT_ACTIONS now has 5 entries', () => {
+  const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 5)
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_split'))
+})
+
 console.log('\n═══════════════════════════════════════════════════')
-console.log(`  Phase 37F/37G.2/37G.3 Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37F/37G.2/37G.3/37G.3a Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
 console.log('═══════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

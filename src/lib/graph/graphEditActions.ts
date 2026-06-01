@@ -48,12 +48,12 @@ export const SUPPORTED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_reclassify',
   'suggest_confidence_change',
   'suggest_salience_change',
+  'suggest_split',
 ] as const
 
 /** Actions deferred to later phases */
 export const DEFERRED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_merge',
-  'suggest_split',
   'suggest_retire_or_supersede',
 ] as const
 
@@ -68,6 +68,7 @@ export const NON_MATERIALISING_EDIT_ACTIONS = new Set<string>([
   'suggest_reclassify',
   'suggest_confidence_change',
   'suggest_salience_change',
+  'suggest_split',   // Phase 37G.3a — split proposals must never materialise as nodes/edges
 ])
 
 export function isValidEditActionType(value: string): value is GraphEditActionType {
@@ -239,6 +240,33 @@ export interface GraphEditSuggestSaliencePayload extends GraphEditActionPayloadB
   rationale: string
 }
 
+/** A proposed split part (Phase 37G.3a) — label/metadata only, no node ID links */
+export interface GraphEditSuggestSplitPart {
+  label: string
+  nodeType: string
+  presenceScope: string
+  grainLevel?: string
+  rationale?: string
+}
+
+/** Payload for suggest_split (Phase 37G.3a) */
+export interface GraphEditSuggestSplitPayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_split'
+  target: {
+    kind: 'node'
+    label: string
+    nodeType: string
+    presenceScope: string
+    runtimeKey: string
+    proposalId?: string
+    grainLevel?: string
+    derivedFromEdge?: boolean
+  }
+  proposed_parts: GraphEditSuggestSplitPart[]
+  split_rationale: string
+  canonical_label: string
+}
+
 export type GraphEditActionPayload =
   | GraphEditSuggestNodePayload
   | GraphEditSuggestEdgePayload
@@ -246,6 +274,7 @@ export type GraphEditActionPayload =
   | GraphEditSuggestReclassifyPayload
   | GraphEditSuggestConfidencePayload
   | GraphEditSuggestSaliencePayload
+  | GraphEditSuggestSplitPayload
 
 // ─── Validation ───────────────────────────────────────────────────────────
 
@@ -302,6 +331,8 @@ export function validateEditActionPayload(
     validateSuggestConfidenceChange(payload, errors)
   } else if (actionType === 'suggest_salience_change') {
     validateSuggestSalienceChange(payload, errors)
+  } else if (actionType === 'suggest_split') {
+    validateSuggestSplit(payload, errors)
   }
 
   return { valid: errors.length === 0, errors }
@@ -519,6 +550,79 @@ function validateSuggestSalienceChange(payload: Record<string, unknown>, errors:
   }
 }
 
+function validateSuggestSplit(payload: Record<string, unknown>, errors: string[]): void {
+  const target = payload.target as Record<string, unknown> | undefined
+
+  if (!target || typeof target !== 'object') {
+    errors.push('target is required')
+    return
+  }
+  if (target.kind !== 'node') errors.push('target.kind must be "node" — edge split not yet supported')
+  if (typeof target.label !== 'string' || !target.label) errors.push('target.label is required')
+  if (typeof target.nodeType !== 'string' || !isValidGraphNodeType(target.nodeType as string)) {
+    errors.push(`Invalid target.nodeType: "${target.nodeType}"`)
+  }
+  if (typeof target.presenceScope !== 'string' || !isValidGraphPresenceScope(target.presenceScope as string)) {
+    errors.push(`Invalid target.presenceScope: "${target.presenceScope}"`)
+  }
+  if (typeof target.runtimeKey !== 'string' || !target.runtimeKey) errors.push('target.runtimeKey is required')
+  if (target.derivedFromEdge === true) errors.push('Derived display nodes cannot be proposed for splitting')
+
+  const parts = payload.proposed_parts
+  if (!Array.isArray(parts)) {
+    errors.push('proposed_parts must be an array of 2–5 parts')
+    return
+  }
+  if (parts.length < 2) errors.push(`At least 2 proposed parts required, got ${parts.length}`)
+  if (parts.length > 5) errors.push(`Maximum 5 proposed parts allowed, got ${parts.length}`)
+
+  const targetLabelNorm = typeof target.label === 'string'
+    ? target.label.trim().toLowerCase().replace(/\s+/g, ' ')
+    : ''
+  const seenLabels = new Set<string>()
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i] as Record<string, unknown> | undefined
+    if (!part || typeof part !== 'object') {
+      errors.push(`Part ${i + 1} is invalid`)
+      continue
+    }
+    const partLabel = typeof part.label === 'string' ? part.label.trim() : ''
+    if (!partLabel) {
+      errors.push(`Part ${i + 1} label is required`)
+      continue
+    }
+    if (partLabel.length > 80) {
+      errors.push(`Part ${i + 1} label too long (${partLabel.length} chars, max 80)`)
+    }
+    const partNorm = partLabel.toLowerCase().replace(/\s+/g, ' ')
+
+    if (partNorm === targetLabelNorm) {
+      errors.push(`Part ${i + 1} label cannot be the same as the target node label`)
+    }
+    if (seenLabels.has(partNorm)) {
+      errors.push(`Part ${i + 1} label "${partLabel}" duplicates another part label`)
+    }
+    seenLabels.add(partNorm)
+
+    if (part.nodeType !== undefined && !isValidGraphNodeType(part.nodeType as string)) {
+      errors.push(`Part ${i + 1} has invalid nodeType: "${part.nodeType}"`)
+    }
+    if (part.presenceScope !== undefined && !isValidGraphPresenceScope(part.presenceScope as string)) {
+      errors.push(`Part ${i + 1} has invalid presenceScope: "${part.presenceScope}"`)
+    }
+    if (part.grainLevel !== undefined && !isValidGrainLevel(part.grainLevel as string)) {
+      errors.push(`Part ${i + 1} has invalid grainLevel: "${part.grainLevel}"`)
+    }
+  }
+
+  if (typeof payload.split_rationale !== 'string') {
+    if (payload.split_rationale !== undefined) {
+      errors.push('split_rationale must be a string if provided')
+    }
+  }
+}
+
 // ─── Dedupe Key Generation ────────────────────────────────────────────────
 
 function normalizeLabel(label: string): string {
@@ -568,6 +672,18 @@ export function generateEditActionDedupeKey(
       action === 'suggest_confidence_change' ? String(payload.proposed_confidence ?? '') :
       String(payload.proposed_salience ?? '')
     return `metadata:map_ui:relational_map_ui:${action}:${normalizeLabel(runtimeKey)}:${field}:${normalizeLabel(proposedValue)}`
+  }
+
+  if (action === 'suggest_split') {
+    const target = payload.target as Record<string, unknown> | undefined
+    const runtimeKey = (target?.runtimeKey as string) || ''
+    const parts = payload.proposed_parts as Array<Record<string, unknown>> | undefined
+    const partLabels = (parts ?? [])
+      .map(p => normalizeLabel((p.label as string) || ''))
+      .filter(Boolean)
+      .sort()
+      .join('+')
+    return `split:map_ui:relational_map_ui:${normalizeLabel(runtimeKey)}:${partLabels}`
   }
 
   // Fallback for deferred actions
