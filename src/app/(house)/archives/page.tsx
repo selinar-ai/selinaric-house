@@ -27,6 +27,7 @@ import MemoryAuditCards from '@/components/archive/MemoryAuditCards'
 import EligibilityGovernancePanel from '@/components/archive/EligibilityGovernancePanel'
 import GraphExtractionPanel from '@/components/archive/GraphExtractionPanel'
 import GraphCandidatesTab from '@/components/archive/GraphCandidatesTab'
+import GraphSuggestionQueue from '@/components/graph/GraphSuggestionQueue'
 import {
   ALL_CATEGORIES,
   ALL_SENSITIVITIES,
@@ -70,14 +71,15 @@ const ARCHIVE_TABS: { id: ArchiveTab; label: string; sub: string; accent: string
   },
 ]
 
-type InnerTab = 'entries' | 'conversations' | 'drafts' | 'memory' | 'graph'
+type InnerTab = 'entries' | 'conversations' | 'drafts' | 'memory' | 'graph' | 'graph-suggestions'
 
 const INNER_TABS: { id: InnerTab; label: string }[] = [
-  { id: 'entries',       label: 'Entries' },
-  { id: 'conversations', label: 'Conversations' },
-  { id: 'drafts',        label: 'Drafts' },
-  { id: 'memory',        label: 'Memory Review' },
-  { id: 'graph',         label: 'Graph' },
+  { id: 'entries',             label: 'Entries' },
+  { id: 'conversations',      label: 'Conversations' },
+  { id: 'drafts',             label: 'Drafts' },
+  { id: 'memory',             label: 'Memory Review' },
+  { id: 'graph',              label: 'Graph' },
+  { id: 'graph-suggestions',  label: 'Graph Suggestions' },
 ]
 
 // ─── Entry import form ─────────────────────────────────────────────────────
@@ -1367,6 +1369,11 @@ export default function ArchivesPage() {
               archiveName={activeTab}
             />
           </>
+        )}
+
+        {/* ── Graph Suggestions tab (Phase 37H.2) ──────────────────────── */}
+        {innerTab === 'graph-suggestions' && (
+          <GraphSuggestionQueue />
         )}
 
       </div>

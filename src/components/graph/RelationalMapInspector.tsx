@@ -9,6 +9,7 @@
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
 import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm, SuggestMetadataChangeForm, SuggestSplitForm, SuggestMergeForm, SuggestLifecycleForm } from './RelationalMapSuggestPanel'
+import GraphSuggestionCreateForm from './GraphSuggestionCreateForm'
 import type {
   GraphMapNode,
   GraphMapEdge,
@@ -163,6 +164,7 @@ export default function RelationalMapInspector({
   const [suggestSplitOpen, setSuggestSplitOpen] = useState(false)
   const [suggestMergeOpen, setSuggestMergeOpen] = useState(false)
   const [suggestLifecycleOpen, setSuggestLifecycleOpen] = useState(false)
+  const [suggestCandidateType, setSuggestCandidateType] = useState<'memory_candidate' | 'held_truth_candidate' | null>(null)
 
   if (!selection) {
     // Collapsed state — minimal width when nothing is selected
@@ -529,6 +531,45 @@ export default function RelationalMapInspector({
           <p className="text-[10px] text-text-muted opacity-50 italic">
             Switch to Inspect mode to suggest graph changes.
           </p>
+        )}
+
+        {/* Phase 37H.2 — Suggest Memory / Held Truth Candidate (Inspect mode, real approved nodes only) */}
+        {isNode && !arrangeMode && !selection.node.derivedFromEdge && (
+          <div className="border-t border-house-border/30 pt-2 mt-1">
+            {suggestCandidateType ? (
+              <GraphSuggestionCreateForm
+                onClose={() => setSuggestCandidateType(null)}
+                onCreated={() => setSuggestCandidateType(null)}
+                prefillProposalIds={selection.node.proposalIds}
+                prefillLabel={selection.node.label}
+              />
+            ) : (
+              <div className="space-y-1">
+                <button
+                  onClick={() => setSuggestCandidateType('memory_candidate')}
+                  className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-blue-300 hover:border-blue-600/40 transition-all w-full text-left"
+                >
+                  ◈ Suggest Memory Candidate
+                </button>
+                <button
+                  onClick={() => setSuggestCandidateType('held_truth_candidate')}
+                  className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-amber-300 hover:border-amber-600/40 transition-all w-full text-left"
+                >
+                  ◇ Suggest Held Truth Candidate
+                </button>
+                <p className="text-[9px] text-text-muted/50 italic font-body">
+                  Creates a graph-assisted suggestion only. Not Memory. Not Held Truth.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        {isNode && !arrangeMode && selection.node.derivedFromEdge && (
+          <div className="border-t border-house-border/30 pt-2 mt-1">
+            <p className="text-[10px] text-text-muted opacity-50 italic">
+              Candidate suggestions require an approved graph node. Derived display nodes cannot be used as evidence.
+            </p>
+          </div>
         )}
 
         {/* Proposal details */}
