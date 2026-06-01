@@ -1,9 +1,8 @@
 'use client'
 
-// Phase 37H.2 — Graph-Assisted Candidate Suggestion Queue
+// Phase 37H.3a — Graph-Assisted Candidate Suggestion Queue (Polished)
 //
-// Graph-assisted suggestions only. Not Memory. Not Held Truth. Not prompt eligible.
-// Memory Review / Held Truth governance still required.
+// Review ergonomics improves clarity. Review ergonomics does not create authority.
 //
 // Writes ONLY to graph_candidate_suggestions + events (via dismiss).
 // No approve/promote actions. Dismiss only.
@@ -14,6 +13,18 @@ import GraphSuggestionDetail from './GraphSuggestionDetail'
 import GraphSuggestionCreateForm from './GraphSuggestionCreateForm'
 
 type StatusFilter = 'pending_review' | 'dismissed' | 'all'
+
+const FILTER_LABELS: Record<StatusFilter, string> = {
+  pending_review: 'Pending',
+  dismissed: 'Dismissed',
+  all: 'All',
+}
+
+const EMPTY_MESSAGES: Record<StatusFilter, string> = {
+  pending_review: 'No pending suggestions.',
+  dismissed: 'No dismissed suggestions.',
+  all: 'No suggestions found.',
+}
 
 export default function GraphSuggestionQueue() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending_review')
@@ -81,10 +92,10 @@ export default function GraphSuggestionQueue() {
   return (
     <div>
       {/* Header */}
-      <div className="px-4 py-3 border-b border-house-border/40 space-y-1">
-        <p className="font-body text-xs text-text-muted">
+      <div className="px-4 py-2.5 border-b border-house-border/40">
+        <p className="font-body text-[11px] text-text-muted/70 leading-relaxed">
           Graph-assisted suggestions only — not Memory, not Held Truth, not prompt eligible.
-          Each suggestion must be reviewed through the governed Memory Review or Held Truth pathway before it carries any authority.
+          Each suggestion requires governed Memory Review or Held Truth pathway before it carries authority.
         </p>
       </div>
 
@@ -101,11 +112,11 @@ export default function GraphSuggestionQueue() {
                   : 'border-house-border text-text-muted hover:border-purple-600/30'
               }`}
             >
-              {sf === 'pending_review' ? 'Pending' : sf === 'dismissed' ? 'Dismissed' : 'All'}
+              {FILTER_LABELS[sf]}
             </button>
           ))}
         </div>
-        <span className="text-[10px] text-text-muted font-body">{total} suggestion{total !== 1 ? 's' : ''}</span>
+        <span className="text-[10px] text-text-muted/50 font-body">{total}</span>
         <div className="flex-1" />
         <button
           onClick={() => { setShowCreate(true); setSelectedId(null) }}
@@ -120,46 +131,57 @@ export default function GraphSuggestionQueue() {
         {/* List */}
         <div className="flex-1 border-r border-house-border/30">
           {loading && (
-            <div className="px-4 py-6 text-center text-xs text-text-muted font-body">Loading...</div>
-          )}
-          {error && (
-            <div className="px-4 py-3 text-xs text-red-300 font-body">{error}</div>
-          )}
-          {!loading && suggestions.length === 0 && (
-            <div className="px-4 py-6 text-center text-xs text-text-muted/60 font-body italic">
-              No suggestions found.
+            <div className="px-4 py-8 text-center">
+              <div className="inline-flex gap-1">
+                <span className="w-1.5 h-1.5 bg-purple-400/40 rounded-full animate-pulse" />
+                <span className="w-1.5 h-1.5 bg-purple-400/40 rounded-full animate-pulse [animation-delay:150ms]" />
+                <span className="w-1.5 h-1.5 bg-purple-400/40 rounded-full animate-pulse [animation-delay:300ms]" />
+              </div>
             </div>
           )}
-          {suggestions.map(s => (
-            <button
-              key={s.id}
-              onClick={() => { setSelectedId(s.id); setShowCreate(false) }}
-              className={`w-full text-left px-4 py-2.5 border-b border-house-border/20 hover:bg-house-surface/30 transition-all ${
-                selectedId === s.id ? 'bg-house-surface/50' : ''
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className={`text-[9px] font-body px-1 py-0.5 rounded border ${
-                  s.candidate_type === 'memory_candidate'
-                    ? 'border-blue-700/30 text-blue-300'
-                    : 'border-amber-700/30 text-amber-300'
-                }`}>
-                  {s.candidate_type === 'memory_candidate' ? 'Mem' : 'HT'}
-                </span>
-                <span className="text-xs text-text-secondary font-body truncate flex-1">{s.proposed_label}</span>
-                <span className={`text-[9px] font-body px-1 py-0.5 rounded ${
-                  s.status === 'pending_review' ? 'text-yellow-300' : 'text-gray-400'
-                }`}>
-                  {s.status === 'pending_review' ? 'pending' : s.status}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[9px] text-text-muted/50 font-body capitalize">{s.evidence_strength}</span>
-                <span className="text-[9px] text-text-muted/50 font-body">{new Date(s.created_at).toLocaleDateString()}</span>
-                <span className="text-[9px] text-red-300/40 font-body">not prompt eligible</span>
-              </div>
-            </button>
-          ))}
+          {error && (
+            <div className="px-4 py-4 text-center text-xs text-red-300/70 font-body">{error}</div>
+          )}
+          {!loading && !error && suggestions.length === 0 && (
+            <div className="px-4 py-8 text-center text-[11px] text-text-muted/40 font-body italic">
+              {EMPTY_MESSAGES[statusFilter]}
+            </div>
+          )}
+          {suggestions.map(s => {
+            const isDismissed = s.status === 'dismissed'
+            const isSelected = selectedId === s.id
+            return (
+              <button
+                key={s.id}
+                onClick={() => { setSelectedId(s.id); setShowCreate(false) }}
+                className={`w-full text-left px-4 py-2 border-b border-house-border/15 transition-all ${
+                  isSelected
+                    ? 'bg-purple-900/15 border-l-2 border-l-purple-600/50'
+                    : 'border-l-2 border-l-transparent hover:bg-house-surface/20'
+                } ${isDismissed ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`text-[9px] font-body px-1 py-0.5 rounded border flex-shrink-0 ${
+                    s.candidate_type === 'memory_candidate'
+                      ? 'border-blue-700/30 text-blue-300'
+                      : 'border-amber-700/30 text-amber-300'
+                  }`}>
+                    {s.candidate_type === 'memory_candidate' ? 'Mem' : 'HT'}
+                  </span>
+                  <span className="text-[11px] text-text-secondary font-body truncate flex-1">{s.proposed_label}</span>
+                  <span className={`text-[9px] font-body px-1 py-0.5 rounded flex-shrink-0 ${
+                    s.status === 'pending_review' ? 'text-yellow-300/70' : 'text-gray-500'
+                  }`}>
+                    {s.status === 'pending_review' ? 'pending' : s.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 pl-6">
+                  <span className="text-[9px] text-text-muted/40 font-body capitalize">{s.evidence_strength}</span>
+                  <span className="text-[9px] text-text-muted/30 font-body">{new Date(s.created_at).toLocaleDateString()}</span>
+                </div>
+              </button>
+            )
+          })}
         </div>
 
         {/* Detail / Create panel */}
@@ -171,7 +193,13 @@ export default function GraphSuggestionQueue() {
             />
           )}
           {!showCreate && hasSelection && detailLoading && (
-            <div className="text-xs text-text-muted font-body text-center pt-8">Loading detail...</div>
+            <div className="flex items-center justify-center pt-12">
+              <div className="inline-flex gap-1">
+                <span className="w-1.5 h-1.5 bg-purple-400/40 rounded-full animate-pulse" />
+                <span className="w-1.5 h-1.5 bg-purple-400/40 rounded-full animate-pulse [animation-delay:150ms]" />
+                <span className="w-1.5 h-1.5 bg-purple-400/40 rounded-full animate-pulse [animation-delay:300ms]" />
+              </div>
+            </div>
           )}
           {!showCreate && hasSelection && !detailLoading && hydratedDetail && (
             <GraphSuggestionDetail
@@ -182,13 +210,19 @@ export default function GraphSuggestionQueue() {
             />
           )}
           {!showCreate && hasSelection && !detailLoading && !hydratedDetail && (
-            <div className="text-xs text-red-300/60 font-body text-center pt-8">
-              Could not load suggestion detail.
+            <div className="text-center pt-12">
+              <div className="text-xs text-red-300/50 font-body">Could not load suggestion detail.</div>
+              <button
+                onClick={() => setSelectedId(null)}
+                className="text-[10px] text-text-muted/50 font-body mt-2 hover:text-text-muted transition-colors"
+              >
+                Clear selection
+              </button>
             </div>
           )}
           {!showCreate && !hasSelection && (
-            <div className="text-xs text-text-muted/40 font-body italic text-center pt-8">
-              Select a suggestion to view details, or create a new one.
+            <div className="text-[11px] text-text-muted/30 font-body italic text-center pt-12">
+              Select a suggestion to view details,<br />or create a new one.
             </div>
           )}
         </div>
