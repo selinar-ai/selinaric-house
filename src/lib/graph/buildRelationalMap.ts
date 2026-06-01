@@ -17,6 +17,7 @@ import {
 } from './validation'
 import { makeNodeKey, normalizeGraphLabel } from './graphDisplayUtils'
 import { classifyGrain } from './graphGrain'
+import { NON_MATERIALISING_EDIT_ACTIONS } from './graphEditActions'
 import type { GraphProposal, GraphProposalSource } from './proposals'
 import type { GraphMapNode, GraphMapEdge } from './relationalMapTypes'
 
@@ -129,11 +130,12 @@ function processNodeProposal(
   const scope = proposal.presence_scope
   const authority = proposal.authority_status
 
-  // Phase 37G.2 — renderer guard: alias proposals must never materialise as map nodes.
-  // An alias is metadata, not an entity. This guard applies to pending and approved proposals alike.
-  const editActionType = (proposal.proposed_payload as unknown as Record<string, unknown> | undefined)?.edit_action_type
-  if (editActionType === 'suggest_alias') {
-    warnings.push(`Skipped alias proposal ${proposal.id}: alias proposals do not materialise as graph nodes.`)
+  // Phase 37G.2/37G.3 — shared renderer guard: non-materialising edit action proposals must
+  // never become map nodes regardless of their approval status.
+  // Covers: suggest_alias, suggest_reclassify, suggest_confidence_change, suggest_salience_change
+  const editActionType = (proposal.proposed_payload as unknown as Record<string, unknown> | undefined)?.edit_action_type as string | undefined
+  if (editActionType && NON_MATERIALISING_EDIT_ACTIONS.has(editActionType)) {
+    warnings.push(`Skipped non-materialising proposal ${proposal.id} (${editActionType}): must not materialise as a graph node.`)
     return null
   }
 
@@ -194,6 +196,13 @@ function processEdgeProposal(
   }
   if (!isValidGraphAuthorityStatus(authority)) {
     warnings.push(`Skipped edge proposal ${proposal.id}: invalid authority_status "${authority}".`)
+    return null
+  }
+
+  // Phase 37G.3 — shared renderer guard for edge proposals.
+  const edgeEditActionType = (proposal.proposed_payload as unknown as Record<string, unknown> | undefined)?.edit_action_type as string | undefined
+  if (edgeEditActionType && NON_MATERIALISING_EDIT_ACTIONS.has(edgeEditActionType)) {
+    warnings.push(`Skipped non-materialising edge proposal ${proposal.id} (${edgeEditActionType}): must not materialise as a graph edge.`)
     return null
   }
 

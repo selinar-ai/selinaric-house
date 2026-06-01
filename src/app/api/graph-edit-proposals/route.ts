@@ -83,6 +83,8 @@ export async function POST(request: NextRequest) {
     return handleSuggestAlias(payload)
   } else if (actionType === 'suggest_edge') {
     return handleSuggestEdge(payload)
+  } else if (actionType === 'suggest_reclassify' || actionType === 'suggest_confidence_change' || actionType === 'suggest_salience_change') {
+    return handleSuggestMetadataChange(payload)
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
@@ -449,5 +451,151 @@ async function handleSuggestAlias(payload: Record<string, unknown>) {
     ok: true,
     proposalId: result.proposalId,
     message: 'Alias proposal created for Ontology Lab review.',
+  }, { status: 201 })
+}
+
+// ─── Suggest Metadata Change Handler (Phase 37G.3) ────────────────────────
+
+async function handleSuggestMetadataChange(payload: Record<string, unknown>) {
+  const actionType = payload.edit_action_type as string
+  const target = payload.target as Record<string, unknown>
+  const targetLabel = target.label as string
+  const targetKind = target.kind as 'node' | 'edge'
+  const targetScope = target.presenceScope as string
+  const targetNodeType = (target.nodeType as string) || null
+  const targetEdgeType = (target.edgeType as string) || null
+  const targetRuntimeKey = target.runtimeKey as string
+
+  // Build human-readable label and change field for proposed_label
+  let proposedLabel: string
+  let changeField: string
+  let currentValue: unknown
+  let proposedValue: unknown
+
+  if (actionType === 'suggest_reclassify') {
+    changeField = payload.field as string
+    currentValue = payload.current_value
+    proposedValue = payload.proposed_value
+    proposedLabel = `Reclassify: ${targetLabel} ${changeField} ${currentValue} → ${proposedValue}`
+  } else if (actionType === 'suggest_confidence_change') {
+    changeField = 'confidence'
+    currentValue = payload.current_confidence
+    proposedValue = payload.proposed_confidence
+    proposedLabel = `Confidence: ${targetLabel} ${currentValue ?? '?'} → ${proposedValue}`
+  } else {
+    changeField = 'salience'
+    currentValue = payload.current_salience
+    proposedValue = payload.proposed_salience
+    proposedLabel = `Salience: ${targetLabel} ${currentValue ?? '?'} → ${proposedValue}`
+  }
+
+  const rationale = (payload.rationale as string)?.trim() || 'Proposed metadata change from Relational Map UI.'
+
+  // Validate target is approved_graph
+  const approvalQuery = supabase
+    .from('graph_proposals')
+    .select('id, status')
+    .eq('proposal_type', targetKind === 'node' ? 'node' : 'edge')
+    .eq('status', 'approved_graph')
+    .is('deleted_at', null)
+    .ilike('proposed_label', targetLabel)
+    .limit(1)
+
+  const { data: targetProposals } = await approvalQuery
+
+  if (!targetProposals || targetProposals.length === 0) {
+    return NextResponse.json(
+      { error: `Target "${targetLabel}" is not an approved graph ${targetKind}.`, code: 'target_not_approved' },
+      { status: 422 }
+    )
+  }
+
+  // Duplicate check
+  const { data: existingChange } = await supabase
+    .from('graph_proposals')
+    .select('id, proposed_label, status')
+    .eq('proposal_type', targetKind === 'node' ? 'node' : 'edge')
+    .is('deleted_at', null)
+    .in('status', ['pending_review', 'approved_graph'])
+    .ilike('proposed_label', proposedLabel)
+    .limit(1)
+
+  if (existingChange && existingChange.length > 0) {
+    const match = existingChange[0]
+    return NextResponse.json(
+      {
+        error: match.status === 'approved_graph'
+          ? 'This metadata change already exists.'
+          : 'A matching pending metadata-change proposal already exists.',
+        code: 'duplicate',
+        existingId: match.id,
+      },
+      { status: 409 }
+    )
+  }
+
+  // Create metadata-change proposal
+  // proposal_type: node for node targets, edge for edge targets
+  // node/edge type from target (satisfies DB shape constraint)
+  const createInput = {
+    proposalType: (targetKind === 'node' ? 'node' : 'edge') as 'node' | 'edge',
+    nodeType: targetKind === 'node' ? (targetNodeType as GraphNodeType) : undefined,
+    edgeType: targetKind === 'edge' ? (targetEdgeType as GraphEdgeType) : undefined,
+    label: proposedLabel,
+    summary: rationale,
+    payload: {
+      ...payload,
+      canonical_label: proposedLabel,
+      change: { field: changeField, current_value: currentValue, proposed_value: proposedValue },
+      governance_note: 'Metadata-change proposal only. Not a new graph node or edge. Not Memory. Not Archive authority. Not prompt truth.',
+    },
+    confidence: 0.7,
+    salience: 0.5,
+    reason: rationale,
+    safeWording: `Metadata-change proposal: ${proposedLabel}.`,
+    authorityStatus: 'candidate' as const,
+    presenceScope: targetScope as GraphPresenceScope,
+    primarySourceType: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_type,
+    primarySourceId: EDIT_ACTION_PROPOSAL_DEFAULTS.primary_source_id,
+    proposedBy: EDIT_ACTION_PROPOSAL_DEFAULTS.proposed_by,
+    generationVersion: '37G.3',
+    sourceRecord: {
+      sourceType: 'map_ui' as const,
+      sourceId: 'relational_map_ui',
+      sourceLabel: 'Relational Map UI',
+      sourceExcerpt: `User proposed ${actionType}: ${proposedLabel}`,
+      sourceMetadata: {
+        phase: '37G.3',
+        edit_action_type: actionType,
+        origin: 'relational_map',
+        target_kind: targetKind,
+        target_key: targetRuntimeKey,
+        target_proposal_id: target.proposalId ?? null,
+        change_field: changeField,
+        current_value: currentValue,
+        proposed_value: proposedValue,
+      },
+    },
+  }
+
+  const result = await createProposal(createInput)
+
+  if (!result.ok) {
+    if (result.code === 'duplicate_pending') {
+      return NextResponse.json(
+        { error: 'A matching pending metadata-change proposal already exists.', code: 'duplicate' },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json(
+      { error: result.error, code: result.code },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    proposalId: result.proposalId,
+    message: 'Metadata-change proposal created for Ontology Lab review.',
   }, { status: 201 })
 }

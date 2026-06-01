@@ -11,7 +11,8 @@
 import { useState } from 'react'
 import { GRAPH_NODE_TYPES, GRAPH_EDGE_TYPES } from '@/lib/graph/types'
 import { GRAPH_PRESENCE_SCOPES } from '@/lib/graph/types'
-import type { GraphMapNode } from '@/lib/graph/relationalMapTypes'
+import { GRAPH_GRAIN_LEVELS } from '@/lib/graph/graphGrain'
+import type { GraphMapNode, GraphMapEdge } from '@/lib/graph/relationalMapTypes'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -456,6 +457,184 @@ export function SuggestEdgeForm({ sourceNode, approvedNodes, onClose }: SuggestE
         >
           Close
         </button>
+      )}
+    </div>
+  )
+}
+
+// ─── Suggest Metadata Change Form (Phase 37G.3) ────────────────────────────
+
+type MetadataAction = 'suggest_reclassify' | 'suggest_confidence_change' | 'suggest_salience_change'
+
+interface SuggestMetadataChangeFormProps {
+  targetNode?: GraphMapNode
+  targetEdge?: GraphMapEdge
+  onClose: () => void
+}
+
+const SCORE_OPTIONS = [0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]
+
+export function SuggestMetadataChangeForm({ targetNode, targetEdge, onClose }: SuggestMetadataChangeFormProps) {
+  const [action, setAction] = useState<MetadataAction>('suggest_reclassify')
+  const [reclassifyField, setReclassifyField] = useState(targetNode ? 'node_type' : 'edge_type')
+  const [proposedValue, setProposedValue] = useState('')
+  const [proposedScore, setProposedScore] = useState<number>(0.80)
+  const [rationale, setRationale] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const isNode = !!targetNode
+  const targetLabel = targetNode?.label ?? targetEdge?.label ?? ''
+  const targetKind = isNode ? 'node' : 'edge'
+  const targetRuntimeKey = targetNode?.id ?? targetEdge?.id ?? ''
+  const currentNodeType = targetNode?.nodeType
+  const currentEdgeType = targetEdge?.edgeType
+  const currentConfidence = targetNode?.confidence ?? targetEdge?.confidence ?? null
+  const currentSalience = targetNode?.salience ?? null
+
+  const reclassifyFields = isNode ? ['node_type', 'grain_level'] : ['edge_type', 'edge_grain']
+
+  function buildBody() {
+    const base = {
+      edit_action_type: action,
+      target: {
+        kind: targetKind,
+        label: targetLabel,
+        presenceScope: targetNode?.presenceScope ?? 'shared',
+        runtimeKey: targetRuntimeKey,
+        proposalId: targetNode?.proposalIds[0] ?? targetEdge?.proposalId ?? null,
+        ...(isNode ? { nodeType: currentNodeType } : { edgeType: currentEdgeType }),
+      },
+      grain_level: 'overview',
+      rationale: rationale.trim() || 'Proposed metadata change from Relational Map UI.',
+      selected_context: { mode: 'overview', include_midlevel: false, workspace_id: null },
+    }
+    if (action === 'suggest_reclassify') {
+      const currentVal = reclassifyField === 'node_type' ? currentNodeType :
+                         reclassifyField === 'edge_type' ? currentEdgeType :
+                         targetNode?.grainLevel ?? 'unknown'
+      return { ...base, field: reclassifyField, current_value: currentVal, proposed_value: proposedValue }
+    }
+    if (action === 'suggest_confidence_change') {
+      return { ...base, current_confidence: currentConfidence, proposed_confidence: proposedScore }
+    }
+    return { ...base, current_salience: currentSalience, proposed_salience: proposedScore }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setResult(null)
+    try {
+      const resp = await fetch('/api/graph-edit-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildBody()),
+      })
+      const data = await resp.json()
+      if (resp.ok) {
+        setResult({ ok: true, message: 'Metadata-change proposal created for Ontology Lab review.' })
+      } else if (resp.status === 409) {
+        setResult({ ok: false, message: data.error ?? 'A matching metadata-change proposal already exists.' })
+      } else {
+        setResult({ ok: false, message: data.error ?? 'Failed to create proposal.' })
+      }
+    } catch {
+      setResult({ ok: false, message: 'Request failed.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] text-text-muted/70 italic font-body">
+        This creates a pending metadata-change proposal for Ontology Lab review.
+        It does not change the graph directly or create Memory authority.
+      </div>
+      <div className="text-[10px] font-body text-text-muted">
+        Target: <span className="text-text-secondary">{targetLabel}</span>
+      </div>
+
+      {result ? (
+        <div className={`px-3 py-2 rounded text-xs font-body ${result.ok ? 'bg-emerald-900/20 text-emerald-300 border border-emerald-700/30' : 'bg-amber-900/20 text-amber-300 border border-amber-700/30'}`}>
+          {result.message}
+        </div>
+      ) : null}
+
+      {!result?.ok && (
+        <form onSubmit={handleSubmit} className="space-y-2.5">
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Change type</label>
+            <select value={action} onChange={e => { setAction(e.target.value as MetadataAction); setProposedValue('') }}
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+              <option value="suggest_reclassify">Reclassify</option>
+              <option value="suggest_confidence_change">Confidence</option>
+              {isNode && <option value="suggest_salience_change">Salience</option>}
+            </select>
+          </div>
+
+          {action === 'suggest_reclassify' && (
+            <>
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Field</label>
+                <select value={reclassifyField} onChange={e => { setReclassifyField(e.target.value); setProposedValue('') }}
+                  className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+                  {reclassifyFields.map(f => <option key={f} value={f}>{f.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Proposed value <span className="text-red-400">*</span></label>
+                <select value={proposedValue} onChange={e => setProposedValue(e.target.value)} required
+                  className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+                  <option value="">Select...</option>
+                  {reclassifyField === 'node_type' && GRAPH_NODE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                  {reclassifyField === 'edge_type' && GRAPH_EDGE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                  {(reclassifyField === 'grain_level' || reclassifyField === 'edge_grain') && GRAPH_GRAIN_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          {(action === 'suggest_confidence_change' || action === 'suggest_salience_change') && (
+            <div>
+              <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">
+                Proposed {action === 'suggest_confidence_change' ? 'confidence' : 'salience'} <span className="text-red-400">*</span>
+              </label>
+              <select value={proposedScore} onChange={e => setProposedScore(parseFloat(e.target.value))}
+                className="w-full font-body text-xs bg-house-bg border border-house-border text-text-secondary px-2 py-1.5 outline-none focus:border-house-muted">
+                {SCORE_OPTIONS.map(v => <option key={v} value={v}>{v.toFixed(2)}</option>)}
+              </select>
+              {action === 'suggest_confidence_change' && currentConfidence !== null && (
+                <p className="text-[10px] text-text-muted mt-1">Current: {currentConfidence?.toFixed(2) ?? '-'}</p>
+              )}
+              {action === 'suggest_salience_change' && currentSalience !== null && (
+                <p className="text-[10px] text-text-muted mt-1">Current: {currentSalience?.toFixed(2) ?? '-'}</p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="font-body text-[10px] text-text-muted tracking-wide block mb-1">Rationale (optional)</label>
+            <input type="text" value={rationale} onChange={e => setRationale(e.target.value)} maxLength={200}
+              placeholder="Why propose this change?"
+              className="w-full font-body text-xs bg-house-bg border border-house-border text-text-primary px-2 py-1.5 outline-none focus:border-house-muted placeholder:text-text-muted" />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={submitting || (action === 'suggest_reclassify' && !proposedValue)}
+              className="font-body text-xs px-3 py-1.5 border border-purple-600/40 text-purple-300 hover:bg-purple-600/10 transition-all disabled:opacity-40">
+              {submitting ? 'Submitting...' : 'Submit for review'}
+            </button>
+            <button type="button" onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {result?.ok && (
+        <button onClick={onClose} className="font-body text-xs text-text-muted hover:text-text-secondary transition-colors">Close</button>
       )}
     </div>
   )

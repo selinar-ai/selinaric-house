@@ -15,6 +15,7 @@ import {
   GRAPH_EDIT_ACTION_TYPES,
   SUPPORTED_EDIT_ACTIONS,
   DEFERRED_EDIT_ACTIONS,
+  NON_MATERIALISING_EDIT_ACTIONS,
   isValidEditActionType,
   isSupportedEditAction,
   isDeferredEditAction,
@@ -51,19 +52,23 @@ test('GRAPH_EDIT_ACTION_TYPES has 9 action types', () => {
   assert.equal(GRAPH_EDIT_ACTION_TYPES.length, 9)
 })
 
-test('SUPPORTED_EDIT_ACTIONS has suggest_node, suggest_edge, suggest_alias (37G.2)', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 3)
+test('SUPPORTED_EDIT_ACTIONS has 6 actions through 37G.3', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 6)
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_node'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_edge'))
   assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_alias'))
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_reclassify'))
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_confidence_change'))
+  assert.ok(SUPPORTED_EDIT_ACTIONS.includes('suggest_salience_change'))
 })
 
-test('DEFERRED_EDIT_ACTIONS has 6 deferred actions (suggest_alias promoted)', () => {
-  assert.equal(DEFERRED_EDIT_ACTIONS.length, 6)
-  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'), 'suggest_alias no longer deferred')
+test('DEFERRED_EDIT_ACTIONS has 3 deferred actions (37G.3 promoted three)', () => {
+  assert.equal(DEFERRED_EDIT_ACTIONS.length, 3)
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_reclassify'), 'suggest_reclassify now supported')
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_confidence_change'), 'suggest_confidence_change now supported')
+  assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_salience_change'), 'suggest_salience_change now supported')
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_merge'))
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_split'))
-  assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_reclassify'))
   assert.ok(DEFERRED_EDIT_ACTIONS.includes('suggest_retire_or_supersede'))
 })
 
@@ -89,10 +94,13 @@ test('isValidEditActionType rejects invalid types', () => {
   assert.ok(!isValidEditActionType('approve'))
 })
 
-test('isSupportedEditAction accepts supported actions', () => {
+test('isSupportedEditAction accepts all supported actions', () => {
   assert.ok(isSupportedEditAction('suggest_node'))
   assert.ok(isSupportedEditAction('suggest_edge'))
-  assert.ok(isSupportedEditAction('suggest_alias'), 'suggest_alias now supported in 37G.2')
+  assert.ok(isSupportedEditAction('suggest_alias'))
+  assert.ok(isSupportedEditAction('suggest_reclassify'), 'suggest_reclassify now supported in 37G.3')
+  assert.ok(isSupportedEditAction('suggest_confidence_change'), 'suggest_confidence_change now supported')
+  assert.ok(isSupportedEditAction('suggest_salience_change'), 'suggest_salience_change now supported')
   assert.ok(!isSupportedEditAction('suggest_merge'))
 })
 
@@ -430,8 +438,8 @@ test('suggest_alias is no longer in DEFERRED_EDIT_ACTIONS', () => {
   assert.ok(!DEFERRED_EDIT_ACTIONS.includes('suggest_alias'))
 })
 
-test('SUPPORTED_EDIT_ACTIONS now has 3 actions', () => {
-  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 3)
+test('SUPPORTED_EDIT_ACTIONS now has 6 actions (through 37G.3)', () => {
+  assert.equal(SUPPORTED_EDIT_ACTIONS.length, 6)
 })
 
 test('deferred actions still rejected — suggest_merge blocked', () => {
@@ -519,14 +527,188 @@ test('alias dedupe key differs from node and edge keys', () => {
 })
 
 // ── Renderer guard ──
-test('buildRelationalMap renderer guard file exists and blocks suggest_alias', () => {
+test('buildRelationalMap uses shared NON_MATERIALISING_EDIT_ACTIONS guard', () => {
   const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
-  assert.ok(code.includes("editActionType === 'suggest_alias'"), 'renderer guard must check for suggest_alias')
-  assert.ok(code.includes('alias proposals do not materialise'), 'must have governance warning text')
+  assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS'), 'renderer guard must use shared set')
+  assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard must use .has() check')
+  assert.ok(code.includes('must not materialise'), 'must have governance warning text')
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3 — Metadata-Change Contract Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3 Metadata-change contract ──')
+
+test('NON_MATERIALISING_EDIT_ACTIONS set contains all four non-materialising types', () => {
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_alias'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_reclassify'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_confidence_change'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_salience_change'))
+  assert.equal(NON_MATERIALISING_EDIT_ACTIONS.size, 4)
+})
+
+test('still-deferred actions remain rejected', () => {
+  for (const action of ['suggest_merge', 'suggest_split', 'suggest_retire_or_supersede']) {
+    const result = validateEditActionPayload({
+      edit_action_type: action,
+      edit_origin: 'relational_map', grain_level: 'overview', requires_review: true, review_surface: 'ontology_lab',
+    })
+    assert.ok(!result.valid, `${action} should be rejected`)
+    assert.ok(result.errors.some(e => e.includes('deferred')), `${action} error should mention deferred`)
+  }
+})
+
+const VALID_META_TARGET_NODE = {
+  kind: 'node' as const,
+  label: 'Continuity',
+  nodeType: 'concept',
+  presenceScope: 'shared',
+  runtimeKey: 'node:shared:concept:continuity',
+  proposalId: '07480668-11cd-4176-8dcb-73fd34187645',
+}
+
+const VALID_RECLASSIFY_PAYLOAD = {
+  edit_action_type: 'suggest_reclassify',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.3',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Metadata-change proposal only.',
+  target: VALID_META_TARGET_NODE,
+  field: 'node_type',
+  current_value: 'concept',
+  proposed_value: 'project',
+  rationale: 'Continuity acts more like a project arc.',
+}
+
+test('valid reclassify payload passes', () => {
+  const result = validateEditActionPayload(VALID_RECLASSIFY_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('reclassify rejects invalid field', () => {
+  const result = validateEditActionPayload({ ...VALID_RECLASSIFY_PAYLOAD, field: 'authority_status' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('not supported')))
+})
+
+test('reclassify rejects invalid proposed node_type', () => {
+  const result = validateEditActionPayload({ ...VALID_RECLASSIFY_PAYLOAD, proposed_value: 'invalid_xyz' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('not a valid node type')))
+})
+
+test('reclassify rejects no-op (same value)', () => {
+  const result = validateEditActionPayload({ ...VALID_RECLASSIFY_PAYLOAD, proposed_value: 'concept' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same as current_value')))
+})
+
+test('reclassify grain_level validates correctly', () => {
+  const result = validateEditActionPayload({ ...VALID_RECLASSIFY_PAYLOAD, field: 'grain_level', current_value: 'midlevel', proposed_value: 'overview' })
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+const VALID_CONFIDENCE_PAYLOAD = {
+  edit_action_type: 'suggest_confidence_change',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.3',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Metadata-change proposal only.',
+  target: VALID_META_TARGET_NODE,
+  current_confidence: 0.70,
+  proposed_confidence: 0.85,
+  rationale: 'Multiple supporting edges.',
+}
+
+test('valid confidence payload passes', () => {
+  const result = validateEditActionPayload(VALID_CONFIDENCE_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('confidence rejects out-of-range', () => {
+  assert.ok(!validateEditActionPayload({ ...VALID_CONFIDENCE_PAYLOAD, proposed_confidence: 1.5 }).valid)
+  assert.ok(!validateEditActionPayload({ ...VALID_CONFIDENCE_PAYLOAD, proposed_confidence: -0.1 }).valid)
+})
+
+test('confidence rejects no-op', () => {
+  const result = validateEditActionPayload({ ...VALID_CONFIDENCE_PAYLOAD, proposed_confidence: 0.70 })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same as current')))
+})
+
+test('confidence rejects non-number', () => {
+  const result = validateEditActionPayload({ ...VALID_CONFIDENCE_PAYLOAD, proposed_confidence: '0.85' })
+  assert.ok(!result.valid)
+})
+
+const VALID_SALIENCE_PAYLOAD = {
+  edit_action_type: 'suggest_salience_change',
+  edit_origin: 'relational_map',
+  edit_origin_phase: '37G.3',
+  grain_level: 'overview',
+  detail_policy: 'review_required',
+  requires_review: true,
+  review_surface: 'ontology_lab',
+  governance_note: 'Metadata-change proposal only.',
+  target: VALID_META_TARGET_NODE,
+  current_salience: 0.80,
+  proposed_salience: 0.95,
+  rationale: 'Central concept.',
+}
+
+test('valid salience payload passes', () => {
+  const result = validateEditActionPayload(VALID_SALIENCE_PAYLOAD)
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('salience rejects out-of-range', () => {
+  assert.ok(!validateEditActionPayload({ ...VALID_SALIENCE_PAYLOAD, proposed_salience: 1.2 }).valid)
+})
+
+test('salience rejects no-op', () => {
+  const result = validateEditActionPayload({ ...VALID_SALIENCE_PAYLOAD, proposed_salience: 0.80 })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('same as current')))
+})
+
+test('metadata dedupe key has correct prefix', () => {
+  const key = generateEditActionDedupeKey(VALID_RECLASSIFY_PAYLOAD)
+  assert.ok(key.startsWith('metadata:map_ui:relational_map_ui:suggest_reclassify:'), `key: ${key}`)
+  assert.ok(key.includes(':node_type:'), `key should include field`)
+})
+
+test('confidence dedupe key includes change field and value', () => {
+  const key = generateEditActionDedupeKey(VALID_CONFIDENCE_PAYLOAD)
+  assert.ok(key.startsWith('metadata:map_ui:relational_map_ui:suggest_confidence_change:'))
+  assert.ok(key.endsWith(':confidence:0.85'))
+})
+
+test('reclassify edge payload with edge target passes', () => {
+  const result = validateEditActionPayload({
+    ...VALID_RECLASSIFY_PAYLOAD,
+    target: { kind: 'edge', label: 'Ari belongs to House', edgeType: 'belongs_to', presenceScope: 'shared', runtimeKey: 'edge:123' },
+    field: 'edge_type',
+    current_value: 'belongs_to',
+    proposed_value: 'supports',
+  })
+  assert.ok(result.valid, result.errors.join('; '))
+})
+
+test('node reclassify field rejects edge fields', () => {
+  const result = validateEditActionPayload({ ...VALID_RECLASSIFY_PAYLOAD, field: 'edge_type' })
+  assert.ok(!result.valid)
+  assert.ok(result.errors.some(e => e.includes('not supported')))
 })
 
 console.log('\n═════════════════════════════════════════════════')
-console.log(`  Phase 37G.0/37G.2 Graph Edit Action Contract Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.0/37G.2/37G.3 Contract Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

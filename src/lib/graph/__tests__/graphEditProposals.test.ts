@@ -329,10 +329,10 @@ test('renderer guard added to buildRelationalMap processNodeProposal', () => {
   assert.ok(code.includes('return null'), 'renderer guard must return null to skip materialisation')
 })
 
-test('normal node proposals still materialise after guard (guard is narrow)', () => {
+test('normal node proposals still materialise after guard (guard uses shared set)', () => {
   const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
-  // Guard checks for specific edit_action_type, not all node proposals
-  assert.ok(code.includes("editActionType === 'suggest_alias'"), 'guard must be specific to suggest_alias only')
+  // Guard uses the shared NON_MATERIALISING_EDIT_ACTIONS set, not a hardcoded value
+  assert.ok(code.includes('NON_MATERIALISING_EDIT_ACTIONS.has'), 'guard must use the shared set')
   assert.ok(!code.includes("editActionType === 'suggest_node'"), 'guard must not block suggest_node proposals')
 })
 
@@ -364,8 +364,83 @@ test('Suggest Alias gated on !derivedFromEdge', () => {
   )
 })
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 37G.3 — Metadata-Change Proposal API + UI Structure Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n  ── 37G.3 API + UI structural ──')
+
+test('metadata-change handler exists in API route', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('handleSuggestMetadataChange'), 'handleSuggestMetadataChange must exist')
+})
+
+test('metadata-change handler uses generation_version=37G.3', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes("generationVersion: '37G.3'"), 'must use 37G.3 version')
+})
+
+test('metadata-change handler validates target is approved_graph', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('target_not_approved'), 'must validate target approval')
+})
+
+test('metadata-change handler blocks duplicate proposals', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('existingChange'), 'must check for existing change proposals')
+})
+
+test('metadata-change handler does NOT mutate existing proposals', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  // The handler calls createProposal, never .update() on graph_proposals
+  const updateCalls = [...code.matchAll(/\.from\('graph_proposals'\)[^]*?\.update\(/g)]
+  assert.equal(updateCalls.length, 0, 'handler must not update existing graph_proposals')
+})
+
+test('metadata-change handler uses map_ui source type', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  // handleSuggestMetadataChange is after the alias handler; confirm map_ui appears in last handler
+  const lastIdx = code.lastIndexOf("sourceType: 'map_ui'")
+  assert.ok(lastIdx > -1, 'must use map_ui source in metadata handler')
+})
+
+test('reclassify proposed_label format is correct', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(code.includes('Reclassify:') || code.includes('`Reclassify:'), 'must use Reclassify: prefix format')
+  assert.ok(code.includes('Confidence:') || code.includes('`Confidence:'), 'must use Confidence: prefix format')
+  assert.ok(code.includes('Salience:') || code.includes('`Salience:'), 'must use Salience: prefix format')
+})
+
+test('buildRelationalMap edge renderer guard is present', () => {
+  const code = readFileSync(resolve(__dirname, '..', 'buildRelationalMap.ts'), 'utf-8')
+  // Must have NON_MATERIALISING_EDIT_ACTIONS check in both node and edge processors
+  const guardCount = (code.match(/NON_MATERIALISING_EDIT_ACTIONS\.has/g) || []).length
+  assert.ok(guardCount >= 2, `guard must appear in both node and edge processors, found ${guardCount}`)
+})
+
+test('SuggestMetadataChangeForm exists in suggest panel', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapSuggestPanel.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestMetadataChangeForm'), 'SuggestMetadataChangeForm must exist')
+  assert.ok(code.includes('suggest_reclassify'), 'form must support reclassify')
+  assert.ok(code.includes('suggest_confidence_change'), 'form must support confidence')
+  assert.ok(code.includes('suggest_salience_change'), 'form must support salience')
+})
+
+test('Suggest Metadata Change gated on !derivedFromEdge in inspector', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'components', 'graph', 'RelationalMapInspector.tsx'), 'utf-8')
+  assert.ok(code.includes('SuggestMetadataChangeForm'), 'inspector must include SuggestMetadataChangeForm')
+  assert.ok(code.includes('Metadata changes require an approved graph node'), 'must show derived node helper text')
+})
+
+test('metadata-change handler does not import Memory modules', () => {
+  const code = readFileSync(resolve(__dirname, '..', '..', '..', 'app', 'api', 'graph-edit-proposals', 'route.ts'), 'utf-8')
+  assert.ok(!code.includes('memory_nodes'), 'must not reference memory_nodes')
+  assert.ok(!code.includes('canonical_status'), 'must not touch canonical_status')
+  assert.ok(!code.includes("prompt_eligible: true"), 'must not set prompt_eligible: true')
+})
+
 console.log('\n═════════════════════════════════════════════════════')
-console.log(`  Phase 37G.1/37G.2 Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37G.1/37G.2/37G.3 Graph Edit Proposals Tests: ${passed} passed, ${failed} failed`)
 console.log('═════════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

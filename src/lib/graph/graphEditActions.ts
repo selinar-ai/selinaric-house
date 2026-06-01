@@ -45,17 +45,30 @@ export const SUPPORTED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_node',
   'suggest_edge',
   'suggest_alias',
+  'suggest_reclassify',
+  'suggest_confidence_change',
+  'suggest_salience_change',
 ] as const
 
 /** Actions deferred to later phases */
 export const DEFERRED_EDIT_ACTIONS: readonly GraphEditActionType[] = [
   'suggest_merge',
   'suggest_split',
+  'suggest_retire_or_supersede',
+] as const
+
+/**
+ * Phase 37G.3 — Non-materialising edit action types.
+ * Proposals with these edit_action_types must never materialise as
+ * Relational Map nodes or edges, regardless of their status.
+ * Used by the renderer guard in buildRelationalMap.
+ */
+export const NON_MATERIALISING_EDIT_ACTIONS = new Set<string>([
+  'suggest_alias',
   'suggest_reclassify',
   'suggest_confidence_change',
   'suggest_salience_change',
-  'suggest_retire_or_supersede',
-] as const
+])
 
 export function isValidEditActionType(value: string): value is GraphEditActionType {
   return (GRAPH_EDIT_ACTION_TYPES as readonly string[]).includes(value)
@@ -185,10 +198,54 @@ export interface GraphEditSuggestAliasPayload extends GraphEditActionPayloadBase
   rationale: string
 }
 
+/** Shared target context for metadata-change proposals (Phase 37G.3) */
+interface MetadataChangeTarget {
+  kind: 'node' | 'edge'
+  label: string
+  presenceScope: string
+  runtimeKey: string
+  proposalId?: string
+  // Node targets
+  nodeType?: string
+  // Edge targets
+  edgeType?: string
+}
+
+/** Payload for suggest_reclassify (Phase 37G.3) */
+export interface GraphEditSuggestReclassifyPayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_reclassify'
+  target: MetadataChangeTarget
+  field: string            // 'node_type' | 'edge_type' | 'grain_level' | 'edge_grain'
+  current_value: string
+  proposed_value: string
+  rationale: string
+}
+
+/** Payload for suggest_confidence_change (Phase 37G.3) */
+export interface GraphEditSuggestConfidencePayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_confidence_change'
+  target: MetadataChangeTarget
+  current_confidence: number | null
+  proposed_confidence: number
+  rationale: string
+}
+
+/** Payload for suggest_salience_change (Phase 37G.3) */
+export interface GraphEditSuggestSaliencePayload extends GraphEditActionPayloadBase {
+  edit_action_type: 'suggest_salience_change'
+  target: MetadataChangeTarget
+  current_salience: number | null
+  proposed_salience: number
+  rationale: string
+}
+
 export type GraphEditActionPayload =
   | GraphEditSuggestNodePayload
   | GraphEditSuggestEdgePayload
   | GraphEditSuggestAliasPayload
+  | GraphEditSuggestReclassifyPayload
+  | GraphEditSuggestConfidencePayload
+  | GraphEditSuggestSaliencePayload
 
 // ─── Validation ───────────────────────────────────────────────────────────
 
@@ -239,6 +296,12 @@ export function validateEditActionPayload(
     validateSuggestEdge(payload, errors)
   } else if (actionType === 'suggest_alias') {
     validateSuggestAlias(payload, errors)
+  } else if (actionType === 'suggest_reclassify') {
+    validateSuggestReclassify(payload, errors)
+  } else if (actionType === 'suggest_confidence_change') {
+    validateSuggestConfidenceChange(payload, errors)
+  } else if (actionType === 'suggest_salience_change') {
+    validateSuggestSalienceChange(payload, errors)
   }
 
   return { valid: errors.length === 0, errors }
@@ -348,6 +411,114 @@ function validateSuggestAlias(payload: Record<string, unknown>, errors: string[]
   }
 }
 
+// ─── Supported reclassify fields per target kind ──────────────────────────
+
+const RECLASSIFY_NODE_FIELDS = ['node_type', 'grain_level'] as const
+const RECLASSIFY_EDGE_FIELDS = ['edge_type', 'edge_grain'] as const
+
+function validateMetadataTarget(target: Record<string, unknown> | undefined, errors: string[]): boolean {
+  if (!target || typeof target !== 'object') {
+    errors.push('target is required')
+    return false
+  }
+  if (typeof target.label !== 'string' || !target.label) errors.push('target.label is required')
+  const kind = target.kind
+  if (kind !== 'node' && kind !== 'edge') errors.push('target.kind must be "node" or "edge"')
+  if (typeof target.presenceScope !== 'string' || !isValidGraphPresenceScope(target.presenceScope)) {
+    errors.push(`Invalid target.presenceScope: "${target.presenceScope}"`)
+  }
+  if (typeof target.runtimeKey !== 'string' || !target.runtimeKey) errors.push('target.runtimeKey is required')
+  if (kind === 'node' && (typeof target.nodeType !== 'string' || !isValidGraphNodeType(target.nodeType as string))) {
+    errors.push(`Invalid target.nodeType: "${target.nodeType}"`)
+  }
+  if (kind === 'edge' && (typeof target.edgeType !== 'string' || !isValidGraphEdgeType(target.edgeType as string))) {
+    errors.push(`Invalid target.edgeType: "${target.edgeType}"`)
+  }
+  return errors.length === 0
+}
+
+function validateSuggestReclassify(payload: Record<string, unknown>, errors: string[]): void {
+  const target = payload.target as Record<string, unknown> | undefined
+  if (!validateMetadataTarget(target, errors)) return
+
+  const kind = target!.kind as 'node' | 'edge'
+  const field = payload.field as string | undefined
+  const currentValue = payload.current_value as string | undefined
+  const proposedValue = payload.proposed_value as string | undefined
+
+  if (!field) {
+    errors.push('field is required')
+    return
+  }
+
+  const allowedFields = kind === 'node' ? RECLASSIFY_NODE_FIELDS : RECLASSIFY_EDGE_FIELDS
+  if (!(allowedFields as readonly string[]).includes(field)) {
+    errors.push(`field "${field}" is not supported for ${kind} targets. Allowed: ${allowedFields.join(', ')}`)
+    return
+  }
+
+  if (typeof currentValue !== 'string') errors.push('current_value is required as a string')
+  if (typeof proposedValue !== 'string' || proposedValue.trim().length === 0) {
+    errors.push('proposed_value is required')
+    return
+  }
+
+  // Validate proposed_value for known fields
+  if (field === 'node_type' && !isValidGraphNodeType(proposedValue)) {
+    errors.push(`proposed_value "${proposedValue}" is not a valid node type`)
+  }
+  if (field === 'edge_type' && !isValidGraphEdgeType(proposedValue)) {
+    errors.push(`proposed_value "${proposedValue}" is not a valid edge type`)
+  }
+  if ((field === 'grain_level' || field === 'edge_grain') && !isValidGrainLevel(proposedValue)) {
+    errors.push(`proposed_value "${proposedValue}" is not a valid grain level`)
+  }
+
+  // No-op check
+  if (typeof currentValue === 'string' &&
+      currentValue.trim().toLowerCase() === proposedValue.trim().toLowerCase()) {
+    errors.push('proposed_value cannot be the same as current_value')
+  }
+}
+
+function validateSuggestConfidenceChange(payload: Record<string, unknown>, errors: string[]): void {
+  const target = payload.target as Record<string, unknown> | undefined
+  validateMetadataTarget(target, errors)
+
+  const proposed = payload.proposed_confidence
+  const current = payload.current_confidence
+
+  if (typeof proposed !== 'number') {
+    errors.push('proposed_confidence must be a number')
+    return
+  }
+  if (proposed < 0 || proposed > 1) {
+    errors.push(`proposed_confidence must be between 0 and 1, got ${proposed}`)
+  }
+  if (typeof current === 'number' && Math.abs(proposed - current) < 0.001) {
+    errors.push('proposed_confidence cannot be the same as current_confidence')
+  }
+}
+
+function validateSuggestSalienceChange(payload: Record<string, unknown>, errors: string[]): void {
+  const target = payload.target as Record<string, unknown> | undefined
+  validateMetadataTarget(target, errors)
+
+  const proposed = payload.proposed_salience
+  const current = payload.current_salience
+
+  if (typeof proposed !== 'number') {
+    errors.push('proposed_salience must be a number')
+    return
+  }
+  if (proposed < 0 || proposed > 1) {
+    errors.push(`proposed_salience must be between 0 and 1, got ${proposed}`)
+  }
+  if (typeof current === 'number' && Math.abs(proposed - current) < 0.001) {
+    errors.push('proposed_salience cannot be the same as current_salience')
+  }
+}
+
 // ─── Dedupe Key Generation ────────────────────────────────────────────────
 
 function normalizeLabel(label: string): string {
@@ -383,6 +554,20 @@ export function generateEditActionDedupeKey(
     const runtimeKey = (target?.runtimeKey as string) || ''
     const alias = (payload.proposed_alias as string) || ''
     return `alias:map_ui:relational_map_ui:${normalizeLabel(runtimeKey)}:${normalizeLabel(alias)}`
+  }
+
+  if (action === 'suggest_reclassify' || action === 'suggest_confidence_change' || action === 'suggest_salience_change') {
+    const target = payload.target as Record<string, unknown> | undefined
+    const runtimeKey = (target?.runtimeKey as string) || ''
+    const field =
+      action === 'suggest_reclassify' ? ((payload.field as string) || 'field') :
+      action === 'suggest_confidence_change' ? 'confidence' :
+      'salience'
+    const proposedValue =
+      action === 'suggest_reclassify' ? String(payload.proposed_value ?? '') :
+      action === 'suggest_confidence_change' ? String(payload.proposed_confidence ?? '') :
+      String(payload.proposed_salience ?? '')
+    return `metadata:map_ui:relational_map_ui:${action}:${normalizeLabel(runtimeKey)}:${field}:${normalizeLabel(proposedValue)}`
   }
 
   // Fallback for deferred actions

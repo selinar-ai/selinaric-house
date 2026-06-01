@@ -606,6 +606,82 @@ test('normal node proposals still materialise after guard (regression check)', (
   assert.equal(result.nodes[0].label, 'Continuity')
 })
 
+test('approved suggest_reclassify node proposal does NOT materialise', () => {
+  const proposals = [
+    makeTestProposal({ id: 'real-node2', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared', proposed_label: 'Continuity', dedupe_key: 'real2' }),
+    makeTestProposal({
+      id: 'reclassify-prop', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared',
+      proposed_label: 'Reclassify: Continuity node_type concept → project',
+      dedupe_key: 'reclassify',
+      proposed_payload: { edit_action_type: 'suggest_reclassify', target: { kind: 'node' }, change: { field: 'node_type' } },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 1)
+  assert.equal(result.nodes[0].label, 'Continuity')
+})
+
+test('approved suggest_reclassify edge proposal does NOT materialise', () => {
+  const proposals = [
+    makeTestProposal({
+      id: 'reclassify-edge', proposal_type: 'edge', edge_type: 'belongs_to', presence_scope: 'shared',
+      proposed_label: 'Reclassify: Ari belongs_to House edge_type → supports',
+      dedupe_key: 'reclassify-edge',
+      node_type: null,
+      proposed_payload: { edit_action_type: 'suggest_reclassify', target: { kind: 'edge' }, from: { label: 'Ari', nodeType: 'presence' }, to: { label: 'House', nodeType: 'project' } },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.edges.length, 0, 'reclassify edge proposal must not materialise as edge')
+  assert.equal(result.nodes.length, 0)
+})
+
+test('approved suggest_confidence_change proposal does NOT materialise', () => {
+  const proposals = [
+    makeTestProposal({
+      id: 'conf-prop', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared',
+      proposed_label: 'Confidence: Continuity 0.70 → 0.85',
+      dedupe_key: 'conf',
+      proposed_payload: { edit_action_type: 'suggest_confidence_change' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 0)
+})
+
+test('approved suggest_salience_change proposal does NOT materialise', () => {
+  const proposals = [
+    makeTestProposal({
+      id: 'sal-prop', proposal_type: 'node', node_type: 'concept', presence_scope: 'shared',
+      proposed_label: 'Salience: Bond 0.80 → 0.95',
+      dedupe_key: 'sal',
+      proposed_payload: { edit_action_type: 'suggest_salience_change' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 0)
+})
+
+test('shared NON_MATERIALISING_EDIT_ACTIONS guards all four types', () => {
+  const { NON_MATERIALISING_EDIT_ACTIONS } = require('../graphEditActions')
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_alias'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_reclassify'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_confidence_change'))
+  assert.ok(NON_MATERIALISING_EDIT_ACTIONS.has('suggest_salience_change'))
+})
+
+test('alias renderer guard still works after refactor', () => {
+  const proposals = [
+    makeTestProposal({
+      id: 'alias-still', proposal_type: 'node', node_type: 'project', presence_scope: 'house',
+      proposed_label: 'Alias: House → Selináric House', dedupe_key: 'alias-still',
+      proposed_payload: { edit_action_type: 'suggest_alias' },
+    }),
+  ]
+  const result = buildRelationalMap({ proposals, sources: [], events: [] })
+  assert.equal(result.nodes.length, 0, 'alias guard must still work')
+})
+
 test('suggest_alias skipped proposals appear in diagnostics.skippedProposals', () => {
   const proposals = [
     makeTestProposal({
@@ -623,7 +699,7 @@ test('suggest_alias skipped proposals appear in diagnostics.skippedProposals', (
 // ═══════════════════════════════════════════════════════════════════════════
 
 console.log('\n═══════════════════════════════════════════════════')
-console.log(`  Phase 37F/37G.2 Graph Grain Tests: ${passed} passed, ${failed} failed`)
+console.log(`  Phase 37F/37G.2/37G.3 Graph Grain + Renderer Tests: ${passed} passed, ${failed} failed`)
 console.log('═══════════════════════════════════════════════════\n')
 
 if (failed > 0) process.exit(1)

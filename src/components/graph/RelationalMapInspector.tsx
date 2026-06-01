@@ -8,7 +8,7 @@
 
 import { useState } from 'react'
 import { getNodeTypeLabel, getEdgeTypeLabel } from '@/lib/graph/graphDisplayUtils'
-import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm } from './RelationalMapSuggestPanel'
+import { SuggestNodeForm, SuggestEdgeForm, SuggestAliasForm, SuggestMetadataChangeForm } from './RelationalMapSuggestPanel'
 import type {
   GraphMapNode,
   GraphMapEdge,
@@ -159,6 +159,7 @@ export default function RelationalMapInspector({
   const [showPayload, setShowPayload] = useState(false)
   const [suggestEdgeOpen, setSuggestEdgeOpen] = useState(false)
   const [suggestAliasOpen, setSuggestAliasOpen] = useState(false)
+  const [suggestMetaOpen, setSuggestMetaOpen] = useState(false)
 
   if (!selection) {
     // Collapsed state — minimal width when nothing is selected
@@ -421,6 +422,30 @@ export default function RelationalMapInspector({
         {isNode && !arrangeMode && selection.node.derivedFromEdge && (
           <p className="text-[10px] text-text-muted opacity-50 italic">
             Suggest Alias requires an approved graph node. Derived display nodes cannot receive aliases.
+          </p>
+        )}
+
+        {/* Phase 37G.3 — Suggest Metadata Change (Inspect mode, real nodes only) */}
+        {isNode && !arrangeMode && !selection.node.derivedFromEdge && (
+          <div>
+            {suggestMetaOpen ? (
+              <SuggestMetadataChangeForm
+                targetNode={selection.node}
+                onClose={() => setSuggestMetaOpen(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setSuggestMetaOpen(true)}
+                className="font-body text-[10px] px-2.5 py-1 border border-house-border text-text-muted hover:text-purple-300 hover:border-purple-600/40 transition-all"
+              >
+                ⚙ Suggest Metadata Change
+              </button>
+            )}
+          </div>
+        )}
+        {isNode && !arrangeMode && selection.node.derivedFromEdge && (
+          <p className="text-[10px] text-text-muted opacity-50 italic">
+            Metadata changes require an approved graph node. Derived display nodes cannot be changed.
           </p>
         )}
         {isNode && arrangeMode && (
