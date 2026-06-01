@@ -1,32 +1,38 @@
 'use client'
 
-// Phase 37H.2 — Graph-Assisted Candidate Suggestion Detail Panel
+// Phase 37H.3 — Graph-Assisted Candidate Suggestion Detail Panel (Hydrated)
 //
-// Displays evidence, provenance, limitations, and governance context.
-// Does not create Memory, Held Truth, or mutate any table.
+// Graph assistance explains evidence. Graph assistance does not create authority.
+// Evidence explanation is not promotion. Provenance visibility is not Memory.
+//
+// This panel displays hydrated evidence with titles, labels, and warnings.
 // No approve/promote controls. Dismiss only.
 
-import type { GraphCandidateSuggestion } from '@/lib/graph/candidateSuggestionTypes'
+import type { HydratedGraphCandidateSuggestion } from '@/lib/graph/candidateSuggestionTypes'
 
 interface Props {
-  suggestion: GraphCandidateSuggestion
+  hydrated: HydratedGraphCandidateSuggestion
   onDismiss?: (id: string) => void
   dismissing?: boolean
   onClose: () => void
 }
 
-export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissing, onClose }: Props) {
-  const s = suggestion
+export default function GraphSuggestionDetail({ hydrated, onDismiss, dismissing, onClose }: Props) {
+  const s = hydrated.suggestion
   const isMemory = s.candidate_type === 'memory_candidate'
+  const t = hydrated.targetArchiveItem
+  const infoWarnings = hydrated.warnings.filter(w => w.severity === 'info')
+  const realWarnings = hydrated.warnings.filter(w => w.severity === 'warning')
 
   return (
     <div className="space-y-3">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="font-mono text-xs text-text-secondary tracking-wide">Suggestion Detail</span>
         <button onClick={onClose} className="text-text-muted hover:text-text-secondary text-xs">✕</button>
       </div>
 
-      {/* Header badges */}
+      {/* 1. Badges */}
       <div className="flex flex-wrap gap-1.5">
         <span className={`text-[9px] font-body px-1.5 py-0.5 rounded border ${
           isMemory ? 'border-blue-700/30 bg-blue-900/10 text-blue-300' : 'border-amber-700/30 bg-amber-900/10 text-amber-300'
@@ -45,13 +51,13 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
         </span>
       </div>
 
-      {/* Warning */}
+      {/* 2. Authority warning */}
       <div className="text-[10px] text-text-muted/70 italic font-body border border-amber-700/20 bg-amber-900/10 px-2.5 py-1.5 rounded leading-relaxed">
         Graph-assisted suggestion only. Not Memory. Not Held Truth.
         Memory Review / Held Truth governance still required.
       </div>
 
-      {/* Label + Summary */}
+      {/* 3. Label + Summary */}
       <div>
         <div className="text-xs text-text-secondary font-body">{s.proposed_label}</div>
         {s.proposed_summary && (
@@ -59,13 +65,28 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
         )}
       </div>
 
-      {/* Target info */}
-      {isMemory && s.target_archive_item_id && (
-        <div className="text-[10px] font-body text-text-muted">
-          <span className="opacity-60">Target archive item:</span> {s.target_archive_item_id}
-          {s.canonical_status_before && (
-            <span className="ml-1 text-[9px] bg-house-surface px-1 rounded">{s.canonical_status_before}</span>
-          )}
+      {/* 4. Target */}
+      {isMemory && t && (
+        <div className="bg-house-bg border border-house-border/50 rounded px-2.5 py-1.5">
+          <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">Target Archive Item</div>
+          <div className={`text-[11px] font-body ${t.missing ? 'text-amber-300/70 italic' : 'text-text-secondary'}`}>
+            {t.title}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {t.statusAtSuggestion && (
+              <span className="text-[9px] text-text-muted bg-house-surface px-1 rounded">
+                at suggestion: {t.statusAtSuggestion}
+              </span>
+            )}
+            {t.currentCanonicalStatus && (
+              <span className="text-[9px] text-text-muted bg-house-surface px-1 rounded">
+                now: {t.currentCanonicalStatus}
+              </span>
+            )}
+            {t.statusChanged && (
+              <span className="text-[9px] text-amber-300 bg-amber-900/20 px-1 rounded">changed</span>
+            )}
+          </div>
         </div>
       )}
       {!isMemory && (
@@ -76,19 +97,21 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
           </span>
         </div>
       )}
+
+      {/* Proposed truth text (Held Truth only) */}
       {!isMemory && s.proposed_truth_text && (
         <div className="text-[11px] text-text-secondary font-body border-l-2 border-amber-700/30 pl-2 italic">
           &ldquo;{s.proposed_truth_text}&rdquo;
         </div>
       )}
 
-      {/* Reason */}
+      {/* 5. Reason */}
       <div>
         <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">Reason</div>
         <div className="text-[11px] text-text-muted leading-relaxed font-body">{s.reason_for_candidate}</div>
       </div>
 
-      {/* Evidence strength */}
+      {/* 6. Evidence strength */}
       <div className="text-[10px] font-body text-text-muted">
         <span className="opacity-60">Evidence strength:</span>{' '}
         <span className={`capitalize ${
@@ -97,7 +120,7 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
         }`}>{s.evidence_strength}</span>
       </div>
 
-      {/* Limits / uncertainties */}
+      {/* 7. Limits / uncertainties */}
       {s.limits_or_uncertainties && (
         <div>
           <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">Limits / Uncertainties</div>
@@ -105,20 +128,41 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
         </div>
       )}
 
-      {/* Supporting archive sources */}
-      {s.supporting_archive_sources && s.supporting_archive_sources.length > 0 && (
+      {/* 8. Archive Evidence */}
+      {hydrated.hydratedArchiveSources.length > 0 && (
         <div>
           <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">
-            Supporting Evidence (graph-assisted)
+            Archive Evidence (graph-assisted)
           </div>
-          <div className="space-y-1">
-            {s.supporting_archive_sources.map((src, i) => (
-              <div key={i} className="bg-house-bg border border-house-border/50 rounded px-2 py-1 text-[10px] font-body text-text-muted">
-                <div className="truncate text-text-secondary">{src.archive_item_id}</div>
-                <div className="flex gap-2 mt-0.5">
-                  <span className="bg-house-surface px-1 rounded">{src.canonical_status_snapshot}</span>
-                  <span className="bg-house-surface px-1 rounded">{src.evidence_role.replace(/_/g, ' ')}</span>
-                  {src.used_for_weighting && <span className="text-purple-300/60">weighted</span>}
+          <div className="space-y-1.5">
+            {hydrated.hydratedArchiveSources.map((src, i) => (
+              <div key={i} className={`bg-house-bg border rounded px-2.5 py-1.5 text-[10px] font-body ${
+                src.missing ? 'border-amber-700/30' : 'border-house-border/50'
+              }`}>
+                <div className={`text-[11px] ${src.missing ? 'text-amber-300/70 italic' : 'text-text-secondary'}`}>
+                  {src.title}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted"
+                    title={src.evidenceRoleExplanation}>
+                    {src.evidenceRoleLabel}
+                  </span>
+                  <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">
+                    snapshot: {src.canonicalStatusSnapshot}
+                  </span>
+                  {src.currentCanonicalStatus && (
+                    <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">
+                      now: {src.currentCanonicalStatus}
+                    </span>
+                  )}
+                  {src.statusChanged && (
+                    <span className="text-[9px] text-amber-300 bg-amber-900/20 px-1 rounded">changed</span>
+                  )}
+                  <span className={`text-[9px] px-1 rounded ${
+                    src.usedForWeighting ? 'text-purple-300/70 bg-purple-900/10' : 'text-text-muted/50 bg-house-surface'
+                  }`} title={src.weightingExplanation}>
+                    {src.usedForWeighting ? 'weighted' : 'not weighted'}
+                  </span>
                 </div>
               </div>
             ))}
@@ -126,42 +170,100 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
         </div>
       )}
 
-      {/* Supporting graph evidence */}
-      {(s.supporting_proposal_ids.length > 0 || s.supporting_graph_node_ids.length > 0 || s.supporting_graph_edge_ids.length > 0) && (
+      {/* 9. Graph Evidence */}
+      {(hydrated.hydratedProposals.length > 0 || hydrated.hydratedLegacyNodes.length > 0 || hydrated.hydratedLegacyEdges.length > 0) && (
         <div>
           <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">
             Graph Structure Evidence
           </div>
-          {s.supporting_proposal_ids.length > 0 && (
-            <div className="text-[10px] text-text-muted font-body">
-              {s.supporting_proposal_ids.length} approved graph proposal(s)
+          <div className="text-[9px] text-text-muted/50 italic font-body mb-1">
+            Approved graph structure may support review, but graph structure is not Memory authority.
+          </div>
+
+          {/* Proposals */}
+          {hydrated.hydratedProposals.length > 0 && (
+            <div className="space-y-1 mb-1.5">
+              {hydrated.hydratedProposals.map((p, i) => (
+                <div key={i} className={`bg-house-bg border rounded px-2 py-1 text-[10px] font-body ${
+                  p.missing ? 'border-amber-700/30' : 'border-house-border/50'
+                }`}>
+                  <div className={`text-[11px] ${p.missing ? 'text-amber-300/70 italic' : 'text-text-secondary'}`}>
+                    {p.label}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-0.5">
+                    <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{p.proposalType}</span>
+                    {p.nodeType && <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{p.nodeType}</span>}
+                    {p.edgeType && <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{p.edgeType}</span>}
+                    <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{p.status}</span>
+                    {p.authorityStatus && <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{p.authorityStatus}</span>}
+                  </div>
+                  {p.summary && (
+                    <div className="text-[10px] text-text-muted/60 mt-0.5 line-clamp-2">{p.summary}</div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
-          {s.supporting_graph_node_ids.length > 0 && (
-            <div className="text-[10px] text-text-muted font-body">
-              {s.supporting_graph_node_ids.length} approved legacy graph node(s)
+
+          {/* Legacy nodes */}
+          {hydrated.hydratedLegacyNodes.length > 0 && (
+            <div className="space-y-1 mb-1.5">
+              {hydrated.hydratedLegacyNodes.map((n, i) => (
+                <div key={i} className={`bg-house-bg border rounded px-2 py-1 text-[10px] font-body ${
+                  n.missing ? 'border-amber-700/30' : 'border-house-border/50'
+                }`}>
+                  <div className={`text-[11px] ${n.missing ? 'text-amber-300/70 italic' : 'text-text-secondary'}`}>
+                    {n.label}
+                  </div>
+                  <div className="flex gap-1.5 mt-0.5">
+                    <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">node: {n.nodeType}</span>
+                    <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{n.approvalStatus}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-          {s.supporting_graph_edge_ids.length > 0 && (
-            <div className="text-[10px] text-text-muted font-body">
-              {s.supporting_graph_edge_ids.length} approved legacy graph edge(s)
+
+          {/* Legacy edges */}
+          {hydrated.hydratedLegacyEdges.length > 0 && (
+            <div className="space-y-1">
+              {hydrated.hydratedLegacyEdges.map((e, i) => (
+                <div key={i} className={`bg-house-bg border rounded px-2 py-1 text-[10px] font-body ${
+                  e.missing ? 'border-amber-700/30' : 'border-house-border/50'
+                }`}>
+                  <div className={`text-[11px] ${e.missing ? 'text-amber-300/70 italic' : 'text-text-secondary'}`}>
+                    edge: {e.edgeType}
+                  </div>
+                  {e.description && <div className="text-[10px] text-text-muted/60 mt-0.5">{e.description}</div>}
+                  <span className="text-[9px] bg-house-surface px-1 rounded text-text-muted">{e.approvalStatus}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* Deduplicated evidence sources */}
-      {s.deduplicated_evidence_sources && s.deduplicated_evidence_sources.length > 0 && (
-        <div className="text-[10px] text-text-muted font-body">
-          <span className="opacity-60">Deduplicated archive sources:</span> {s.deduplicated_evidence_sources.length}
+      {/* 10. Deduplicated evidence sources */}
+      {hydrated.hydratedDeduplicatedSources.length > 0 && (
+        <div>
+          <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">
+            Deduplicated Evidence Sources ({hydrated.hydratedDeduplicatedSources.length})
+          </div>
+          <div className="space-y-0.5">
+            {hydrated.hydratedDeduplicatedSources.map((d, i) => (
+              <div key={i} className={`text-[10px] font-body ${d.missing ? 'text-amber-300/70 italic' : 'text-text-muted'}`}>
+                {d.title}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Governance context */}
+      {/* 11. Governance context */}
       {s.governance_context && Object.keys(s.governance_context).length > 0 && (
         <details className="text-[10px]">
           <summary className="text-text-muted uppercase tracking-wider font-mono cursor-pointer">
-            Governance Context (informational only — not evidence)
+            Governance Context — Informational only. Not evidence.
           </summary>
           <pre className="mt-1 text-[9px] text-text-muted/60 bg-house-bg border border-house-border/30 rounded p-2 overflow-x-auto">
             {JSON.stringify(s.governance_context, null, 2)}
@@ -169,13 +271,45 @@ export default function GraphSuggestionDetail({ suggestion, onDismiss, dismissin
         </details>
       )}
 
-      {/* Metadata */}
+      {/* 12. Warnings */}
+      {realWarnings.length > 0 && (
+        <div>
+          <div className="text-text-muted uppercase tracking-wider text-[9px] mb-1 font-mono">Warnings</div>
+          <div className="space-y-0.5">
+            {realWarnings.map((w, i) => (
+              <div key={i} className="text-[10px] text-amber-300/80 font-body">
+                {w.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 13. Events / audit trail */}
+      {hydrated.events.length > 0 && (
+        <details className="text-[10px]">
+          <summary className="text-text-muted uppercase tracking-wider font-mono cursor-pointer">
+            Audit Trail ({hydrated.events.length})
+          </summary>
+          <div className="mt-1 space-y-1">
+            {hydrated.events.map((evt, i) => (
+              <div key={i} className="text-[9px] text-text-muted/60 font-body bg-house-bg border border-house-border/20 rounded px-2 py-1">
+                <span className="text-text-muted">{evt.event_type}</span>
+                {evt.reason && <span className="ml-1">— {evt.reason}</span>}
+                <span className="ml-1 opacity-50">{evt.actor} · {new Date(evt.created_at).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* 14. Metadata */}
       <div className="text-[9px] text-text-muted/50 font-body space-y-0.5">
         <div>Created by: {s.created_by} · {new Date(s.created_at).toLocaleString()}</div>
         {s.reviewed_by && <div>Reviewed by: {s.reviewed_by} · {s.reviewed_at ? new Date(s.reviewed_at).toLocaleString() : ''}</div>}
       </div>
 
-      {/* Dismiss action — only for pending_review */}
+      {/* 15. Dismiss — only for pending_review */}
       {s.status === 'pending_review' && onDismiss && (
         <div className="pt-1">
           <button

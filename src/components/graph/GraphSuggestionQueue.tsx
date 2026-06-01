@@ -9,7 +9,7 @@
 // No approve/promote actions. Dismiss only.
 
 import { useState, useEffect, useCallback } from 'react'
-import type { GraphCandidateSuggestion } from '@/lib/graph/candidateSuggestionTypes'
+import type { GraphCandidateSuggestion, HydratedGraphCandidateSuggestion } from '@/lib/graph/candidateSuggestionTypes'
 import GraphSuggestionDetail from './GraphSuggestionDetail'
 import GraphSuggestionCreateForm from './GraphSuggestionCreateForm'
 
@@ -22,6 +22,8 @@ export default function GraphSuggestionQueue() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [hydratedDetail, setHydratedDetail] = useState<HydratedGraphCandidateSuggestion | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
 
@@ -45,6 +47,19 @@ export default function GraphSuggestionQueue() {
 
   useEffect(() => { fetchSuggestions() }, [fetchSuggestions])
 
+  // Fetch hydrated detail when selection changes
+  useEffect(() => {
+    if (!selectedId) { setHydratedDetail(null); return }
+    let cancelled = false
+    setDetailLoading(true)
+    fetch(`/api/graph-candidate-suggestions/${selectedId}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (!cancelled) setHydratedDetail(data as HydratedGraphCandidateSuggestion | null) })
+      .catch(() => { if (!cancelled) setHydratedDetail(null) })
+      .finally(() => { if (!cancelled) setDetailLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedId])
+
   async function handleDismiss(id: string) {
     setDismissing(true)
     try {
@@ -61,7 +76,7 @@ export default function GraphSuggestionQueue() {
     finally { setDismissing(false) }
   }
 
-  const selected = suggestions.find(s => s.id === selectedId) ?? null
+  const hasSelection = selectedId !== null
 
   return (
     <div>
@@ -155,15 +170,23 @@ export default function GraphSuggestionQueue() {
               onCreated={() => { setShowCreate(false); fetchSuggestions() }}
             />
           )}
-          {!showCreate && selected && (
+          {!showCreate && hasSelection && detailLoading && (
+            <div className="text-xs text-text-muted font-body text-center pt-8">Loading detail...</div>
+          )}
+          {!showCreate && hasSelection && !detailLoading && hydratedDetail && (
             <GraphSuggestionDetail
-              suggestion={selected}
+              hydrated={hydratedDetail}
               onDismiss={handleDismiss}
               dismissing={dismissing}
               onClose={() => setSelectedId(null)}
             />
           )}
-          {!showCreate && !selected && (
+          {!showCreate && hasSelection && !detailLoading && !hydratedDetail && (
+            <div className="text-xs text-red-300/60 font-body text-center pt-8">
+              Could not load suggestion detail.
+            </div>
+          )}
+          {!showCreate && !hasSelection && (
             <div className="text-xs text-text-muted/40 font-body italic text-center pt-8">
               Select a suggestion to view details, or create a new one.
             </div>

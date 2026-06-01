@@ -28,7 +28,24 @@ import type {
   SupportingArchiveSource,
   GraphCandidateSuggestion,
   GraphCandidateSuggestionEvent,
+  HydratedGraphCandidateSuggestion,
+  HydratedTargetArchiveItem,
+  HydratedArchiveSource,
+  HydratedProposal,
+  HydratedLegacyNode,
+  HydratedLegacyEdge,
+  HydratedDeduplicatedSource,
+  HydrationWarning,
 } from './candidateSuggestionTypes'
+import {
+  evidenceRoleLabel,
+  evidenceRoleExplanation,
+  weightingExplanation,
+  makeStatusDriftWarning,
+  makeTargetStatusDriftWarning,
+  makeMissingEvidenceWarning,
+  STANDING_WARNINGS,
+} from './candidateSuggestionDisplay'
 
 // ─── Input Types ───────────────────────────────────────────────────────────
 
@@ -309,11 +326,10 @@ export async function listCandidateSuggestions(params: {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  if (params.status) {
+  if (params.status && params.status !== 'all') {
     query = query.eq('status', params.status)
-  } else {
-    query = query.eq('status', 'pending_review')
   }
+  // When status is absent or 'all', return all non-deleted suggestions (no status filter)
 
   if (params.candidate_type) {
     query = query.eq('candidate_type', params.candidate_type)
@@ -382,4 +398,250 @@ export async function dismissCandidateSuggestion(
   })
 
   return { ok: true, suggestion: updated as GraphCandidateSuggestion }
+}
+
+// ─── Hydrate (Phase 37H.3 — read-only) ────────────────────────────────────
+// Resolves evidence IDs into human-readable titles, statuses, and labels.
+// No writes. Missing evidence produces warnings, not failures.
+
+export async function hydrateCandidateSuggestion(
+  id: string
+): Promise<HydratedGraphCandidateSuggestion | null> {
+  // 1. Fetch suggestion
+  const { data: row, error: rowErr } = await supabase
+    .from('graph_candidate_suggestions')
+    .select('*')
+    .eq('id', id)
+    .is('deleted_at', null)
+    .single()
+
+  if (rowErr || !row) return null
+  const suggestion = row as GraphCandidateSuggestion
+  const warnings: HydrationWarning[] = [...STANDING_WARNINGS]
+
+  if (suggestion.governance_context && Object.keys(suggestion.governance_context).length > 0) {
+    warnings.push({ code: 'governance_context_only', message: 'Governance context is informational only — not evidence.', severity: 'info' })
+  }
+
+  // 2. Fetch events
+  const { data: evtRows } = await supabase
+    .from('graph_candidate_suggestion_events')
+    .select('*')
+    .eq('suggestion_id', id)
+    .order('created_at', { ascending: true })
+  const events = (evtRows ?? []) as GraphCandidateSuggestionEvent[]
+
+  // 3. Resolve target archive item
+  let targetArchiveItem: HydratedTargetArchiveItem | null = null
+  if (suggestion.target_archive_item_id) {
+    const { data: ai } = await supabase
+      .from('archive_items')
+      .select('id, title, canonical_status, deleted_at')
+      .eq('id', suggestion.target_archive_item_id)
+      .single()
+
+    if (ai && !ai.deleted_at) {
+      const changed = suggestion.canonical_status_before !== null &&
+        ai.canonical_status !== suggestion.canonical_status_before
+      targetArchiveItem = {
+        id: ai.id,
+        title: ai.title,
+        currentCanonicalStatus: ai.canonical_status,
+        statusAtSuggestion: suggestion.canonical_status_before,
+        statusChanged: changed,
+        missing: false,
+      }
+      if (changed) {
+        warnings.push(makeTargetStatusDriftWarning(
+          suggestion.canonical_status_before!,
+          ai.canonical_status
+        ))
+      }
+    } else {
+      targetArchiveItem = {
+        id: suggestion.target_archive_item_id,
+        title: '(unavailable)',
+        currentCanonicalStatus: null,
+        statusAtSuggestion: suggestion.canonical_status_before,
+        statusChanged: false,
+        missing: true,
+      }
+      warnings.push(makeMissingEvidenceWarning('archive item', suggestion.target_archive_item_id))
+    }
+  }
+
+  // 4. Batch-resolve supporting archive sources
+  const sourceIds = suggestion.supporting_archive_sources.map(s => s.archive_item_id)
+  const archiveMap = new Map<string, { title: string; canonical_status: string }>()
+  if (sourceIds.length > 0) {
+    const { data: items } = await supabase
+      .from('archive_items')
+      .select('id, title, canonical_status, deleted_at')
+      .in('id', sourceIds)
+    for (const item of (items ?? [])) {
+      if (!item.deleted_at) {
+        archiveMap.set(item.id, { title: item.title, canonical_status: item.canonical_status })
+      }
+    }
+  }
+
+  const hydratedArchiveSources: HydratedArchiveSource[] = suggestion.supporting_archive_sources.map(src => {
+    const found = archiveMap.get(src.archive_item_id)
+    const missing = !found
+    const currentStatus = found?.canonical_status ?? null
+    const changed = !missing && currentStatus !== src.canonical_status_snapshot
+
+    if (missing) {
+      warnings.push(makeMissingEvidenceWarning('archive source', src.archive_item_id))
+    } else if (changed) {
+      warnings.push(makeStatusDriftWarning(
+        found!.title,
+        src.canonical_status_snapshot,
+        currentStatus
+      ))
+    }
+
+    return {
+      archiveItemId: src.archive_item_id,
+      title: found?.title ?? '(unavailable)',
+      canonicalStatusSnapshot: src.canonical_status_snapshot,
+      currentCanonicalStatus: currentStatus,
+      statusChanged: changed,
+      evidenceRole: src.evidence_role,
+      evidenceRoleLabel: evidenceRoleLabel(src.evidence_role),
+      evidenceRoleExplanation: evidenceRoleExplanation(src.evidence_role),
+      usedForWeighting: src.used_for_weighting,
+      weightingExplanation: weightingExplanation(src.used_for_weighting),
+      missing,
+    }
+  })
+
+  // 5. Batch-resolve supporting proposals
+  const hydratedProposals: HydratedProposal[] = []
+  if (suggestion.supporting_proposal_ids.length > 0) {
+    const { data: props } = await supabase
+      .from('graph_proposals')
+      .select('id, proposed_label, proposal_type, node_type, edge_type, status, authority_status, proposed_summary')
+      .in('id', suggestion.supporting_proposal_ids)
+
+    const propMap = new Map((props ?? []).map(p => [p.id, p]))
+
+    for (const pid of suggestion.supporting_proposal_ids) {
+      const p = propMap.get(pid)
+      if (p) {
+        hydratedProposals.push({
+          proposalId: p.id,
+          label: p.proposed_label,
+          proposalType: p.proposal_type,
+          nodeType: p.node_type,
+          edgeType: p.edge_type,
+          status: p.status,
+          authorityStatus: p.authority_status,
+          summary: p.proposed_summary,
+          missing: false,
+        })
+      } else {
+        hydratedProposals.push({
+          proposalId: pid, label: '(unavailable)', proposalType: 'unknown',
+          nodeType: null, edgeType: null, status: 'unknown', authorityStatus: null,
+          summary: null, missing: true,
+        })
+        warnings.push(makeMissingEvidenceWarning('graph proposal', pid))
+      }
+    }
+  }
+
+  // 6. Batch-resolve legacy graph nodes
+  const hydratedLegacyNodes: HydratedLegacyNode[] = []
+  if (suggestion.supporting_graph_node_ids.length > 0) {
+    const { data: nodes } = await supabase
+      .from('archive_graph_nodes')
+      .select('id, label, node_type, approval_status')
+      .in('id', suggestion.supporting_graph_node_ids)
+
+    const nodeMap = new Map((nodes ?? []).map(n => [n.id, n]))
+
+    for (const nid of suggestion.supporting_graph_node_ids) {
+      const n = nodeMap.get(nid)
+      if (n) {
+        hydratedLegacyNodes.push({
+          nodeId: n.id, label: n.label, nodeType: n.node_type,
+          approvalStatus: n.approval_status, missing: false,
+        })
+      } else {
+        hydratedLegacyNodes.push({
+          nodeId: nid, label: '(unavailable)', nodeType: 'unknown',
+          approvalStatus: 'unknown', missing: true,
+        })
+        warnings.push(makeMissingEvidenceWarning('legacy graph node', nid))
+      }
+    }
+  }
+
+  // 7. Batch-resolve legacy graph edges
+  const hydratedLegacyEdges: HydratedLegacyEdge[] = []
+  if (suggestion.supporting_graph_edge_ids.length > 0) {
+    const { data: edges } = await supabase
+      .from('archive_graph_edges')
+      .select('id, edge_type, description, approval_status')
+      .in('id', suggestion.supporting_graph_edge_ids)
+
+    const edgeMap = new Map((edges ?? []).map(e => [e.id, e]))
+
+    for (const eid of suggestion.supporting_graph_edge_ids) {
+      const e = edgeMap.get(eid)
+      if (e) {
+        hydratedLegacyEdges.push({
+          edgeId: e.id, edgeType: e.edge_type, description: e.description,
+          approvalStatus: e.approval_status, missing: false,
+        })
+      } else {
+        hydratedLegacyEdges.push({
+          edgeId: eid, edgeType: 'unknown', description: null,
+          approvalStatus: 'unknown', missing: true,
+        })
+        warnings.push(makeMissingEvidenceWarning('legacy graph edge', eid))
+      }
+    }
+  }
+
+  // 8. Batch-resolve deduplicated evidence sources
+  const dedupIds = suggestion.deduplicated_evidence_sources ?? []
+  const hydratedDeduplicatedSources: HydratedDeduplicatedSource[] = []
+  if (dedupIds.length > 0) {
+    // Reuse archiveMap where possible, fetch remaining
+    const missingDedupIds = dedupIds.filter(id => !archiveMap.has(id))
+    if (missingDedupIds.length > 0) {
+      const { data: extra } = await supabase
+        .from('archive_items')
+        .select('id, title, deleted_at')
+        .in('id', missingDedupIds)
+      for (const item of (extra ?? [])) {
+        if (!item.deleted_at) {
+          archiveMap.set(item.id, { title: item.title, canonical_status: '' })
+        }
+      }
+    }
+
+    for (const did of dedupIds) {
+      const found = archiveMap.get(did)
+      hydratedDeduplicatedSources.push({
+        archiveItemId: did,
+        title: found?.title ?? '(unavailable)',
+        missing: !found,
+      })
+    }
+  }
+
+  return {
+    suggestion,
+    targetArchiveItem,
+    hydratedArchiveSources,
+    hydratedProposals,
+    hydratedLegacyNodes,
+    hydratedLegacyEdges,
+    hydratedDeduplicatedSources,
+    events,
+    warnings,
+  }
 }

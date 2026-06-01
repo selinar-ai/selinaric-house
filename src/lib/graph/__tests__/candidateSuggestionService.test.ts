@@ -317,11 +317,36 @@ section('No approve/promote actions in service')
   assert(!content.includes('promoteToHeldTruth'), 'service does not contain promoteToHeldTruth')
   assert(!content.includes("status: 'approved'") || content.includes("status !== 'approved'"), 'service does not set status to approved (only checks against it)')
 
-  // The only status transitions should be creation (pending_review) and dismiss (dismissed)
-  const statusWrites = content.match(/status:\s*['"](?!pending_review|dismissed)/g) ?? []
+  // The only status transitions in create/dismiss should be pending_review and dismissed.
+  // Hydration (read-only) may reference other statuses in DTO construction — exclude it.
+  const hydrateIdx = content.indexOf('export async function hydrateCandidateSuggestion')
+  const createDismissContent = hydrateIdx > 0 ? content.slice(0, hydrateIdx) : content
+  const statusWrites = createDismissContent.match(/status:\s*['"](?!pending_review|dismissed)/g) ?? []
   assert(
     statusWrites.length === 0,
-    `service only writes status pending_review or dismissed (found ${statusWrites.length} others)`
+    `service create/dismiss only writes status pending_review or dismissed (found ${statusWrites.length} others)`
+  )
+}
+
+section('List filter — status=all does not query status=all')
+
+{
+  const servicePath = path.resolve(__dirname, '../candidateSuggestionService.ts')
+  const content = fs.readFileSync(servicePath, 'utf-8')
+
+  // The list function must not literally query .eq('status', 'all')
+  assert(
+    content.includes("params.status !== 'all'"),
+    'list function filters out status=all before querying'
+  )
+
+  // When status is absent or all, no .eq('status', 'pending_review') default
+  const listFnStart = content.indexOf('export async function listCandidateSuggestions')
+  const listFnEnd = content.indexOf('// ─── Dismiss', listFnStart)
+  const listFn = content.slice(listFnStart, listFnEnd > 0 ? listFnEnd : undefined)
+  assert(
+    !listFn.includes("eq('status', 'pending_review')"),
+    'list function does not hardcode pending_review as default filter'
   )
 }
 

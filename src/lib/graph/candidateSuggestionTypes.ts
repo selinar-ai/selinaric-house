@@ -137,6 +137,83 @@ export interface GraphCandidateSuggestionEvent {
   created_at: string
 }
 
+// ─── Hydrated DTO (Phase 37H.3) ────────────────────────────────────────────
+
+export interface HydratedTargetArchiveItem {
+  id: string
+  title: string
+  currentCanonicalStatus: string | null
+  statusAtSuggestion: string | null
+  statusChanged: boolean
+  missing: boolean
+}
+
+export interface HydratedArchiveSource {
+  archiveItemId: string
+  title: string
+  canonicalStatusSnapshot: string
+  currentCanonicalStatus: string | null
+  statusChanged: boolean
+  evidenceRole: EvidenceRole
+  evidenceRoleLabel: string
+  evidenceRoleExplanation: string
+  usedForWeighting: boolean
+  weightingExplanation: string
+  missing: boolean
+}
+
+export interface HydratedProposal {
+  proposalId: string
+  label: string
+  proposalType: string
+  nodeType: string | null
+  edgeType: string | null
+  status: string
+  authorityStatus: string | null
+  summary: string | null
+  missing: boolean
+}
+
+export interface HydratedLegacyNode {
+  nodeId: string
+  label: string
+  nodeType: string
+  approvalStatus: string
+  missing: boolean
+}
+
+export interface HydratedLegacyEdge {
+  edgeId: string
+  edgeType: string
+  description: string | null
+  approvalStatus: string
+  missing: boolean
+}
+
+export interface HydratedDeduplicatedSource {
+  archiveItemId: string
+  title: string
+  missing: boolean
+}
+
+export interface HydrationWarning {
+  code: string
+  message: string
+  severity: 'info' | 'warning'
+}
+
+export interface HydratedGraphCandidateSuggestion {
+  suggestion: GraphCandidateSuggestion
+  targetArchiveItem: HydratedTargetArchiveItem | null
+  hydratedArchiveSources: HydratedArchiveSource[]
+  hydratedProposals: HydratedProposal[]
+  hydratedLegacyNodes: HydratedLegacyNode[]
+  hydratedLegacyEdges: HydratedLegacyEdge[]
+  hydratedDeduplicatedSources: HydratedDeduplicatedSource[]
+  events: GraphCandidateSuggestionEvent[]
+  warnings: HydrationWarning[]
+}
+
 // ─── Type Guards ───────────────────────────────────────────────────────────
 
 export function isValidCandidateType(value: string): value is CandidateType {
