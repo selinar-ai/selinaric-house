@@ -1,9 +1,10 @@
 'use client'
 
-// Phase 38.3.3 — Manual LLM-Assisted Reasoning Draft Panel
+// Phase 38.3.3 / 38.4.2 — Manual LLM-Assisted Reasoning Draft Panel
 //
 // Reasoning explains evidence. Reasoning does not create authority.
 // A reasoning-supported candidate is still only a candidate.
+// Feedback evaluates reasoning usefulness only. Feedback does not move truth.
 //
 // Read-only. Manual generation only. No storage. No audit. No routing.
 // No approve/promote. No Memory. No Held Truth. No prompt injection.
@@ -31,6 +32,7 @@ interface DraftMeta {
   authority_changed: false
   possible_review_route: null
   model?: string
+  generated_at?: string
 }
 
 type DraftState =
@@ -38,6 +40,36 @@ type DraftState =
   | { phase: 'generating' }
   | { phase: 'success'; draft: LLMDraft; meta: DraftMeta }
   | { phase: 'error'; code: string; message: string }
+
+// ─── Feedback types (Phase 38.4.2) ────────────────────────────────────────
+
+export type FeedbackType =
+  | 'useful'
+  | 'not_useful'
+  | 'needs_evidence'
+  | 'misread'
+  | 'candidate_signal'
+
+export const FEEDBACK_CHIPS: Array<{ value: FeedbackType; label: string }> = [
+  { value: 'useful',           label: 'Useful' },
+  { value: 'not_useful',       label: 'Not useful' },
+  { value: 'needs_evidence',   label: 'Needs more evidence' },
+  { value: 'misread',          label: 'Misread' },
+  { value: 'candidate_signal', label: 'Flag for future review' },
+] as const
+
+type FeedbackState =
+  | { phase: 'idle' }
+  | { phase: 'submitting' }
+  | { phase: 'submitted'; type: FeedbackType }
+  | { phase: 'error'; message: string }
+
+export function mapFeedbackError(status: number, code?: string): string {
+  if (status === 401) return 'Authentication required. Please log back into the House and try again.'
+  if (code === 'invalid_feedback_type') return 'Feedback type was not accepted.'
+  if (code === 'note_too_long') return 'Feedback note is too long.'
+  return 'Feedback could not be recorded safely.'
+}
 
 interface Props {
   suggestionId: string
@@ -138,9 +170,41 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export default function LLMReasoningDraftPanel({ suggestionId, suggestionStatus }: Props) {
   const [state, setState] = useState<DraftState>({ phase: 'idle' })
+  const [feedback, setFeedback] = useState<FeedbackState>({ phase: 'idle' })
   const isDismissed = suggestionStatus === 'dismissed'
+  const isFeedbackSubmitting = feedback.phase === 'submitting'
+
+  async function handleFeedback(type: FeedbackType) {
+    if (feedback.phase === 'submitting' || feedback.phase === 'submitted') return
+    if (state.phase !== 'success') return
+    setFeedback({ phase: 'submitting' })
+    try {
+      const res = await fetch('/api/llm-reasoning-feedback', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suggestion_id: suggestionId,
+          feedback_type: type,
+          draft_model: state.meta.model ?? null,
+          draft_generated_at: state.meta.generated_at ?? null,
+        }),
+      })
+      if (!res.ok) {
+        let code: string | undefined
+        try { code = ((await res.json()) as Record<string, unknown>).code as string } catch { /* ignore */ }
+        setFeedback({ phase: 'error', message: mapFeedbackError(res.status, code) })
+        return
+      }
+      setFeedback({ phase: 'submitted', type })
+    } catch {
+      setFeedback({ phase: 'error', message: mapFeedbackError(0) })
+    }
+  }
 
   async function handleGenerate() {
+    // Reset feedback state when generating a new draft
+    setFeedback({ phase: 'idle' })
     setState({ phase: 'generating' })
     try {
       const res = await fetch(
@@ -334,6 +398,49 @@ export default function LLMReasoningDraftPanel({ suggestionId, suggestionStatus 
                 </div>
               </div>
             )}
+
+            {/* ── Feedback (Phase 38.4.2) — only after successful draft ─────── */}
+            <div className="border-t border-house-border/15 pt-2 mt-1 space-y-1.5">
+              <div className="text-[8px] text-text-muted/40 font-mono uppercase tracking-wider">
+                Was this reasoning draft useful?
+              </div>
+              <div className="text-[8px] text-text-muted/30 italic">
+                Feedback is for reasoning quality only. It does not change Memory, Held Truth,
+                graph authority, or prompt eligibility.
+              </div>
+
+              {/* Chips — hidden after submission */}
+              {(feedback.phase === 'idle' || feedback.phase === 'error') && (
+                <div className="flex flex-wrap gap-1">
+                  {FEEDBACK_CHIPS.map(chip => (
+                    <button
+                      key={chip.value}
+                      onClick={() => handleFeedback(chip.value)}
+                      disabled={isFeedbackSubmitting}
+                      className="font-body text-[8px] px-1.5 py-0.5 border border-house-border/30 text-text-muted/40 hover:text-text-muted/70 hover:border-house-border/60 rounded transition-all disabled:opacity-30"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {feedback.phase === 'submitting' && (
+                <div className="text-[8px] text-text-muted/30 italic">Recording feedback…</div>
+              )}
+
+              {feedback.phase === 'submitted' && (
+                <div className="text-[8px] text-text-muted/50">
+                  Feedback recorded. This does not change authority.
+                </div>
+              )}
+
+              {feedback.phase === 'error' && (
+                <div className="text-[8px] text-red-300/40 border-l border-red-700/15 pl-1.5">
+                  {feedback.message}
+                </div>
+              )}
+            </div>
 
             {/* Model attribution + regenerate */}
             <div className="flex items-center justify-between pt-1">
