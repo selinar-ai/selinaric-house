@@ -1,8 +1,8 @@
 # Phase 38 — Governed Reasoning Layer Closure / Architecture Record
 
-**Closed:** 2026-06-02
-**Commits:** `6dae011` (38.1–38.3.2b) · `2fe4daf` (38.3.3) · `e1b6af1` (38.4.1) · `e17260b` (38.4.2)
-**Total assertions:** 936/936 passing
+**Closed:** 2026-06-02 · **38.5 addendum:** 2026-06-02
+**Commits:** `6dae011` (38.1–38.3.2b) · `2fe4daf` (38.3.3) · `e1b6af1` (38.4.1) · `e17260b` (38.4.2) · `529c74b` (38.4.3) · `982fd74` (38.5.1) · `b5f4d64` (38.5.2) · `25326cd` (38.5.3)
+**Total assertions:** 1,109/1,109 passing
 
 ---
 
@@ -51,7 +51,11 @@ Nothing in Phase 38 changes archive status, creates Memory, creates Held Truth, 
 | 38.4.0 | Feedback alignment — defined table name, labels, `candidate_signal` vs `potential_candidate`, storage boundary | Closed |
 | 38.4.1 | Feedback event table + endpoint — `llm_reasoning_feedback_events`, `POST /api/llm-reasoning-feedback` | Closed `e1b6af1` |
 | 38.4.2 | Feedback UI — five chips in draft panel, `Flag for future review` = `candidate_signal` | Closed `e17260b` |
-| 38.4.3 | Architecture record (this document) | Closed |
+| 38.4.3 | Architecture record (this document) | Closed `529c74b` |
+| 38.5.0 | Reasoning audit alignment — fail-closed law, table naming, event types, metadata safety | Closed |
+| 38.5.1 | Audit event table + server-side writer — `reasoning_audit_events`, `createReasoningAuditEvent()` | Closed `982fd74` |
+| 38.5.2 | Audit route wiring — `generateLLMReasoningDraft()` wired, fail-closed, `REASONING_AUDIT_UNAVAILABLE` | Closed `b5f4d64` |
+| 38.5.3 | Audit production smoke — `llm_draft_requested` + `llm_draft_returned` verified on Vercel | Closed `25326cd` |
 
 ---
 
@@ -484,7 +488,7 @@ At Phase 38 closure, the following are confirmed:
 
 | Risk | Status | Recommended mitigation |
 |---|---|---|
-| **Reasoning audit trail not yet implemented** | Open | 38.5 — see section 20 |
+| **Reasoning audit trail not yet implemented** | ~~Open~~ **Closed in 38.5** | `reasoning_audit_events` live; fail-closed; audit verified in production |
 | **`missing_tara_authored` category not yet computed** | Non-blocking | Add `tara_authored` flag to archive source hydration when needed |
 | **`draft_hash` deferred** | Non-blocking | Add in 38.5 or later if traceability requires fingerprinting |
 | **Feedback note field not yet exposed in UI** | Non-blocking | 38.4.3 / future — note max 500 chars already enforced in endpoint |
@@ -494,9 +498,11 @@ At Phase 38 closure, the following are confirmed:
 
 ---
 
-## 20. Recommended Next Phase: 38.5 — Reasoning Audit Trail
+## 20. Phase 38.5 — Reasoning Audit Trail (Completed)
 
 **Purpose:** Make reasoning outputs traceable without allowing them to become evidence.
+
+**Status: Fully closed.** `reasoning_audit_events` is live in production. Audit is fail-closed.
 
 **Core law for 38.5:**
 > Audit records trace. Audit does not create truth. Audit does not become evidence. Audit does not move authority.
@@ -555,10 +561,35 @@ Phase 39 design begins from Phase 37H + 38 as a stable baseline. It does not beg
 
 ---
 
-## 22. Closure Verdict
+## 22. Phase 38.5 Verified State (Addendum)
 
-Phase 38 created a governed reasoning layer that explains evidence without creating authority. Every component — the deterministic baseline, the LLM draft route, the auth hardening, the manual draft panel, the feedback table, the feedback endpoint, and the feedback UI — was built, tested, smoked, and closed within its defined boundaries.
+**Confirmed in production smoke (`25326cd`):**
 
-The reasoning layer explains. The feedback layer observes. Neither moves truth.
+| State | Verified |
+|---|---|
+| `reasoning_audit_events` live in production | ✅ |
+| Audit is fail-closed — no unaudited LLM draft returned | ✅ |
+| `llm_draft_requested` written before Anthropic call | ✅ |
+| `llm_draft_returned` written before draft is returned | ✅ |
+| Audit rows carry metadata only — no draft sections, prompt, model output, archive content, titles, excerpts, secrets | ✅ |
+| `authority_changed:false`, `not_evidence:true`, `prompt_eligible:false`, `review_routed:false` — DB-constrained | ✅ |
+| Audit does not create truth, evidence, Memory, Held Truth, review routing, graph authority, or prompt eligibility | ✅ |
+| `feedback_event_id` not in schema | ✅ |
+| `packet_fingerprint` not in schema (deferred) | ✅ |
+| Unauthenticated request creates no audit row | ✅ |
+| Provider key missing = pre-lifecycle config failure, not a reasoning event | ✅ |
+| Feedback and audit remain separate tables | ✅ |
+| Phase 37H Graph Suggestions unaffected | ✅ |
+| **Final regression: 1,109/1,109 passing** | ✅ |
+| Scanner: 0 new critical | ✅ |
+| Build: clean | ✅ |
 
-**38.4.3 CLOSED — Phase 38 architecture record created.**
+---
+
+## 23. Closure Verdict
+
+Phase 38 created a governed reasoning layer that explains evidence without creating authority. Every component — the deterministic baseline, the LLM draft route, the auth hardening, the manual draft panel, the feedback table, the feedback endpoint, the feedback UI, and the reasoning audit trail — was built, tested, smoked, and closed within its defined boundaries.
+
+The reasoning layer explains. The feedback layer observes. The audit layer traces. None move truth.
+
+**Phase 38 is fully closed.** Phase 39 (Recall Packet) may begin from this stable baseline.
