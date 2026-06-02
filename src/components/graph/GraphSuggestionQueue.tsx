@@ -127,9 +127,10 @@ export default function GraphSuggestionQueue() {
       </div>
 
       {/* Content: list + detail split */}
-      <div className="flex min-h-[300px]">
+      {/* Two-column grid: list fixed-min on left, detail expands to fill remaining width */}
+      <div className="grid min-h-[300px]" style={{ gridTemplateColumns: 'minmax(280px, 36%) 1fr' }}>
         {/* List */}
-        <div className="flex-1 border-r border-house-border/30">
+        <div className="border-r border-house-border/30 overflow-y-auto">
           {loading && (
             <div className="px-4 py-8 text-center">
               <div className="inline-flex gap-1">
@@ -184,8 +185,8 @@ export default function GraphSuggestionQueue() {
           })}
         </div>
 
-        {/* Detail / Create panel */}
-        <div className="w-[380px] flex-shrink-0 p-3 overflow-y-auto max-h-[600px]">
+        {/* Detail / Create panel — expands to fill remaining width */}
+        <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)', minHeight: '300px' }}>
           {showCreate && (
             <GraphSuggestionCreateForm
               onClose={() => setShowCreate(false)}
