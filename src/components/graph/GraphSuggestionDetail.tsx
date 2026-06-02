@@ -10,6 +10,7 @@
 
 import type { HydratedGraphCandidateSuggestion } from '@/lib/graph/candidateSuggestionTypes'
 import DeterministicReasoningPanel from './DeterministicReasoningPanel'
+import LLMReasoningDraftPanel from './LLMReasoningDraftPanel'
 
 interface Props {
   hydrated: HydratedGraphCandidateSuggestion
@@ -265,6 +266,14 @@ export default function GraphSuggestionDetail({ hydrated, onDismiss, dismissing,
       {/* ═══ REASONING PANEL (Phase 38.2) ═══ */}
       <div className="border-t border-house-border/20 pt-3 mt-1">
         <DeterministicReasoningPanel hydrated={hydrated} />
+      </div>
+
+      {/* ═══ LLM DRAFT PANEL (Phase 38.3.3) ═══ */}
+      <div className="border-t border-house-border/20 pt-3 mt-1">
+        <LLMReasoningDraftPanel
+          suggestionId={s.id}
+          suggestionStatus={s.status}
+        />
       </div>
 
       {/* ═══ CONTEXT GROUP ═══ */}
