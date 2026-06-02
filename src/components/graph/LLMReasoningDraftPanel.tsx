@@ -92,6 +92,8 @@ export function mapFailureMessage(code: string | undefined): string {
       return 'The generated draft failed safety validation. No draft was shown.'
     case 'HYDRATION_FAILED':
       return 'Suggestion could not be found or hydrated.'
+    case 'REASONING_AUDIT_UNAVAILABLE':
+      return 'Reasoning audit unavailable. Please try again.'
     case 'CLIENT_SAFETY_FAILED':
       return 'The reasoning draft response failed client safety checks. No draft was shown.'
     default:

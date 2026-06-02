@@ -49,6 +49,7 @@ export async function POST(
     const status = result.code === 'HYDRATION_FAILED' ? 404
       : result.code === 'LLM_UNAVAILABLE' ? 503
       : result.code === 'INSUFFICIENT_PACKET' ? 422
+      : result.code === 'REASONING_AUDIT_UNAVAILABLE' ? 503
       : 400
 
     return NextResponse.json(result, { status })
