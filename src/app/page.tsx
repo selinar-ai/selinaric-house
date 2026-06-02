@@ -16,9 +16,16 @@ export default function LoginPage() {
     }
   }, [router])
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (login(password)) {
+      // Set server-side HttpOnly auth cookie (Phase 38.3.2b)
+      // Failure is non-blocking for the UI — client gate still controls UI access.
+      await fetch('/api/house-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      }).catch(() => { /* best-effort — UI gate still works */ })
       router.push('/home')
     } else {
       setError(true)

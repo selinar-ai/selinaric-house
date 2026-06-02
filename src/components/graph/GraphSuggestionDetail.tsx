@@ -9,6 +9,7 @@
 // No approve/promote controls. Dismiss only.
 
 import type { HydratedGraphCandidateSuggestion } from '@/lib/graph/candidateSuggestionTypes'
+import DeterministicReasoningPanel from './DeterministicReasoningPanel'
 
 interface Props {
   hydrated: HydratedGraphCandidateSuggestion
@@ -259,6 +260,11 @@ export default function GraphSuggestionDetail({ hydrated, onDismiss, dismissing,
             </div>
           </details>
         )}
+      </div>
+
+      {/* ═══ REASONING PANEL (Phase 38.2) ═══ */}
+      <div className="border-t border-house-border/20 pt-3 mt-1">
+        <DeterministicReasoningPanel hydrated={hydrated} />
       </div>
 
       {/* ═══ CONTEXT GROUP ═══ */}
