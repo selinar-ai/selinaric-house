@@ -500,41 +500,52 @@ At Phase 38 closure, the following are confirmed:
 
 ## 20. Phase 38.5 — Reasoning Audit Trail (Completed)
 
-**Purpose:** Make reasoning outputs traceable without allowing them to become evidence.
+**Purpose:** Make LLM reasoning outputs traceable without allowing them to become evidence.
 
-**Status: Fully closed.** `reasoning_audit_events` is live in production. Audit is fail-closed.
+**Status: Fully closed.** Commits `982fd74` (table + writer) · `b5f4d64` (route wiring) · `25326cd` (production smoke).
 
-**Core law for 38.5:**
+**Core law:**
 > Audit records trace. Audit does not create truth. Audit does not become evidence. Audit does not move authority.
+> No trace, no draft.
 
-**Candidate audit fields (to be designed in 38.5.0 alignment, not implemented here):**
+### Table
 
-```
-reasoning_audit_events {
-  id
-  suggestion_id
-  reasoning_type: 'deterministic' | 'llm_assisted'
-  packet_fingerprint (optional hash of validated draft — deferred from 38.4.1)
-  evidence_source_count
-  baseline_evidence_condition
-  baseline_packet_sufficient
-  llm_model (nullable — only for llm_assisted)
-  llm_validation_passed (nullable)
-  displayed_to_user
-  feedback_event_id (nullable FK → llm_reasoning_feedback_events)
-  authority_changed: false (DB constraint)
-  not_evidence: true (DB constraint)
-  prompt_eligible: false (DB constraint)
-  created_at
-}
-```
+**`reasoning_audit_events`** — append-only. No UPDATE, DELETE, or UPSERT.
 
-**38.5 will not:**
-- Store full LLM draft text
-- Store prompt content
-- Make audit records queryable as evidence
-- Feed audit records into future reasoning inputs
-- Create Memory, Held Truth, or candidates
+### Server-side writer
+
+**`createReasoningAuditEvent()`** — `src/lib/server/reasoningAudit.ts`. Server-only. Never client-callable. Fail-closed: if the writer returns `ok: false`, the LLM draft route returns `REASONING_AUDIT_UNAVAILABLE` and no draft is returned.
+
+### Event types (implemented)
+
+| Event type | When written |
+|---|---|
+| `llm_draft_requested` | After pre-checks pass, **before** Anthropic is called |
+| `llm_precheck_blocked` | When pre-check gate blocks the LLM call |
+| `llm_output_invalid` | When parse failure, validation failure, or provider failure occurs |
+| `llm_draft_returned` | After output validation passes, **before** the draft is returned |
+
+### Safe metadata fields (implemented)
+
+`suggestion_id` · `event_type` · `reasoning_mode` (`llm_assisted` / `deterministic`) · `event_status` (`success` / `blocked` / `failed`) · `failure_code` · `baseline_evidence_condition` · `baseline_packet_sufficient` · `baseline_categories` (string labels only) · `archive_source_count` · `graph_source_count` · `evidence_source_ids` (UUIDs only, no content) · `llm_model` · `llm_validation_passed`
+
+### Governance constraints (DB-enforced)
+
+`authority_changed = false` · `not_evidence = true` · `prompt_eligible = false` · `review_routed = false`
+
+### Not implemented / deferred
+
+- No `packet_fingerprint` — column absent from schema; deferred pending fingerprint algorithm design
+- No `feedback_event_id` — column absent from schema; future linkage requires a separate append-only event, not an update
+- No `draft_hash`
+- No draft body stored (no `evidence_summary`, `directly_supported`, or any draft section)
+- No prompt or compiled prompt stored
+- No raw model response stored
+- No archive content, titles, excerpts, or summaries stored
+- No audit UI or audit drawer
+- No client-callable audit endpoint
+- No `displayed_to_user` field
+- No deterministic panel render auditing
 
 ---
 
