@@ -51,7 +51,14 @@ import { buildChatAttachmentContextBlock } from '@/lib/files/chat-attachment-con
 import { getRecentContinuityForPrompt, maybeSyncRecentContinuity, selectRecentContinuityForPrompt } from '@/lib/recent-continuity'
 import { buildGovernedMemoryInjection } from '@/lib/memory-injection'
 import { buildCarrybackBlock } from '@/lib/lounge'
-import { getCrossRoomCarryforwardBlock } from '@/lib/cross-room-prompt-carryforward'
+import {
+  getCrossRoomCarryforwardBlock,
+  getActiveCarryforwardsForAdvisory,
+  type PromptCarryforward,
+} from '@/lib/cross-room-prompt-carryforward'
+import { buildRecallAdvisoryPacket, type RecallAdvisorySignalInput } from '@/lib/recall/recallAdvisorySignals'
+import { formatRecallAdvisoryBlock } from '@/lib/recall/recallAdvisoryBlock'
+import type { RecentContinuitySession } from '@/lib/recent-continuity'
 import { getAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
 import {
@@ -313,14 +320,19 @@ export async function POST(request: NextRequest) {
     // Phase 35C: Governed Memory Auto-Injection
     // Surfaces confirmed canonical memories when relevant to the current conversation.
     // Only runs when there is a user message and no manual recall intent (manual recall takes precedence).
+    // Phase 39.6: Capture metadata for Recall Packet advisory (no extra DB calls — reuse results)
     let governedMemoryBlock = ''
+    let injectedMemoriesForAdvisory: import('@/lib/memory-injection').InjectedMemory[] = []
+    let recentSessionsForAdvisory: RecentContinuitySession[] = []
     if (message && !recallIntent) {
       const { selected: recentSessions } = await selectRecentContinuityForPrompt({ presenceId: 'eli' })
+      recentSessionsForAdvisory = recentSessions
       const injectionResult = await buildGovernedMemoryInjection({
         presenceId: 'eli',
         userMessage: message,
         recentContinuity: recentSessions,
       })
+      injectedMemoriesForAdvisory = injectionResult.injectedMemories
       if (injectionResult.block) {
         governedMemoryBlock = injectionResult.block
         console.log(`[eli-chat] Governed memory injection: ${injectionResult.injectedMemories.length} memories injected, ${injectionResult.excluded.length} excluded`)
@@ -335,6 +347,36 @@ export async function POST(request: NextRequest) {
 
     // Phase 11E: Autonomy continuity — recent autonomous choices + Tara responses
     const autonomyContinuityBlock = await getAutonomyContinuityForPrompt('eli').catch(() => '')
+
+    // Phase 39.6: Recall Packet Advisory — Tier 1 metadata-only advisory block
+    // Advisory law: calibration only, not authority. Does not create Memory or move authority.
+    let recallAdvisoryBlock = ''
+    try {
+      const carryforwardsForAdvisory: PromptCarryforward[] =
+        await getActiveCarryforwardsForAdvisory('eli').catch(() => [])
+
+      const advisoryTimestamp = new Date().toISOString()
+      const advisoryInput: RecallAdvisorySignalInput = {
+        presence:              'eli',
+        room:                  'eli_room',
+        packet_id:             `advisory:eli:eli_room:${advisoryTimestamp}`,
+        computed_at:           advisoryTimestamp,
+        governedMemory:        injectedMemoriesForAdvisory,
+        archiveRecallEntries:  recallEntries,
+        crossRoomCarryforwards: carryforwardsForAdvisory,
+        recentContinuity:      recentSessionsForAdvisory,
+        journalReferences:     journalResult.references,
+        libraryReferences,
+        query_context: {
+          topic_shift_detected: topicShifted,
+        },
+      }
+      const advisoryPacket = buildRecallAdvisoryPacket(advisoryInput)
+      recallAdvisoryBlock = formatRecallAdvisoryBlock(advisoryPacket)
+    } catch (err) {
+      // Advisory is non-fatal — log and continue without it
+      console.error('[eli-chat] Recall advisory error (non-fatal):', err instanceof Error ? err.message : String(err))
+    }
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.
 
@@ -437,7 +479,7 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 ## Temporal context:
 Current date and time: ${currentDatetime}
 ${temporalContext}${recentContinuityBlock}
-${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${crossRoomCarryforwardBlock}${autonomyContinuityBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}
+${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${crossRoomCarryforwardBlock}${autonomyContinuityBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}${recallAdvisoryBlock}
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
 - You must not treat Library Context as Memory, lived continuity, identity, or canonical Archive truth.

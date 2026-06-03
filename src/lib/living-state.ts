@@ -61,7 +61,37 @@ export async function getLivingStateForPrompt(presenceId: string): Promise<strin
   if (state.last_known_state) sections.push(`Last session: ${state.last_known_state}`)
   if (state.what_changed) sections.push(`What changed: ${state.what_changed}`)
 
-  return `## Living State — where we are right now:\n${sections.join('\n')}\n`
+  // Phase 39.5.1 — authority boundary added to block header.
+  // Living state is current orientation, not canonical Memory.
+  // Consistent with Journal Context ("journal_inner_continuity_not_memory") and
+  // Recent Continuity ("Not Memory") authority boundaries.
+  return `## Living State — current orientation, not canonical Memory:\n${sections.join('\n')}\n`
+}
+
+/**
+ * Phase 39.5.1 — Metadata-only struct for RuntimeContextSignal source mapping.
+ * Returns freshness and version metadata without the formatted prompt string.
+ * Does not inject content into prompts.
+ * Returns null if no living state exists for the presence.
+ */
+export interface LivingStateSignalMetadata {
+  last_updated: string
+  version: number
+  updated_by: string
+  presence_id: string
+}
+
+export async function getLivingStateForSignal(
+  presenceId: string,
+): Promise<LivingStateSignalMetadata | null> {
+  const state = await getLivingState(presenceId)
+  if (!state) return null
+  return {
+    last_updated: state.last_updated,
+    version:      state.version,
+    updated_by:   state.updated_by,
+    presence_id:  state.presence_id,
+  }
 }
 
 /**

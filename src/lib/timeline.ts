@@ -21,6 +21,11 @@ export interface TimelineEntry {
  * Load timeline entries for prompt injection.
  * Returns all foundational + up to 5 most recent significant entries.
  * Enforces a ~600 token cap (estimated at ~4 chars per token).
+ *
+ * Phase 39.5.1 note: this function returns a formatted string only.
+ * For RuntimeContextSignal source mapping (voice_integrity, added_by, significance),
+ * use loadTimelineEntries() which returns the full TimelineEntry[] including
+ * voice_integrity for cross-presence scope-safety validation.
  */
 export async function loadTimelineForPrompt(presenceId: string): Promise<string> {
   // Fetch all foundational entries
@@ -63,7 +68,12 @@ export async function loadTimelineForPrompt(presenceId: string): Promise<string>
 }
 
 /**
- * Fetch all timeline entries for a presence (for UI display).
+ * Fetch all timeline entries for a presence (for UI display and signal mapping).
+ *
+ * Returns full TimelineEntry[] including voice_integrity (ari/eli/null).
+ * Phase 39.5.1: this is the correct function for RuntimeContextSignal source
+ * mapping — voice_integrity enables cross-presence scope-safety validation
+ * that cannot be performed from the prompt string alone.
  */
 export async function loadTimelineEntries(
   presenceId: string,

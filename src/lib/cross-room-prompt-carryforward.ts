@@ -207,6 +207,18 @@ async function getActiveCarryforwards(
   return (data ?? []) as PromptCarryforward[]
 }
 
+/**
+ * Phase 39.6 — export active carryforwards for Recall Packet advisory signal mapping.
+ * Returns the same rows as the internal `getActiveCarryforwards()` query.
+ * Called alongside (not instead of) `getCrossRoomCarryforwardBlock()` so the
+ * advisory layer can access structured metadata without a second formatting pass.
+ */
+export async function getActiveCarryforwardsForAdvisory(
+  presenceId: string,
+): Promise<PromptCarryforward[]> {
+  return getActiveCarryforwards(presenceId)
+}
+
 // ─── Creation Orchestrator ──────────────────────────────────────────────────
 
 export interface CreationResult {

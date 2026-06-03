@@ -48,6 +48,11 @@ export interface InjectedMemory {
   injection_reason: string
   match_source: 'keyword' | 'semantic' | 'both'
   match_score: number
+  // Phase 39.5.1 — safe source provenance fields for RuntimeContextSignal source_ref.
+  // Populated from the keyword RecallEntry when available; null on semantic-only matches.
+  // Not used in prompt formatting — metadata only.
+  source_document?: string | null
+  source_date?: string | null
 }
 
 export interface ExcludedMemory {
@@ -317,6 +322,9 @@ export async function buildGovernedMemoryInjection(params: {
       injection_reason: reasons.join('+'),
       match_source: candidate.matchSource,
       match_score: candidate.combinedScore,
+      // Phase 39.5.1 — safe source provenance (metadata only, not used in formatting)
+      source_document: entry?.source_document ?? null,
+      source_date: entry?.source_date ?? null,
     }
 
     // Check char budget
