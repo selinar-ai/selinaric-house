@@ -1270,3 +1270,127 @@ export type RecallPacketBuilderInput = {
     reference_ambiguous?: boolean;
   };
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RUNTIME ADAPTER TYPES
+// Added for Phase 39.4 — Runtime Candidate Adapter
+// Maps runtime context signal categories to CandidateRecallSource[].
+// Signal types represent assembled-context categories — not raw content.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Runtime context signal types — one per runtime-builder-v1 source surface.
+ * Each value names a category of already-assembled context, not raw content.
+ */
+export enum RuntimeContextSignalType {
+  // Memory tier
+  GovernedConfirmedMemory           = 'governed_confirmed_memory',
+  PresenceScopedConfirmedMemory     = 'presence_scoped_confirmed_memory',
+  ManualMemoryCandidateRecall       = 'manual_memory_candidate_recall',
+  ManualArchiveOnlyRecall           = 'manual_archive_only_recall',
+
+  // Continuity tier
+  RecentContinuity                  = 'recent_continuity',
+  CurrentHouseContext               = 'current_house_context',
+  ShortHorizonThreadContext         = 'short_horizon_thread_context',
+  LoungeRecentContinuity            = 'lounge_recent_continuity',
+  RecentCrossRoomContext            = 'recent_cross_room_context',
+  CrossRoomPromptCarryforward       = 'cross_room_prompt_carryforward',
+
+  // Presence state tier
+  PulseAutonomousContinuity         = 'pulse_autonomous_continuity',
+  PulseCurrentState                 = 'pulse_current_state',
+  LivingState                       = 'living_state',
+  InteriorNotes                     = 'interior_notes',
+
+  // Inner continuity tier
+  JournalInnerContinuity            = 'journal_inner_continuity',
+  HeldTruthPresenceContinuity       = 'held_truth_presence_continuity',
+
+  // Reference tier
+  LibraryRagReference               = 'library_rag_reference',
+  LibraryCanonicalMemoryReference   = 'library_canonical_memory_reference',
+  AttachmentContext                 = 'attachment_context',
+
+  // Identity continuity tier
+  IdentityTimeline                  = 'identity_timeline',
+
+  // Ground failure
+  Unknown                           = 'unknown',
+  Insufficient                      = 'insufficient',
+}
+
+/**
+ * A single runtime context signal — metadata only.
+ * No raw source content, no archive text, no model output.
+ * The adapter passes these fields through to CandidateRecallSource unchanged.
+ */
+export type RuntimeContextSignal = {
+  /** Which category of context this signal represents. */
+  signal_type: RuntimeContextSignalType;
+
+  /** Presence scope of the context data (ari, eli, shared, tara_only). */
+  presence_scope?: PresenceScope;
+
+  /**
+   * Whether caller says this context is eligible for prompt injection.
+   * If false, builder excludes with not_prompt_eligible.
+   */
+  prompt_eligible?: boolean;
+
+  /** Whether caller says this context has expired (e.g. carryforward past expiry). */
+  expired?: boolean;
+
+  /** Deterministic relevance supplied by caller. Builder does not compute relevance. */
+  relevance?: RelevanceScore;
+
+  /** Optional ID / count metadata only. No source text or content. */
+  source_ref?: {
+    source_id?: string;
+    count?: number;
+  };
+
+  /**
+   * Caller-supplied conflict surfaces for this signal.
+   * Adapter passes through unchanged. Builder constructs SourceConflict entries.
+   */
+  conflicts_with?: SourceSurface[];
+
+  /**
+   * Caller-supplied conflict types for this signal.
+   * Adapter passes through unchanged.
+   */
+  conflict_types?: ConflictType[];
+};
+
+/**
+ * Input to buildRecallPacketFromRuntimeSignals().
+ * Caller provides identity, room context, and already-assembled signals.
+ * Adapter maps signals → candidates, then delegates to buildRecallPacket().
+ */
+export type RuntimeRecallPacketInput = {
+  /** Caller-provided unique ID — adapter does not generate IDs. */
+  packet_id: string;
+
+  /** Caller-provided ISO timestamp — adapter does not call Date.now(). */
+  computed_at: string;
+
+  /** Which presence this packet is for. */
+  presence: PresenceScope;
+
+  /** Room context for scope enforcement in the builder. */
+  room: RoomContext;
+
+  /**
+   * Already-assembled runtime context signals.
+   * Adapter maps these to CandidateRecallSource[]; builder classifies them.
+   */
+  signals: RuntimeContextSignal[];
+
+  /** Optional query metadata for relevance and conflict detection in the builder. */
+  query_context?: {
+    query_text?: string;
+    topic_shift_detected?: boolean;
+    reference_ambiguous?: boolean;
+  };
+};

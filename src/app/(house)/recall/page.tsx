@@ -24,6 +24,13 @@ import {
   sourceConflictFixture,
   insufficientGroundFixture,
 } from '@/lib/recall/recallPacketFixtures'
+import { buildRecallPacketFromRuntimeSignals } from '@/lib/recall/recallCandidateAdapter'
+import {
+  inspectorDemoSignals,
+  conflictSignals,
+  insufficientSignals,
+  topicShiftSignals,
+} from '@/lib/recall/recallSignalFixtures'
 
 const PAGE_SIZE = 50
 
@@ -48,6 +55,53 @@ const INSPECTOR_FIXTURE_OPTIONS: Array<{ value: InspectorFixtureName; label: str
   { value: 'traceExcluded',     label: 'Memory + Trace excluded' },
   { value: 'sourceConflict',    label: 'Memory vs Held Truth conflict' },
   { value: 'insufficientGround', label: 'Insufficient ground' },
+]
+
+// ─── Adapter-generated preview ──────────────────────────────────────────────
+// Phase 39.4.1: demonstrates RuntimeContextSignal[] → buildRecallPacket() chain.
+// Static ID and timestamp — no Date.now(), no crypto.randomUUID(), no live data.
+
+const DEMO_TIMESTAMP = '2026-06-03T00:00:00.000Z'
+
+const ADAPTER_DEMO_PACKETS = {
+  inspectorDemo: buildRecallPacketFromRuntimeSignals({
+    packet_id:   'preview-adapter-demo',
+    computed_at: DEMO_TIMESTAMP,
+    presence:    'ari',
+    room:        'ari_room',
+    signals:     inspectorDemoSignals,
+  }),
+  conflictDemo: buildRecallPacketFromRuntimeSignals({
+    packet_id:   'preview-conflict-demo',
+    computed_at: DEMO_TIMESTAMP,
+    presence:    'ari',
+    room:        'ari_room',
+    signals:     conflictSignals,
+  }),
+  insufficientDemo: buildRecallPacketFromRuntimeSignals({
+    packet_id:   'preview-insufficient-demo',
+    computed_at: DEMO_TIMESTAMP,
+    presence:    'ari',
+    room:        'ari_room',
+    signals:     insufficientSignals,
+  }),
+  topicShiftDemo: buildRecallPacketFromRuntimeSignals({
+    packet_id:     'preview-topic-shift-demo',
+    computed_at:   DEMO_TIMESTAMP,
+    presence:      'ari',
+    room:          'ari_room',
+    query_context: { topic_shift_detected: true },
+    signals:       topicShiftSignals,
+  }),
+} as const
+
+type AdapterDemoName = keyof typeof ADAPTER_DEMO_PACKETS
+
+const ADAPTER_DEMO_OPTIONS: Array<{ value: AdapterDemoName; label: string }> = [
+  { value: 'inspectorDemo',    label: 'Mixed — Memory + Continuity + Scope-blocked' },
+  { value: 'conflictDemo',     label: 'Memory vs Held Truth conflict' },
+  { value: 'insufficientDemo', label: 'Insufficient ground (empty signals)' },
+  { value: 'topicShiftDemo',   label: 'Topic shift — Memory survives, continuity excluded' },
 ]
 
 const DEFAULT_FILTERS: RecallFilterState = {
@@ -91,6 +145,8 @@ export default function RecallReviewPage() {
   const searchTimeoutRef              = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [inspectorOpen, setInspectorOpen]             = useState(false)
   const [selectedFixture, setSelectedFixture]         = useState<InspectorFixtureName>('inspectorDemo')
+  const [previewMode, setPreviewMode]                 = useState<'fixture' | 'adapter'>('adapter')
+  const [selectedAdapterDemo, setSelectedAdapterDemo] = useState<AdapterDemoName>('inspectorDemo')
 
   // Fetch events — reset=true clears list and starts fresh
   const fetchEvents = useCallback(async (
@@ -205,8 +261,8 @@ export default function RecallReviewPage() {
         {/* ── Hybrid Recall Lab (Phase 29C) ────────────────────── */}
         <HybridRecallPanel />
 
-        {/* ── Recall Packet Inspector (Phase 39.3.1) ───────────── */}
-        {/* Fixture-only preview. No live recall. No prompt integration. No authority movement. */}
+        {/* ── Recall Packet Inspector (Phase 39.4.1) ───────────── */}
+        {/* Demo preview only. No live recall. No DB reads. No prompt integration. No authority movement. */}
         <div className="mt-5 border-t border-house-border pt-4">
           <div className="flex items-center justify-between">
             <div>
@@ -214,7 +270,7 @@ export default function RecallReviewPage() {
                 Recall Packet Inspector
               </p>
               <p className="font-body text-[9px] text-text-muted/50 italic mt-0.5">
-                Fixture-only preview. No live recall. No prompt integration. No authority movement.
+                Demo preview only. No live recall. No DB reads. No prompt integration. No authority movement.
               </p>
             </div>
             <button
@@ -226,22 +282,72 @@ export default function RecallReviewPage() {
           </div>
           {inspectorOpen && (
             <div className="mt-3">
+
+              {/* Preview mode toggle */}
               <div className="flex items-center gap-2 mb-3">
-                <label className="font-mono text-[8px] text-text-muted/40 shrink-0">Fixture:</label>
-                <select
-                  value={selectedFixture}
-                  onChange={e => setSelectedFixture(e.target.value as InspectorFixtureName)}
-                  className="font-mono text-[9px] text-text-secondary/70 bg-house-bg border border-house-border/40 rounded px-2 py-0.5 outline-none focus:border-house-border/70"
-                >
-                  {INSPECTOR_FIXTURE_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                <span className="font-mono text-[8px] text-text-muted/35 shrink-0">Preview:</span>
+                {(['adapter', 'fixture'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setPreviewMode(mode)}
+                    className={`font-mono text-[8px] px-1.5 py-0.5 rounded border transition-colors ${
+                      previewMode === mode
+                        ? 'text-text-secondary/80 border-house-border/60 bg-house-bg/40'
+                        : 'text-text-muted/40 border-house-border/20 hover:border-house-border/40'
+                    }`}
+                  >
+                    {mode === 'adapter' ? 'Adapter-generated' : 'Fixture-only preview'}
+                  </button>
+                ))}
               </div>
-              <RecallPacketDebugPanel
-                packet={RECALL_INSPECTOR_FIXTURES[selectedFixture]}
-                title="Recall Packet Inspector"
-              />
+
+              {/* Adapter-generated mode */}
+              {previewMode === 'adapter' && (
+                <div>
+                  <p className="font-mono text-[8px] text-text-muted/40 italic mb-2">
+                    Adapter-generated preview from demo runtime signals. No live recall. No DB reads. No prompt integration. No authority movement.
+                  </p>
+                  <div className="flex items-center gap-2 mb-3">
+                    <label className="font-mono text-[8px] text-text-muted/40 shrink-0">Demo signals:</label>
+                    <select
+                      value={selectedAdapterDemo}
+                      onChange={e => setSelectedAdapterDemo(e.target.value as AdapterDemoName)}
+                      className="font-mono text-[9px] text-text-secondary/70 bg-house-bg border border-house-border/40 rounded px-2 py-0.5 outline-none focus:border-house-border/70"
+                    >
+                      {ADAPTER_DEMO_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <RecallPacketDebugPanel
+                    packet={ADAPTER_DEMO_PACKETS[selectedAdapterDemo]}
+                    title="Recall Packet Inspector"
+                  />
+                </div>
+              )}
+
+              {/* Static fixture mode */}
+              {previewMode === 'fixture' && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <label className="font-mono text-[8px] text-text-muted/40 shrink-0">Fixture:</label>
+                    <select
+                      value={selectedFixture}
+                      onChange={e => setSelectedFixture(e.target.value as InspectorFixtureName)}
+                      className="font-mono text-[9px] text-text-secondary/70 bg-house-bg border border-house-border/40 rounded px-2 py-0.5 outline-none focus:border-house-border/70"
+                    >
+                      {INSPECTOR_FIXTURE_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <RecallPacketDebugPanel
+                    packet={RECALL_INSPECTOR_FIXTURES[selectedFixture]}
+                    title="Recall Packet Inspector"
+                  />
+                </div>
+              )}
+
             </div>
           )}
         </div>
