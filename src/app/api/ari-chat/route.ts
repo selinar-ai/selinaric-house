@@ -60,6 +60,7 @@ import { buildRecallAdvisoryPacket, type RecallAdvisorySignalInput } from '@/lib
 import { formatRecallAdvisoryBlock } from '@/lib/recall/recallAdvisoryBlock'
 import { writeRecallAdvisoryTrace } from '@/lib/recall/recallAdvisoryTraceWriter'
 import type { RecallPacket } from '@/lib/recall/recallPacketTypes'
+import { RECALL_ADVISORY_NON_DISCLOSURE_GUARD } from '@/lib/recall/recallAdvisoryNonDisclosureGuard'
 import type { RecentContinuitySession } from '@/lib/recent-continuity'
 import { getAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
@@ -539,7 +540,7 @@ If an image is present in this message:
 - Do not pretend to see details that are unclear
 - If uncertain about something in the image, say so plainly
 - Stay in your voice — do not become generic visual assistant language
-- The image is context, not a replacement for who you are in this room${draftNotice}`
+- The image is context, not a replacement for who you are in this room${draftNotice}${RECALL_ADVISORY_NON_DISCLOSURE_GUARD}`
 
     const recentHistory = history.slice(-10)
 

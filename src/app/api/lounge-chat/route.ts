@@ -131,6 +131,8 @@ import { buildRecallAdvisoryPacket } from '@/lib/recall/recallAdvisorySignals'
 import { formatRecallAdvisoryBlock } from '@/lib/recall/recallAdvisoryBlock'
 // Phase 39.7: Non-fatal metadata-only trace write
 import { writeRecallAdvisoryTrace } from '@/lib/recall/recallAdvisoryTraceWriter'
+// Phase 39.7.2: Final response non-disclosure guard
+import { RECALL_ADVISORY_NON_DISCLOSURE_GUARD } from '@/lib/recall/recallAdvisoryNonDisclosureGuard'
 
 // Phase 36F.3: Web search types
 export type WebSearchReference = {
@@ -769,6 +771,7 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
         + roomCarryInBlock
         + journalContextBlock
         + livingStateBlock + autonomyContinuityBlock + recallAdvisoryBlock
+        + RECALL_ADVISORY_NON_DISCLOSURE_GUARD
 
       // ─── Phase 36F.4: Build multimodal user content with image blocks ───
       // When images are attached, the most recent user message needs native
