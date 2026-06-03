@@ -18,6 +18,13 @@ import HybridRecallPanel from '@/components/RecallReview/HybridRecallPanel'
 import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRow'
 import RecallPacketDebugPanel from '@/components/recall/RecallPacketDebugPanel'
 import RecallAdvisoryTracePanel from '@/components/recall/RecallAdvisoryTracePanel'
+import RecallEvaluationLabPanel from '@/components/recall/RecallEvaluationLabPanel'
+import { runAllTierAEvaluationCases, summarizeTierAResults } from '@/lib/recall/recallTierAEvaluator'
+
+// ─── Phase 40.2: Pre-computed Tier A evaluation results (pure, fixture-only) ─
+// Computed at module load time — pure sync, no DB, no LLM, no writes.
+const TIER_A_RESULTS   = runAllTierAEvaluationCases()
+const TIER_A_SUMMARY   = summarizeTierAResults(TIER_A_RESULTS)
 import {
   inspectorDemoFixture,
   confirmedMemoryFixture,
@@ -355,6 +362,10 @@ export default function RecallReviewPage() {
 
         {/* ── Runtime Recall Advisory Trace (Phase 39.7) ─────────── */}
         <RecallAdvisoryTracePanel />
+
+        {/* ── Recall Evaluation Lab — Tier A (Phase 40.2) ──────── */}
+        {/* Deterministic fixture evaluation only. Not Memory. Not evidence. Not authority. */}
+        <RecallEvaluationLabPanel results={TIER_A_RESULTS} summary={TIER_A_SUMMARY} />
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}
