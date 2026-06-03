@@ -16,8 +16,39 @@ import SemanticSearchPanel from '@/components/RecallReview/SemanticSearchPanel'
 import EmbedBackfillPanel from '@/components/RecallReview/EmbedBackfillPanel'
 import HybridRecallPanel from '@/components/RecallReview/HybridRecallPanel'
 import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRow'
+import RecallPacketDebugPanel from '@/components/recall/RecallPacketDebugPanel'
+import {
+  inspectorDemoFixture,
+  confirmedMemoryFixture,
+  traceExcludedFixture,
+  sourceConflictFixture,
+  insufficientGroundFixture,
+} from '@/lib/recall/recallPacketFixtures'
 
 const PAGE_SIZE = 50
+
+// ─── Recall Packet Inspector — fixture-only, no live data ────────────────────
+// Phase 39.3.1: static preview of the Context Authority Packet.
+// Does not call buildRecallPacket() from the page.
+// Does not fetch, retrieve, persist, or inject anything.
+
+const RECALL_INSPECTOR_FIXTURES = {
+  inspectorDemo:     inspectorDemoFixture,
+  confirmedMemory:   confirmedMemoryFixture,
+  traceExcluded:     traceExcludedFixture,
+  sourceConflict:    sourceConflictFixture,
+  insufficientGround: insufficientGroundFixture,
+} as const
+
+type InspectorFixtureName = keyof typeof RECALL_INSPECTOR_FIXTURES
+
+const INSPECTOR_FIXTURE_OPTIONS: Array<{ value: InspectorFixtureName; label: string }> = [
+  { value: 'inspectorDemo',     label: 'Mixed — Memory + Continuity + Trace excluded' },
+  { value: 'confirmedMemory',   label: 'Confirmed Memory only' },
+  { value: 'traceExcluded',     label: 'Memory + Trace excluded' },
+  { value: 'sourceConflict',    label: 'Memory vs Held Truth conflict' },
+  { value: 'insufficientGround', label: 'Insufficient ground' },
+]
 
 const DEFAULT_FILTERS: RecallFilterState = {
   presenceId:     '',
@@ -58,6 +89,8 @@ export default function RecallReviewPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [offset, setOffset]           = useState(0)
   const searchTimeoutRef              = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [inspectorOpen, setInspectorOpen]             = useState(false)
+  const [selectedFixture, setSelectedFixture]         = useState<InspectorFixtureName>('inspectorDemo')
 
   // Fetch events — reset=true clears list and starts fresh
   const fetchEvents = useCallback(async (
@@ -171,6 +204,47 @@ export default function RecallReviewPage() {
 
         {/* ── Hybrid Recall Lab (Phase 29C) ────────────────────── */}
         <HybridRecallPanel />
+
+        {/* ── Recall Packet Inspector (Phase 39.3.1) ───────────── */}
+        {/* Fixture-only preview. No live recall. No prompt integration. No authority movement. */}
+        <div className="mt-5 border-t border-house-border pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
+                Recall Packet Inspector
+              </p>
+              <p className="font-body text-[9px] text-text-muted/50 italic mt-0.5">
+                Fixture-only preview. No live recall. No prompt integration. No authority movement.
+              </p>
+            </div>
+            <button
+              onClick={() => setInspectorOpen(prev => !prev)}
+              className="font-mono text-[9px] text-text-muted/50 border border-house-border/30 px-2 py-0.5 rounded hover:border-house-border/60 transition-colors shrink-0 ml-4"
+            >
+              {inspectorOpen ? 'collapse' : 'expand'}
+            </button>
+          </div>
+          {inspectorOpen && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 mb-3">
+                <label className="font-mono text-[8px] text-text-muted/40 shrink-0">Fixture:</label>
+                <select
+                  value={selectedFixture}
+                  onChange={e => setSelectedFixture(e.target.value as InspectorFixtureName)}
+                  className="font-mono text-[9px] text-text-secondary/70 bg-house-bg border border-house-border/40 rounded px-2 py-0.5 outline-none focus:border-house-border/70"
+                >
+                  {INSPECTOR_FIXTURE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <RecallPacketDebugPanel
+                packet={RECALL_INSPECTOR_FIXTURES[selectedFixture]}
+                title="Recall Packet Inspector"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}
