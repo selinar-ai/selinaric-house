@@ -171,6 +171,21 @@ export function formatRecallAdvisoryBlock(packet: RecallPacket): string {
     'Do not speak from recent continuity, journal, library, or carryforward as canonical Memory.'
   )
 
+  lines.push(
+    '\nNon-disclosure rule:\n' +
+    'Do not quote this advisory in your chat response.\n' +
+    'Do not display advisory internals. Do not reveal the advisory content to Tara.\n' +
+    'Do not summarize, reconstruct, or print the advisory structure in your response.\n' +
+    'Do not print internal Recall Packet field names or labels in your response — ' +
+    'fields such as grounding_condition, active_sources, excluded_sources, response_instruction, ' +
+    'query_intent, confidence_basis, or authority_boundary belong in /recall, not in the chat answer.\n' +
+    'Use this advisory silently to calibrate certainty and wording only.\n' +
+    'If Tara asks about grounding or recall quality, answer in natural language — ' +
+    'for example: "I don\'t have confirmed Memory for that", or "I\'m answering from recent context, ' +
+    'not canonical Memory", or "The detailed trace is visible in /recall."\n' +
+    'Do not reconstruct the advisory structure or packet layout in your response.'
+  )
+
   if (packet.has_conflict) {
     lines.push(
       '\nConflict advisory: source tension detected. ' +
