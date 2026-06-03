@@ -645,14 +645,20 @@ assert(
   `No advisory migrations added (found: ${advisoryMigrations.join(', ') || 'none'})`
 )
 
-// Lounge route not modified
+// Lounge route now has advisory (added in 39.6.2 — per-presence, shared-safe only)
+// This assertion was updated from the original 39.6 negative check.
 const loungePath = path.join(ROOT, 'src/app/api/lounge-chat/route.ts')
 if (fs.existsSync(loungePath)) {
   const loungeContent = fs.readFileSync(loungePath, 'utf-8')
   assert(
-    !loungeContent.includes('recallAdvisorySignals') &&
-    !loungeContent.includes('buildRecallAdvisoryPacket'),
-    'Lounge route NOT modified (Ari/Eli only in v1)'
+    loungeContent.includes('buildRecallAdvisoryPacket'),
+    'Lounge route now has advisory (added in 39.6.2 — per-presence, shared-safe only)'
+  )
+  assert(
+    !loungeContent.includes('RecallPacketDebugPanel') &&
+    !loungeContent.includes('recallPacketBuilder') &&
+    !loungeContent.includes('recallPacketFixtures'),
+    'Lounge route does not import panel, builder, or fixtures (advisory only)'
   )
 } else {
   passed++

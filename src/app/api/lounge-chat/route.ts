@@ -126,6 +126,9 @@ import {
   type RoomContactStatus,
   type RoomCarryInReference,
 } from '@/lib/room-carry-in'
+// Phase 39.6.2: Recall Packet Advisory (per-presence, shared-safe only)
+import { buildRecallAdvisoryPacket } from '@/lib/recall/recallAdvisorySignals'
+import { formatRecallAdvisoryBlock } from '@/lib/recall/recallAdvisoryBlock'
 
 // Phase 36F.3: Web search types
 export type WebSearchReference = {
@@ -493,9 +496,11 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
       const temporalBlock = `\n\n## Temporal context:\nCurrent date and time: ${currentDatetime}\n`
 
       // Manual Archive Recall — per-presence, scoped by archive visibility
+      // Phase 39.6.2: hoisted to outer scope so recallEntries is available for advisory
       let recallContextBlock = ''
+      let recallEntries: RecallEntry[] = []
       if (recallIntent && recallQuery) {
-        const recallEntries: RecallEntry[] = await getRecallableArchiveEntries(
+        recallEntries = await getRecallableArchiveEntries(
           presenceId, recallQuery, MANUAL_RECALL_OPTIONS.limit, {
             statuses: MANUAL_RECALL_OPTIONS.statuses,
             excludeElevatedSensitivity: false,
@@ -716,6 +721,29 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
 - Use source-visible wording when referencing results: "the source says," "according to the retrieved result," "the documentation indicates."
 - Do not say "I remember" when referencing web search results.\n`
 
+      // ─── Phase 39.6.2: Recall Packet Advisory (per-presence, shared-safe only) ──
+      // Advisory law: calibration only, not authority.
+      // Sources: archive recall (shared visibility only) + library references (lounge-allowed).
+      // Journal references are NOT passed — journal_inner_continuity is lounge_allowed:false.
+      // Recent continuity, governed memory, and carryforwards are NOT available in Lounge.
+      // Scope gate in buildRecallAdvisoryPacket(room='lounge') enforces shared-safe filtering.
+      let recallAdvisoryBlock = ''
+      try {
+        const advisoryTimestamp = new Date().toISOString()
+        const advisoryPacket = buildRecallAdvisoryPacket({
+          presence:             presenceId,
+          room:                 'lounge',
+          packet_id:            `advisory:${presenceId}:lounge:${advisoryTimestamp}`,
+          computed_at:          advisoryTimestamp,
+          archiveRecallEntries: recallEntries,
+          libraryReferences,
+        })
+        recallAdvisoryBlock = formatRecallAdvisoryBlock(advisoryPacket)
+      } catch (err) {
+        // Advisory is non-fatal — log and continue without it
+        console.error(`[lounge-chat] Recall advisory error for ${presenceId} (non-fatal):`, err instanceof Error ? err.message : String(err))
+      }
+
       const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock
         + temporalBlock + recentContinuityBlock + recallContextBlock
         + libraryContextBlock + librarySearchStatusBlock + libraryGuidanceBlock
@@ -723,7 +751,7 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
         + attachmentContextBlock + attachmentGuidanceBlock
         + roomCarryInBlock
         + journalContextBlock
-        + livingStateBlock + autonomyContinuityBlock
+        + livingStateBlock + autonomyContinuityBlock + recallAdvisoryBlock
 
       // ─── Phase 36F.4: Build multimodal user content with image blocks ───
       // When images are attached, the most recent user message needs native

@@ -24,6 +24,7 @@ import {
   type PresenceScope,
   type RecallPacket,
   type RelevanceScore,
+  type RoomContext,
   type RuntimeContextSignal,
   RuntimeContextSignalType,
 } from './recallPacketTypes'
@@ -40,7 +41,8 @@ import type { LibraryReference } from '@/lib/library/chat-library-search'
 
 export type RecallAdvisorySignalInput = {
   presence: PresenceScope
-  room: 'ari_room' | 'eli_room'
+  /** Phase 39.6.2: expanded to RoomContext to support Lounge advisory. */
+  room: RoomContext
   packet_id: string
   computed_at: string
 
