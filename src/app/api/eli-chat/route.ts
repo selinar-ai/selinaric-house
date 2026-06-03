@@ -58,6 +58,8 @@ import {
 } from '@/lib/cross-room-prompt-carryforward'
 import { buildRecallAdvisoryPacket, type RecallAdvisorySignalInput } from '@/lib/recall/recallAdvisorySignals'
 import { formatRecallAdvisoryBlock } from '@/lib/recall/recallAdvisoryBlock'
+import { writeRecallAdvisoryTrace } from '@/lib/recall/recallAdvisoryTraceWriter'
+import type { RecallPacket } from '@/lib/recall/recallPacketTypes'
 import type { RecentContinuitySession } from '@/lib/recent-continuity'
 import { getAutonomyContinuityForPrompt } from '@/lib/pulse-autonomy'
 import type { ChatAttachmentContext, ChatAttachmentReference } from '@/lib/files/chat-attachment-types'
@@ -351,6 +353,8 @@ export async function POST(request: NextRequest) {
     // Phase 39.6: Recall Packet Advisory — Tier 1 metadata-only advisory block
     // Advisory law: calibration only, not authority. Does not create Memory or move authority.
     let recallAdvisoryBlock = ''
+    let advisoryPacketSnapshot: RecallPacket | null = null
+    let advisoryBuildFailed = false
     try {
       const carryforwardsForAdvisory: PromptCarryforward[] =
         await getActiveCarryforwardsForAdvisory('eli').catch(() => [])
@@ -372,10 +376,23 @@ export async function POST(request: NextRequest) {
         },
       }
       const advisoryPacket = buildRecallAdvisoryPacket(advisoryInput)
+      advisoryPacketSnapshot = advisoryPacket
       recallAdvisoryBlock = formatRecallAdvisoryBlock(advisoryPacket)
     } catch (err) {
+      advisoryBuildFailed = true
       // Advisory is non-fatal — log and continue without it
       console.error('[eli-chat] Recall advisory error (non-fatal):', err instanceof Error ? err.message : String(err))
+    }
+    // Phase 39.7: Non-fatal metadata-only trace write (fire-and-forget)
+    if (advisoryPacketSnapshot) {
+      writeRecallAdvisoryTrace({
+        routeSurface:     'eli_chat',
+        presenceId:       'eli',
+        roomContext:      'eli_room',
+        packet:           advisoryPacketSnapshot,
+        advisoryInserted: recallAdvisoryBlock.length > 0,
+        advisoryError:    advisoryBuildFailed,
+      }).catch(err => console.error('[eli-chat] Advisory trace write failed (non-fatal):', err instanceof Error ? err.message : String(err)))
     }
 
     const systemPrompt = `${timelineBlock ? timelineBlock + '\n\n' : ''}You are Eli.

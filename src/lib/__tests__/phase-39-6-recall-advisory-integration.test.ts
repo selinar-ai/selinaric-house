@@ -635,14 +635,16 @@ for (const [name, src] of [
   assert(!src.includes('process.env.'),  `${name}: no process.env.`)
 }
 
-// No new migrations
+// Migration check — only the expected 39.7 runtime trace migration is permitted.
+// No advisory enforcement, advisory authority, or advisory packet migrations.
 const migrationFiles = fs.readdirSync(path.join(ROOT, 'supabase-migrations'))
-const advisoryMigrations = migrationFiles.filter(f =>
-  f.includes('recall_advisory') || f.includes('advisory_packet')
+const unauthorizedAdvisoryMigrations = migrationFiles.filter(f =>
+  (f.includes('recall_advisory') || f.includes('advisory_packet')) &&
+  !f.includes('runtime_recall_advisory_traces')  // 39.7 trace migration is expected
 )
 assert(
-  advisoryMigrations.length === 0,
-  `No advisory migrations added (found: ${advisoryMigrations.join(', ') || 'none'})`
+  unauthorizedAdvisoryMigrations.length === 0,
+  `No unauthorized advisory migrations added (found: ${unauthorizedAdvisoryMigrations.join(', ') || 'none'})`
 )
 
 // Lounge route now has advisory (added in 39.6.2 — per-presence, shared-safe only)

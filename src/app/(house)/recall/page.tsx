@@ -17,6 +17,7 @@ import EmbedBackfillPanel from '@/components/RecallReview/EmbedBackfillPanel'
 import HybridRecallPanel from '@/components/RecallReview/HybridRecallPanel'
 import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRow'
 import RecallPacketDebugPanel from '@/components/recall/RecallPacketDebugPanel'
+import RecallAdvisoryTracePanel from '@/components/recall/RecallAdvisoryTracePanel'
 import {
   inspectorDemoFixture,
   confirmedMemoryFixture,
@@ -351,6 +352,9 @@ export default function RecallReviewPage() {
             </div>
           )}
         </div>
+
+        {/* ── Runtime Recall Advisory Trace (Phase 39.7) ─────────── */}
+        <RecallAdvisoryTracePanel />
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}

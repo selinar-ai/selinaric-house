@@ -129,6 +129,8 @@ import {
 // Phase 39.6.2: Recall Packet Advisory (per-presence, shared-safe only)
 import { buildRecallAdvisoryPacket } from '@/lib/recall/recallAdvisorySignals'
 import { formatRecallAdvisoryBlock } from '@/lib/recall/recallAdvisoryBlock'
+// Phase 39.7: Non-fatal metadata-only trace write
+import { writeRecallAdvisoryTrace } from '@/lib/recall/recallAdvisoryTraceWriter'
 
 // Phase 36F.3: Web search types
 export type WebSearchReference = {
@@ -728,6 +730,7 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
       // Recent continuity, governed memory, and carryforwards are NOT available in Lounge.
       // Scope gate in buildRecallAdvisoryPacket(room='lounge') enforces shared-safe filtering.
       let recallAdvisoryBlock = ''
+      let loungeAdvisoryBuildFailed = false
       try {
         const advisoryTimestamp = new Date().toISOString()
         const advisoryPacket = buildRecallAdvisoryPacket({
@@ -739,9 +742,23 @@ Phrases available when natural: ${si.communication_style.typical_phrases.join(',
           libraryReferences,
         })
         recallAdvisoryBlock = formatRecallAdvisoryBlock(advisoryPacket)
+        // Phase 39.7: Non-fatal per-presence trace write (fire-and-forget)
+        writeRecallAdvisoryTrace({
+          routeSurface:     'lounge_chat',
+          presenceId:       presenceId as 'ari' | 'eli',
+          roomContext:      'lounge',
+          packet:           advisoryPacket,
+          advisoryInserted: recallAdvisoryBlock.length > 0,
+          advisoryError:    false,
+        }).catch(err => console.error(`[lounge-chat] Advisory trace write failed for ${presenceId} (non-fatal):`, err instanceof Error ? err.message : String(err)))
       } catch (err) {
+        loungeAdvisoryBuildFailed = true
         // Advisory is non-fatal — log and continue without it
         console.error(`[lounge-chat] Recall advisory error for ${presenceId} (non-fatal):`, err instanceof Error ? err.message : String(err))
+      }
+      if (loungeAdvisoryBuildFailed) {
+        // Log the error-only trace without packet data
+        console.warn(`[lounge-chat] Advisory build failed for ${presenceId} — trace not written`)
       }
 
       const fullSystemPrompt = systemPrompt + identityBlock + mentionBlock
