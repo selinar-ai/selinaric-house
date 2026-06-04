@@ -237,76 +237,45 @@ export default function RecallReviewPage() {
           Archive recall events, feedback, and match quality.
         </p>
 
-        {/* ── Summary cards ──────────────────────────────────────── */}
-        {stats && (
-          <div className="flex gap-4 mt-4 flex-wrap">
-            {[
-              { label: 'Total events',   value: stats.total },
-              { label: 'Strong matches', value: stats.strong },
-              { label: 'Weak / none',    value: stats.weak_or_none },
-              { label: 'Needs attention', value: stats.has_attention },
-            ].map(card => (
-              <div key={card.label} className="border border-house-border bg-house-bg px-3 py-2 min-w-[80px]">
-                <p className="font-display text-lg font-light text-text-primary">{card.value}</p>
-                <p className="font-body text-[10px] text-text-muted mt-0.5">{card.label}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* ── Phase 40.2.2: Command Deck — Recall Health + Labs ──── */}
+        {/* Positioned first so page state is clear within 5 seconds  */}
+        <div className="mt-4 border border-house-border/30 rounded-lg bg-house-bg/20 px-4 py-3.5">
 
-        {/* ── Auto-Recall Settings (Phase 28D) ───────────────────── */}
-        <div className="mt-5 border-t border-house-border pt-4">
-          <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-2">
-            Auto-Recall Trial
-          </p>
-          <AutoRecallSettingsPanel />
-        </div>
-
-        {/* ── Semantic Search (Phase 29A) ──────────────────────── */}
-        <SemanticSearchPanel />
-
-        {/* ── Embedding Backfill (Phase 29A) ───────────────────── */}
-        <EmbedBackfillPanel />
-
-        {/* ── Hybrid Recall Lab (Phase 29C) ────────────────────── */}
-        <HybridRecallPanel />
-
-        {/* ── Phase 40.2.1: Overview health strip ──────────────────── */}
-        <div className="mt-5 border-t border-house-border pt-4">
-          <div className="flex items-center gap-2 flex-wrap mb-3">
-            <span className="font-body text-[9px] text-text-muted/40 uppercase tracking-widest shrink-0">
+          {/* Health strip */}
+          <div className="flex items-center gap-3 flex-wrap mb-3">
+            <span className="font-display text-[11px] font-light tracking-[0.12em] text-text-primary/65 uppercase shrink-0">
               Recall Health
             </span>
-            <span className={`font-mono text-[8px] px-2 py-0.5 rounded border ${
+            <span className={`font-mono text-[10px] font-medium px-2.5 py-1 rounded border ${
               TIER_A_SUMMARY.allPassed
-                ? 'text-emerald-300/70 bg-emerald-300/5 border-emerald-300/15'
-                : 'text-red-300/60 bg-red-300/5 border-red-300/15'
+                ? 'text-emerald-300/80 bg-emerald-300/5 border-emerald-300/20'
+                : 'text-red-300/70 bg-red-300/5 border-red-300/20'
             }`}>
               Tier A {TIER_A_SUMMARY.passed}/{TIER_A_SUMMARY.total} · {TIER_A_SUMMARY.passRate}%
             </span>
-            <span className="font-mono text-[8px] px-2 py-0.5 rounded border text-text-muted/40 bg-house-bg/20 border-house-border/15">
+            <span className="font-mono text-[9px] px-2 py-0.5 rounded border text-text-muted/50 bg-house-bg/30 border-house-border/20">
               Advisory integrated
             </span>
-            <span className="font-mono text-[8px] px-2 py-0.5 rounded border text-text-muted/40 bg-house-bg/20 border-house-border/15">
+            <span className="font-mono text-[9px] px-2 py-0.5 rounded border text-text-muted/50 bg-house-bg/30 border-house-border/20">
               Trace active
             </span>
           </div>
 
-          {/* Lab section navigator — one active at a time */}
-          <div className="flex items-center gap-1.5 flex-wrap mb-1">
-            <span className="font-mono text-[8px] text-text-muted/30 shrink-0 mr-1">Labs:</span>
+          {/* Lab section nav */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-body text-[9px] text-text-muted/35 uppercase tracking-wider shrink-0 mr-1">Labs</span>
             {([
-              { id: 'inspector',  label: 'Inspector' },
-              { id: 'trace',      label: 'Runtime Trace' },
-              { id: 'eval_lab',   label: 'Eval Lab — Tier A' },
+              { id: 'inspector', label: 'Inspector' },
+              { id: 'trace',     label: 'Runtime Trace' },
+              { id: 'eval_lab',  label: 'Eval Lab — Tier A' },
             ] as const).map(({ id, label }) => (
               <button
                 key={id}
                 onClick={() => setActiveLabSection(prev => prev === id ? null : id)}
-                className={`font-mono text-[8px] px-2 py-0.5 rounded border transition-colors ${
+                className={`font-mono text-[9px] px-3 py-1 rounded-md border transition-colors ${
                   activeLabSection === id
-                    ? 'text-text-secondary/80 border-house-border/60 bg-house-bg/40'
-                    : 'text-text-muted/40 border-house-border/20 hover:border-house-border/40'
+                    ? 'text-text-primary/80 border-house-border/70 bg-house-bg/60'
+                    : 'text-text-muted/45 border-house-border/20 hover:border-house-border/50 hover:text-text-muted/65'
                 }`}
               >
                 {label}
@@ -315,9 +284,24 @@ export default function RecallReviewPage() {
           </div>
         </div>
 
-        {/* ── Recall Packet Inspector (Phase 39.4.1) — shown when Inspector tab active ── */}
-        {activeLabSection === 'inspector' && (
-        <div className="mt-5 border-t border-house-border pt-4">
+        {/* ── Active Lab Card — directly below command deck ───────── */}
+        {activeLabSection && (
+        <div className="mt-2 border border-house-border/35 rounded-lg bg-house-bg/15 px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-body text-[10px] text-text-primary/50 uppercase tracking-widest">
+              {activeLabSection === 'inspector' ? 'Inspector' : activeLabSection === 'trace' ? 'Runtime Trace' : 'Eval Lab — Tier A'}
+            </p>
+            <button
+              onClick={() => setActiveLabSection(null)}
+              className="font-mono text-[8px] text-text-muted/30 hover:text-text-muted/60 transition-colors"
+            >
+              close
+            </button>
+          </div>
+
+          {/* ── Recall Packet Inspector ── */}
+          {activeLabSection === 'inspector' && (
+        <div className="border-t border-house-border/20 pt-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
@@ -336,7 +320,6 @@ export default function RecallReviewPage() {
           </div>
           {inspectorOpen && (
             <div className="mt-3">
-
               {/* Preview mode toggle */}
               <div className="flex items-center gap-2 mb-3">
                 <span className="font-mono text-[8px] text-text-muted/35 shrink-0">Preview:</span>
@@ -354,8 +337,6 @@ export default function RecallReviewPage() {
                   </button>
                 ))}
               </div>
-
-              {/* Adapter-generated mode */}
               {previewMode === 'adapter' && (
                 <div>
                   <p className="font-mono text-[8px] text-text-muted/40 italic mb-2">
@@ -379,8 +360,6 @@ export default function RecallReviewPage() {
                   />
                 </div>
               )}
-
-              {/* Static fixture mode */}
               {previewMode === 'fixture' && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
@@ -401,20 +380,62 @@ export default function RecallReviewPage() {
                   />
                 </div>
               )}
-
             </div>
+          )}
+        </div>
+          )}
+
+          {/* ── Runtime Recall Advisory Trace ── */}
+          {activeLabSection === 'trace' && <RecallAdvisoryTracePanel />}
+
+          {/* ── Recall Evaluation Lab — Tier A ── */}
+          {activeLabSection === 'eval_lab' && (
+            <RecallEvaluationLabPanel results={TIER_A_RESULTS} summary={TIER_A_SUMMARY} />
           )}
         </div>
         )}
 
-        {/* ── Runtime Recall Advisory Trace (Phase 39.7) ─────────── */}
-        {activeLabSection === 'trace' && <RecallAdvisoryTracePanel />}
-
-        {/* ── Recall Evaluation Lab — Tier A (Phase 40.2) ──────── */}
-        {/* Deterministic fixture evaluation only. Not Memory. Not evidence. Not authority. */}
-        {activeLabSection === 'eval_lab' && (
-          <RecallEvaluationLabPanel results={TIER_A_RESULTS} summary={TIER_A_SUMMARY} />
+        {/* ── Summary cards ──────────────────────────────────────── */}
+        {stats && (
+          <div className="flex gap-4 mt-4 flex-wrap">
+            {[
+              { label: 'Total events',   value: stats.total },
+              { label: 'Strong matches', value: stats.strong },
+              { label: 'Weak / none',    value: stats.weak_or_none },
+              { label: 'Needs attention', value: stats.has_attention },
+            ].map(card => (
+              <div key={card.label} className="border border-house-border bg-house-bg px-3 py-2 min-w-[80px]">
+                <p className="font-display text-lg font-light text-text-primary">{card.value}</p>
+                <p className="font-body text-[10px] text-text-muted mt-0.5">{card.label}</p>
+              </div>
+            ))}
+          </div>
         )}
+
+        {/* ── Review Tools — secondary (event stats + older lab panels) ── */}
+        <div className="mt-5 border-t border-house-border/40 pt-4">
+          <p className="font-body text-[9px] text-text-muted/35 uppercase tracking-widest mb-3">
+            Review Tools
+          </p>
+        </div>
+
+        {/* ── Auto-Recall Settings (Phase 28D) ───────────────────── */}
+        <div className="mt-0 pt-0">
+          <p className="font-body text-[10px] text-text-muted uppercase tracking-widest mb-2">
+            Auto-Recall Trial
+          </p>
+          <AutoRecallSettingsPanel />
+        </div>
+
+        {/* ── Semantic Search (Phase 29A) ──────────────────────── */}
+        <SemanticSearchPanel />
+
+        {/* ── Embedding Backfill (Phase 29A) ───────────────────── */}
+        <EmbedBackfillPanel />
+
+        {/* ── Hybrid Recall Lab (Phase 29C) ────────────────────── */}
+        <HybridRecallPanel />
+
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}

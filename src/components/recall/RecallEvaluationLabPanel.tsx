@@ -60,7 +60,7 @@ function CaseRow({ result }: { result: RecallEvalTierAResult }) {
     <>
       {/* Compact row */}
       <div
-        className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors hover:bg-house-bg/30 ${
+        className={`flex items-center gap-2 px-2.5 py-1.5 rounded cursor-pointer transition-colors hover:bg-house-bg/30 ${
           hasFail ? 'border-l-2 border-red-300/30' : 'border-l-2 border-emerald-300/10'
         }`}
         onClick={() => setExpanded(prev => !prev)}
@@ -71,30 +71,30 @@ function CaseRow({ result }: { result: RecallEvalTierAResult }) {
         </span>
 
         {/* Case ID */}
-        <span className="font-mono text-[8px] text-text-secondary/65 truncate min-w-0 flex-1" title={result.case_id}>
+        <span className="font-mono text-[9px] text-text-secondary/70 truncate min-w-0 flex-1" title={result.case_id}>
           {result.case_id}
         </span>
 
         {/* Category */}
-        <span className="font-mono text-[7px] text-text-muted/35 shrink-0 hidden md:block w-24 truncate">
+        <span className="font-mono text-[8px] text-text-muted/40 shrink-0 hidden md:block w-28 truncate">
           {evalCase ? fmtCategory(evalCase.category) : '—'}
         </span>
 
         {/* Expected instruction */}
-        <span className="font-mono text-[7px] text-text-muted/45 shrink-0 w-20 truncate text-right"
+        <span className="font-mono text-[7px] text-text-muted/45 shrink-0 w-24 truncate text-right"
               title={result.expected_primary_response_instruction}>
           {shortInstruction(result.expected_primary_response_instruction)}
         </span>
 
         {/* Actual instruction */}
-        <span className={`font-mono text-[7px] shrink-0 w-20 truncate text-right ${
+        <span className={`font-mono text-[8px] shrink-0 w-24 truncate text-right ${
           match ? 'text-emerald-300/55' : 'text-red-300/55'
         }`} title={result.actual_primary_response_instruction}>
           {shortInstruction(result.actual_primary_response_instruction)}
         </span>
 
         {/* Counts */}
-        <span className="font-mono text-[7px] text-text-muted/30 shrink-0 w-16 text-right">
+        <span className="font-mono text-[8px] text-text-muted/38 shrink-0 w-18 text-right">
           a:{result.actual_active_surfaces.length} e:{result.actual_excluded_surfaces.length}
           {result.packet.conflicts.length > 0 && ` c:${result.packet.conflicts.length}`}
         </span>
@@ -233,7 +233,7 @@ export default function RecallEvaluationLabPanel({
       </div>
 
       {/* Column headers */}
-      <div className="flex items-center gap-2 px-2 mb-1 text-[7px] font-mono text-text-muted/25">
+      <div className="flex items-center gap-2 px-2.5 mb-1.5 text-[8px] font-mono text-text-muted/30">
         <span className="w-3 shrink-0">ok</span>
         <span className="flex-1">case</span>
         <span className="w-24 hidden md:block">category</span>
@@ -244,7 +244,7 @@ export default function RecallEvaluationLabPanel({
       </div>
 
       {/* Tier A note */}
-      <p className="font-mono text-[7px] text-text-muted/30 italic mb-2">
+      <p className="font-mono text-[8px] text-text-muted/35 italic mb-2">
         Tier A: packet classification only. Tier B (LLM response grading) comes later.
       </p>
 
@@ -263,7 +263,7 @@ export default function RecallEvaluationLabPanel({
 
       {/* Boundary footer */}
       <div className="mt-3 pt-2 border-t border-house-border/10">
-        <p className="font-mono text-[7px] text-text-muted/25 italic">
+        <p className="font-mono text-[8px] text-text-muted/30 italic">
           Not Memory · Not evidence · Not authority · No live data · No LLM · No writes
         </p>
       </div>
