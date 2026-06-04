@@ -15,6 +15,7 @@
 import { useState } from 'react'
 import { RECALL_EVAL_CASES } from '@/lib/recall/recallEvalCases'
 import type { RecallEvalCaseId } from '@/lib/recall/recallEvalTypes'
+import VoiceButton from '@/components/VoiceButton'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RESPONSE TYPES (approved fields only — no prompt text, no stack traces)
@@ -76,6 +77,11 @@ type TierBResult = TierBSuccessResult | TierBErrorResult
 
 function fmtLabel(s: string): string {
   return s.replace(/_/g, ' ')
+}
+
+/** Map sandbox presence to VoiceButton presenceId ('ari' | 'eli'). Lounge defaults to Ari. */
+function ttsPresenceId(presence: 'ari' | 'eli' | 'lounge'): 'ari' | 'eli' {
+  return presence === 'eli' ? 'eli' : 'ari'
 }
 
 function SignalRow({ check, type }: { check: SignalCheck; type: 'required' | 'forbidden' }) {
@@ -301,9 +307,17 @@ export default function RecallTierBBehaviourLabPanel() {
               <span className="font-mono text-[8px] text-text-muted/50 uppercase tracking-wider">
                 Sandbox Response
               </span>
-              <span className="font-mono text-[7px] text-text-muted/30 italic">
-                {result.model_used} · not Memory · not evidence
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-mono text-[7px] text-text-muted/30 italic">
+                  {result.model_used} · not Memory · not evidence
+                </span>
+                {/* TTS button — reads model_response only, not grading or boundary fields */}
+                <VoiceButton
+                  text={result.model_response}
+                  presenceId={ttsPresenceId(selectedPresence)}
+                  buttonClass="font-mono text-[8px]"
+                />
+              </div>
             </div>
             <div className="px-3 py-2">
               <p className="font-body text-[10px] text-text-primary/80 leading-relaxed whitespace-pre-wrap">
