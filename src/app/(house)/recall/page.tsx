@@ -19,6 +19,7 @@ import type { RecallEventSummary } from '@/components/RecallReview/RecallEventRo
 import RecallPacketDebugPanel from '@/components/recall/RecallPacketDebugPanel'
 import RecallAdvisoryTracePanel from '@/components/recall/RecallAdvisoryTracePanel'
 import RecallEvaluationLabPanel from '@/components/recall/RecallEvaluationLabPanel'
+import RecallTierBBehaviourLabPanel from '@/components/recall/RecallTierBBehaviourLabPanel'
 import { runAllTierAEvaluationCases, summarizeTierAResults } from '@/lib/recall/recallTierAEvaluator'
 
 // ─── Phase 40.2: Pre-computed Tier A evaluation results (pure, fixture-only) ─
@@ -156,7 +157,7 @@ export default function RecallReviewPage() {
   const [previewMode, setPreviewMode]                 = useState<'fixture' | 'adapter'>('adapter')
   const [selectedAdapterDemo, setSelectedAdapterDemo] = useState<AdapterDemoName>('inspectorDemo')
   // Phase 40.2.1 — lab section nav: only one diagnostic lab open at a time
-  const [activeLabSection, setActiveLabSection]       = useState<'inspector' | 'trace' | 'eval_lab' | null>(null)
+  const [activeLabSection, setActiveLabSection]       = useState<'inspector' | 'trace' | 'eval_lab' | 'tier_b' | null>(null)
 
   // Fetch events — reset=true clears list and starts fresh
   const fetchEvents = useCallback(async (
@@ -268,6 +269,7 @@ export default function RecallReviewPage() {
               { id: 'inspector', label: 'Inspector' },
               { id: 'trace',     label: 'Runtime Trace' },
               { id: 'eval_lab',  label: 'Eval Lab — Tier A' },
+              { id: 'tier_b',    label: 'Behaviour — Tier B' },
             ] as const).map(({ id, label }) => (
               <button
                 key={id}
@@ -289,7 +291,7 @@ export default function RecallReviewPage() {
         <div className="mt-2 border border-house-border/35 rounded-lg bg-house-bg/15 px-4 py-3">
           <div className="flex items-center justify-between mb-3">
             <p className="font-body text-[10px] text-text-primary/50 uppercase tracking-widest">
-              {activeLabSection === 'inspector' ? 'Inspector' : activeLabSection === 'trace' ? 'Runtime Trace' : 'Eval Lab — Tier A'}
+              {activeLabSection === 'inspector' ? 'Inspector' : activeLabSection === 'trace' ? 'Runtime Trace' : activeLabSection === 'eval_lab' ? 'Eval Lab — Tier A' : 'Behaviour — Tier B'}
             </p>
             <button
               onClick={() => setActiveLabSection(null)}
@@ -392,6 +394,9 @@ export default function RecallReviewPage() {
           {activeLabSection === 'eval_lab' && (
             <RecallEvaluationLabPanel results={TIER_A_RESULTS} summary={TIER_A_SUMMARY} />
           )}
+
+          {/* ── Behaviour — Tier B (Phase 40.7) ── */}
+          {activeLabSection === 'tier_b' && <RecallTierBBehaviourLabPanel />}
         </div>
         )}
 

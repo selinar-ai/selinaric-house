@@ -459,11 +459,13 @@ assert(
   `No 40.4 migrations added (found: ${tier4Migrations.join(', ') || 'none'})`
 )
 
-// /recall page should not be modified
+// /recall page now includes Tier B UI (added in Phase 40.7 after 40.4)
+// 40.4's boundary: the sandbox ROUTE was new; the page was unmodified at 40.4 close.
+// Post-40.7: the page now has RecallTierBBehaviourLabPanel — that is expected.
 const recallPageSrc = fs.readFileSync(path.join(ROOT, 'src/app/(house)/recall/page.tsx'), 'utf-8')
 assert(
-  !recallPageSrc.includes('tier-b') && !recallPageSrc.includes('RecallTierB'),
-  '/recall page NOT modified by 40.4 (no Tier B UI yet)'
+  !recallPageSrc.includes('gradeTierBResponse'),
+  '/recall page does NOT call gradeTierBResponse directly (grading stays in the route, not the page)'
 )
 
 // Production chat routes not modified
