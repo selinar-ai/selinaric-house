@@ -432,11 +432,12 @@ for (const pattern of pureForbidden) {
 // ═══════════════════════════════════════════════════════
 section('16. No route / UI / migration changes')
 
-// Sandbox route NOT modified
+// Sandbox route: grader was wired in 40.6 (after 40.5 closed)
+// Updated assertion: route correctly imports and uses the grader
 const routeSrc = fs.readFileSync(path.join(ROOT, 'src/app/api/recall-eval/tier-b/route.ts'), 'utf-8')
 assert(
-  !routeSrc.includes('gradeTierBResponse') && !routeSrc.includes('recallTierBGrader'),
-  'Tier B route NOT wired to grader yet (40.5 is library only)'
+  routeSrc.includes('gradeTierBResponse'),
+  'Tier B route uses gradeTierBResponse (wired in 40.6)'
 )
 
 // No migrations

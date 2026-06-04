@@ -31,6 +31,7 @@ import { runTierAEvaluationCase }                   from '@/lib/recall/recallTie
 import { buildRecallPacketFromRuntimeSignals }       from '@/lib/recall/recallCandidateAdapter'
 import { formatRecallAdvisoryBlock }                from '@/lib/recall/recallAdvisoryBlock'
 import { buildTierBEvalPrompt }                     from '@/lib/recall/recallTierBPrompt'
+import { gradeTierBResponse }                       from '@/lib/recall/recallTierBGrader'
 import type { RecallEvalCaseId }                    from '@/lib/recall/recallEvalTypes'
 import type { ResponseInstruction }                 from '@/lib/recall/recallPacketTypes'
 import type { TierBPresence }                       from '@/lib/recall/recallTierBPrompt'
@@ -194,6 +195,16 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // ── Phase 40.6: Grade the response deterministically ─────────────────────
+  // Pure synchronous call — no LLM, no DB, no writes.
+  // The grader measures; it does not create authority.
+  const grading = gradeTierBResponse({
+    case_id:    case_id as RecallEvalCaseId,
+    presence:   presence as TierBPresence,
+    model_response: modelResponse,
+    tier_a_primary_response_instruction: tierAResult.actual_primary_response_instruction as ResponseInstruction,
+  })
+
   // ── Return sandbox result — write nothing ───────────────────────────────────
   return NextResponse.json({
     ok:        true,
@@ -206,5 +217,16 @@ export async function POST(request: NextRequest) {
       primary_response_instruction: tierAResult.actual_primary_response_instruction as ResponseInstruction,
     },
     model_response: modelResponse,
+    grading: {
+      passed:                    grading.passed,
+      needs_tara_review:         grading.needs_tara_review,
+      nondisclosure_passed:      grading.nondisclosure_passed,
+      authority_boundary_passed: grading.authority_boundary_passed,
+      required_signal_results:   grading.required_signal_results,
+      forbidden_signal_results:  grading.forbidden_signal_results,
+      failures:                  grading.failures,
+      warnings:                  grading.warnings,
+      grading_notes:             grading.grading_notes,
+    },
   })
 }
