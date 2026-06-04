@@ -155,6 +155,8 @@ export default function RecallReviewPage() {
   const [selectedFixture, setSelectedFixture]         = useState<InspectorFixtureName>('inspectorDemo')
   const [previewMode, setPreviewMode]                 = useState<'fixture' | 'adapter'>('adapter')
   const [selectedAdapterDemo, setSelectedAdapterDemo] = useState<AdapterDemoName>('inspectorDemo')
+  // Phase 40.2.1 — lab section nav: only one diagnostic lab open at a time
+  const [activeLabSection, setActiveLabSection]       = useState<'inspector' | 'trace' | 'eval_lab' | null>(null)
 
   // Fetch events — reset=true clears list and starts fresh
   const fetchEvents = useCallback(async (
@@ -269,8 +271,52 @@ export default function RecallReviewPage() {
         {/* ── Hybrid Recall Lab (Phase 29C) ────────────────────── */}
         <HybridRecallPanel />
 
-        {/* ── Recall Packet Inspector (Phase 39.4.1) ───────────── */}
-        {/* Demo preview only. No live recall. No DB reads. No prompt integration. No authority movement. */}
+        {/* ── Phase 40.2.1: Overview health strip ──────────────────── */}
+        <div className="mt-5 border-t border-house-border pt-4">
+          <div className="flex items-center gap-2 flex-wrap mb-3">
+            <span className="font-body text-[9px] text-text-muted/40 uppercase tracking-widest shrink-0">
+              Recall Health
+            </span>
+            <span className={`font-mono text-[8px] px-2 py-0.5 rounded border ${
+              TIER_A_SUMMARY.allPassed
+                ? 'text-emerald-300/70 bg-emerald-300/5 border-emerald-300/15'
+                : 'text-red-300/60 bg-red-300/5 border-red-300/15'
+            }`}>
+              Tier A {TIER_A_SUMMARY.passed}/{TIER_A_SUMMARY.total} · {TIER_A_SUMMARY.passRate}%
+            </span>
+            <span className="font-mono text-[8px] px-2 py-0.5 rounded border text-text-muted/40 bg-house-bg/20 border-house-border/15">
+              Advisory integrated
+            </span>
+            <span className="font-mono text-[8px] px-2 py-0.5 rounded border text-text-muted/40 bg-house-bg/20 border-house-border/15">
+              Trace active
+            </span>
+          </div>
+
+          {/* Lab section navigator — one active at a time */}
+          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+            <span className="font-mono text-[8px] text-text-muted/30 shrink-0 mr-1">Labs:</span>
+            {([
+              { id: 'inspector',  label: 'Inspector' },
+              { id: 'trace',      label: 'Runtime Trace' },
+              { id: 'eval_lab',   label: 'Eval Lab — Tier A' },
+            ] as const).map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setActiveLabSection(prev => prev === id ? null : id)}
+                className={`font-mono text-[8px] px-2 py-0.5 rounded border transition-colors ${
+                  activeLabSection === id
+                    ? 'text-text-secondary/80 border-house-border/60 bg-house-bg/40'
+                    : 'text-text-muted/40 border-house-border/20 hover:border-house-border/40'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Recall Packet Inspector (Phase 39.4.1) — shown when Inspector tab active ── */}
+        {activeLabSection === 'inspector' && (
         <div className="mt-5 border-t border-house-border pt-4">
           <div className="flex items-center justify-between">
             <div>
@@ -359,13 +405,16 @@ export default function RecallReviewPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Runtime Recall Advisory Trace (Phase 39.7) ─────────── */}
-        <RecallAdvisoryTracePanel />
+        {activeLabSection === 'trace' && <RecallAdvisoryTracePanel />}
 
         {/* ── Recall Evaluation Lab — Tier A (Phase 40.2) ──────── */}
         {/* Deterministic fixture evaluation only. Not Memory. Not evidence. Not authority. */}
-        <RecallEvaluationLabPanel results={TIER_A_RESULTS} summary={TIER_A_SUMMARY} />
+        {activeLabSection === 'eval_lab' && (
+          <RecallEvaluationLabPanel results={TIER_A_RESULTS} summary={TIER_A_SUMMARY} />
+        )}
       </div>
 
       {/* ── Filters + search ─────────────────────────────────────── */}

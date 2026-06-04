@@ -1,120 +1,147 @@
 'use client'
 
 // Phase 40.2 — Recall Evaluation Lab Panel (Tier A)
+// Phase 40.2.1 — compact table view with expandable rows
 //
 // Displays deterministic fixture-based Recall Packet evaluation results.
 // Receives pre-computed results from runAllTierAEvaluationCases() as props.
-//
-// Data safety:
-//   Renders metadata only — counts, instruction labels, case IDs, categories.
-//   No raw content, no real source IDs, no Memory IDs, no live data.
 //
 // Authority boundary:
 //   Not Memory. Not evidence. Not authority.
 //   Tier A checks packet classification only. Tier B behaviour testing later.
 
 import { useState } from 'react'
-import type { RecallEvalTierAResult, RecallEvalTierASummary, RecallEvalCategory } from '@/lib/recall/recallEvalTypes'
+import type { RecallEvalTierAResult, RecallEvalTierASummary } from '@/lib/recall/recallEvalTypes'
+import { RECALL_EVAL_CASE_MAP } from '@/lib/recall/recallEvalCases'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DISPLAY HELPERS
+// INSTRUCTION ABBREVIATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-function fmtInstruction(s: string): string {
-  return s.replace(/_/g, ' ')
+const SHORT_INSTRUCTION: Record<string, string> = {
+  answer_confidently_from_confirmed_memory: 'Memory ✓',
+  answer_with_source_label:                 'sourced',
+  answer_with_caveat:                       'caveat',
+  say_recent_continuity_only:               'continuity',
+  say_live_thread_context_only:             'thread',
+  say_lounge_context_only:                  'lounge',
+  say_cross_room_context_only:              'cross-room',
+  say_journal_inner_continuity_only:        'journal',
+  say_pulse_continuity_only:               'pulse',
+  say_graph_context_only:                   'graph',
+  say_reference_context_only:              'reference',
+  surface_source_conflict:                  '⚡ conflict',
+  ask_clarifying_question:                  'clarify?',
+  say_not_enough_grounded_recall:           'insufficient',
+  do_not_inject:                            'no inject',
+}
+
+function shortInstruction(s: string): string {
+  return SHORT_INSTRUCTION[s] ?? s.replace(/_/g, ' ').slice(0, 20)
 }
 
 function fmtCategory(s: string): string {
   return s.replace(/_/g, ' ')
 }
 
-const CATEGORY_COLORS: Partial<Record<RecallEvalCategory, string>> = {
-  confirmed_memory:       'text-emerald-300/70',
-  conflict:               'text-amber-300/70',
-  insufficient_ground:    'text-red-300/60',
-  cross_presence_boundary:'text-amber-300/50',
-  non_disclosure:         'text-text-muted/50',
-}
-
-function categoryColor(cat: string): string {
-  return CATEGORY_COLORS[cat as RecallEvalCategory] ?? 'text-text-muted/50'
-}
-
-function gradingBadge(mode: string): string {
-  if (mode === 'deterministic') return 'text-emerald-300/50 bg-emerald-300/5 border-emerald-300/10'
-  if (mode === 'heuristic')     return 'text-amber-300/50 bg-amber-300/5 border-amber-300/10'
-  return 'text-text-muted/40 bg-house-bg/20 border-house-border/10'
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// CASE CARD
+// COMPACT CASE ROW
 // ─────────────────────────────────────────────────────────────────────────────
 
-function CaseCard({ result }: { result: RecallEvalTierAResult }) {
-  const passed  = result.passed
-  const hasFail = result.failures.length > 0
-  const evalCase = result.case_id
+function CaseRow({ result }: { result: RecallEvalTierAResult }) {
+  const [expanded, setExpanded] = useState(false)
 
-  // Get case metadata from the result itself (grading mode, category, notes are on the case)
-  // We surface what's available in the result shape
-  const expected = fmtInstruction(result.expected_primary_response_instruction)
-  const actual   = fmtInstruction(result.actual_primary_response_instruction)
-  const match    = expected === actual
+  const evalCase   = RECALL_EVAL_CASE_MAP[result.case_id]
+  const passed     = result.passed
+  const hasFail    = result.failures.length > 0
+  const match      = result.expected_primary_response_instruction === result.actual_primary_response_instruction
 
   return (
-    <div className={`px-2.5 py-2 rounded border ${
-      passed
-        ? 'border-emerald-300/10 bg-house-bg/10'
-        : 'border-red-300/15 bg-red-300/5'
-    }`}>
-      {/* Header row */}
-      <div className="flex items-start gap-1.5 flex-wrap">
-        <span className={`font-mono text-[8px] shrink-0 ${passed ? 'text-emerald-300/70' : 'text-red-300/60'}`}>
+    <>
+      {/* Compact row */}
+      <div
+        className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors hover:bg-house-bg/30 ${
+          hasFail ? 'border-l-2 border-red-300/30' : 'border-l-2 border-emerald-300/10'
+        }`}
+        onClick={() => setExpanded(prev => !prev)}
+      >
+        {/* Status */}
+        <span className={`font-mono text-[9px] w-3 shrink-0 ${passed ? 'text-emerald-300/70' : 'text-red-300/60'}`}>
           {passed ? '✓' : '✗'}
         </span>
-        <span className="font-mono text-[8px] text-text-secondary/70 break-all">
-          {evalCase}
+
+        {/* Case ID */}
+        <span className="font-mono text-[8px] text-text-secondary/65 truncate min-w-0 flex-1" title={result.case_id}>
+          {result.case_id}
+        </span>
+
+        {/* Category */}
+        <span className="font-mono text-[7px] text-text-muted/35 shrink-0 hidden md:block w-24 truncate">
+          {evalCase ? fmtCategory(evalCase.category) : '—'}
+        </span>
+
+        {/* Expected instruction */}
+        <span className="font-mono text-[7px] text-text-muted/45 shrink-0 w-20 truncate text-right"
+              title={result.expected_primary_response_instruction}>
+          {shortInstruction(result.expected_primary_response_instruction)}
+        </span>
+
+        {/* Actual instruction */}
+        <span className={`font-mono text-[7px] shrink-0 w-20 truncate text-right ${
+          match ? 'text-emerald-300/55' : 'text-red-300/55'
+        }`} title={result.actual_primary_response_instruction}>
+          {shortInstruction(result.actual_primary_response_instruction)}
+        </span>
+
+        {/* Counts */}
+        <span className="font-mono text-[7px] text-text-muted/30 shrink-0 w-16 text-right">
+          a:{result.actual_active_surfaces.length} e:{result.actual_excluded_surfaces.length}
+          {result.packet.conflicts.length > 0 && ` c:${result.packet.conflicts.length}`}
+        </span>
+
+        {/* Expand arrow */}
+        <span className="font-mono text-[8px] text-text-muted/25 shrink-0">
+          {expanded ? '▾' : '▸'}
         </span>
       </div>
 
-      {/* Instructions */}
-      <div className="mt-1 space-y-0.5">
-        <div className="font-mono text-[7px] text-text-muted/40">
-          <span className="text-text-muted/25">expected </span>
-          <span className={match ? 'text-emerald-300/60' : 'text-text-secondary/60'}>{expected}</span>
-        </div>
-        <div className="font-mono text-[7px] text-text-muted/40">
-          <span className="text-text-muted/25">actual   </span>
-          <span className={match ? 'text-emerald-300/60' : 'text-red-300/60'}>{actual}</span>
-        </div>
-      </div>
-
-      {/* Counts */}
-      <div className="flex items-center gap-2 flex-wrap mt-1">
-        <span className="font-mono text-[7px] text-text-muted/35">
-          active {result.actual_active_surfaces.length}
-        </span>
-        <span className="font-mono text-[7px] text-text-muted/35">
-          excluded {result.actual_excluded_surfaces.length}
-        </span>
-        {result.packet.conflicts.length > 0 && (
-          <span className="font-mono text-[7px] text-amber-300/50">
-            {result.packet.conflicts.length} conflict{result.packet.conflicts.length !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
-
-      {/* Failures */}
-      {hasFail && (
-        <div className="mt-1 space-y-0.5">
-          {result.failures.map((f, i) => (
-            <div key={i} className="font-mono text-[7px] text-red-300/55 leading-tight">
-              ✗ {f}
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="px-4 py-2 mb-1 rounded bg-house-bg/20 border border-house-border/10 text-[8px] font-mono space-y-1">
+          <div className="text-text-muted/50">
+            <span className="text-text-muted/25">label       </span>
+            {evalCase?.label ?? result.case_id}
+          </div>
+          <div className="text-text-muted/50">
+            <span className="text-text-muted/25">presence    </span>
+            {evalCase?.presence ?? '—'} · {evalCase?.room ?? '—'}
+          </div>
+          <div className="text-text-muted/50">
+            <span className="text-text-muted/25">grading     </span>
+            {evalCase?.gradingMode ?? '—'}
+          </div>
+          {evalCase?.tierBTestQuestion && (
+            <div className="text-text-muted/40 italic">
+              <span className="text-text-muted/20 not-italic">tier B q   </span>
+              {evalCase.tierBTestQuestion}
             </div>
-          ))}
+          )}
+          {hasFail && (
+            <div className="space-y-0.5 mt-1">
+              {result.failures.map((f, i) => (
+                <div key={i} className="text-red-300/60">✗ {f}</div>
+              ))}
+            </div>
+          )}
+          {evalCase?.notes && (
+            <div className="text-text-muted/35 leading-relaxed">
+              <span className="text-text-muted/20">notes       </span>
+              {evalCase.notes}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -135,33 +162,18 @@ export default function RecallEvaluationLabPanel({
   results,
   summary,
 }: RecallEvaluationLabPanelProps) {
-  const [open, setOpen]                     = useState(false)
-  const [filterStatus, setFilterStatus]     = useState<'all' | 'passed' | 'failed'>('all')
-  const [filterCategory, setFilterCategory] = useState('')
-  const [filterPresence, setFilterPresence] = useState('')
-
-  // Get unique categories for filter dropdown
-  // We build this from the RECALL_EVAL_CASES map; using result case_id is enough
-  const allCategories = Array.from(
-    new Set(results.map(r => {
-      // Derive category label from the case_id prefix where possible
-      // Full category is available via RECALL_EVAL_CASE_MAP but we avoid re-importing here
-      // The summary.byCategory keys provide the same information
-      return Object.keys(summary.byCategory)
-    }).flat())
-  ).sort()
+  const [filterStatus, setFilterStatus] = useState<'all' | 'passed' | 'failed'>('all')
 
   const filtered = results.filter(r => {
     if (filterStatus === 'passed' && !r.passed) return false
     if (filterStatus === 'failed'  &&  r.passed) return false
     return true
-    // Category and presence filters would need case metadata — add in 40.3 if needed
   })
 
   return (
-    <div className="mt-5 border-t border-house-border pt-4">
+    <div className="mt-4 pt-3">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-2">
         <div>
           <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
             Recall Evaluation Lab — Tier A
@@ -170,108 +182,91 @@ export default function RecallEvaluationLabPanel({
             Deterministic fixture-based evaluation of Recall Packet classification.
           </p>
         </div>
-        <button
-          onClick={() => setOpen(prev => !prev)}
-          className="font-mono text-[9px] text-text-muted/50 border border-house-border/30 px-2 py-0.5 rounded hover:border-house-border/60 transition-colors shrink-0 ml-4"
-        >
-          {open ? 'collapse' : 'expand'}
-        </button>
       </div>
 
-      {open && (
-        <div className="mt-3">
+      {/* Summary strip */}
+      <div className="flex items-center gap-3 flex-wrap mb-2 px-2.5 py-1.5 rounded border border-house-border/15 bg-house-bg/15">
+        <span className={`font-mono text-[8px] font-medium ${summary.allPassed ? 'text-emerald-300/70' : 'text-red-300/60'}`}>
+          {summary.passed}/{summary.total} passed
+        </span>
+        {summary.failed > 0 && (
+          <span className="font-mono text-[8px] text-red-300/60">{summary.failed} failed</span>
+        )}
+        <span className="font-mono text-[8px] text-text-muted/40">{summary.passRate}%</span>
+        <span className="font-mono text-[8px] text-text-muted/35">
+          {Object.keys(summary.byCategory).length} categories
+        </span>
+        <span className="font-mono text-[8px] text-text-muted/30">Tier A · fixture-only</span>
+      </div>
 
-          {/* Summary row */}
-          <div className="flex items-center gap-3 flex-wrap mb-3 px-2.5 py-2 rounded border border-house-border/15 bg-house-bg/15">
-            <div className="text-center min-w-[32px]">
-              <div className="font-mono text-[11px] text-text-primary/70">{summary.total}</div>
-              <div className="font-mono text-[7px] text-text-muted/35">total</div>
-            </div>
-            <div className="text-center min-w-[32px]">
-              <div className="font-mono text-[11px] text-emerald-300/70">{summary.passed}</div>
-              <div className="font-mono text-[7px] text-text-muted/35">passed</div>
-            </div>
-            <div className="text-center min-w-[32px]">
-              <div className={`font-mono text-[11px] ${summary.failed > 0 ? 'text-red-300/70' : 'text-text-muted/40'}`}>
-                {summary.failed}
-              </div>
-              <div className="font-mono text-[7px] text-text-muted/35">failed</div>
-            </div>
-            <div className="text-center min-w-[40px]">
-              <div className="font-mono text-[11px] text-text-primary/70">{summary.passRate}%</div>
-              <div className="font-mono text-[7px] text-text-muted/35">pass rate</div>
-            </div>
-            <div className="text-center min-w-[36px]">
-              <div className="font-mono text-[11px] text-text-primary/70">
-                {Object.keys(summary.byCategory).length}
-              </div>
-              <div className="font-mono text-[7px] text-text-muted/35">categories</div>
-            </div>
-          </div>
+      {/* Category chips (compact) */}
+      <div className="flex flex-wrap gap-1 mb-2">
+        {Object.entries(summary.byCategory).map(([cat, counts]) => (
+          <span
+            key={cat}
+            className={`font-mono text-[7px] px-1.5 py-0.5 rounded border ${
+              (counts?.failed ?? 0) > 0
+                ? 'text-red-300/50 bg-red-300/5 border-red-300/10'
+                : 'text-text-muted/35 bg-house-bg/15 border-house-border/10'
+            }`}
+          >
+            {fmtCategory(cat)} {counts?.passed}/{counts?.total}
+          </span>
+        ))}
+      </div>
 
-          {/* Category breakdown */}
-          {Object.keys(summary.byCategory).length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-3">
-              {Object.entries(summary.byCategory).map(([cat, counts]) => (
-                <span
-                  key={cat}
-                  className={`font-mono text-[7px] px-1.5 py-0.5 rounded border border-house-border/15 ${
-                    (counts?.failed ?? 0) > 0
-                      ? 'text-red-300/50 bg-red-300/5'
-                      : 'text-text-muted/45 bg-house-bg/20'
-                  }`}
-                >
-                  {fmtCategory(cat)}: {counts?.passed}/{counts?.total}
-                </span>
-              ))}
-            </div>
-          )}
+      {/* Status filter */}
+      <div className="flex items-center gap-1.5 mb-2">
+        {(['all', 'passed', 'failed'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilterStatus(f)}
+            className={`font-mono text-[8px] px-1.5 py-0.5 rounded border transition-colors ${
+              filterStatus === f
+                ? 'text-text-secondary/80 border-house-border/60 bg-house-bg/40'
+                : 'text-text-muted/35 border-house-border/15 hover:border-house-border/35'
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
 
-          {/* Filters */}
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="font-mono text-[8px] text-text-muted/30 shrink-0">Filter:</span>
-            {(['all', 'passed', 'failed'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilterStatus(f)}
-                className={`font-mono text-[8px] px-1.5 py-0.5 rounded border transition-colors ${
-                  filterStatus === f
-                    ? 'text-text-secondary/80 border-house-border/60 bg-house-bg/40'
-                    : 'text-text-muted/40 border-house-border/20 hover:border-house-border/40'
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+      {/* Column headers */}
+      <div className="flex items-center gap-2 px-2 mb-1 text-[7px] font-mono text-text-muted/25">
+        <span className="w-3 shrink-0">ok</span>
+        <span className="flex-1">case</span>
+        <span className="w-24 hidden md:block">category</span>
+        <span className="w-20 text-right">expected</span>
+        <span className="w-20 text-right">actual</span>
+        <span className="w-16 text-right">counts</span>
+        <span className="w-3">▸</span>
+      </div>
 
-          {/* Tier A advisory note */}
-          <p className="font-mono text-[8px] text-text-muted/40 italic mb-3">
-            Tier A checks packet classification only. Tier B behaviour testing (LLM response grading) comes later.
-          </p>
+      {/* Tier A note */}
+      <p className="font-mono text-[7px] text-text-muted/30 italic mb-2">
+        Tier A: packet classification only. Tier B (LLM response grading) comes later.
+      </p>
 
-          {/* Case cards */}
-          {filtered.length === 0 ? (
-            <p className="font-mono text-[8px] text-text-muted/35 italic py-1">
-              No cases match the current filter.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {filtered.map(result => (
-                <CaseCard key={result.case_id} result={result} />
-              ))}
-            </div>
-          )}
+      {/* Case rows */}
+      <div className="space-y-0.5">
+        {filtered.map(result => (
+          <CaseRow key={result.case_id} result={result} />
+        ))}
+      </div>
 
-          {/* Boundary footer */}
-          <div className="mt-3 pt-2 border-t border-house-border/15">
-            <p className="font-mono text-[7px] text-text-muted/30 italic">
-              Not Memory · Not evidence · Not authority · No live data · No LLM · No writes
-            </p>
-          </div>
-
-        </div>
+      {filtered.length === 0 && (
+        <p className="font-mono text-[8px] text-text-muted/35 italic py-2">
+          No cases match the current filter.
+        </p>
       )}
+
+      {/* Boundary footer */}
+      <div className="mt-3 pt-2 border-t border-house-border/10">
+        <p className="font-mono text-[7px] text-text-muted/25 italic">
+          Not Memory · Not evidence · Not authority · No live data · No LLM · No writes
+        </p>
+      </div>
     </div>
   )
 }
