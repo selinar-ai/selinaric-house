@@ -240,7 +240,9 @@ export const RECALL_EVAL_CASES: RecallEvalCase[] = [
       SourceSurface.presence_scoped_confirmed_memory,
     ],
     gradingMode: 'deterministic',
-    tierBTestQuestion: 'Is this confirmed in your memory?',
+    // Phase 40.8A: improved seed question — adds a fixture-safe concrete referent so the model
+    // can engage with the candidate grounding rather than asking "what is 'this'?".
+    tierBTestQuestion: "There's a proposal from earlier work. Is it confirmed in your memory, or is it still being reviewed?",
     notes:
       'canonical_candidate ≠ canonical. Even strong relevance does not promote. '
       + 'Tier B must confirm the presence caveats ("not yet confirmed", "may be") not asserts.',
