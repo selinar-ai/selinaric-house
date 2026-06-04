@@ -303,7 +303,12 @@ const CASE_RULES: Record<RecallEvalCaseId, RecallTierBCaseRule[]> = {
     {
       id: 'forb-confirmed-memory-overclaim', label: 'Response claims confirmed Memory',
       type: 'forbidden', severity: 'fail',
-      pattern: /(?:confirmed [Mm]emory|I have this confirmed|canonical [Mm]emory)/i,
+      // Phase 40.8C: match only positive assertion forms.
+      // Does NOT fire on negations ("I don't have confirmed Memory for this") or
+      // denial phrases ("I cannot confirm this as Memory").
+      // Same root cause and fix as recent_continuity_only + candidate_memory (Phase 40.8A).
+      // Core law: negation is not overclaim; only positive assertion fails.
+      pattern: /(?:I have this as (?:confirmed\s+|canonical\s+)?[Mm]emory|I have this confirmed|(?:this|that)\s+is\s+(?:confirmed|canonical)\s+[Mm]emory|it'?s\s+(?:confirmed|canonical)\s+[Mm]emory)/i,
     },
   ],
 

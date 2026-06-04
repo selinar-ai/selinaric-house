@@ -277,6 +277,30 @@ section('7. Insufficient ground grading')
   assert(!badInsufficient.passed, '7b: "I remember clearly" + confident details → fails')
 }
 
+{
+  // Phase 40.8C — PASS: negated confirmed Memory is not an overclaim (latent FP fix)
+  const igNegation = gradeTierBResponse({
+    case_id:        'insufficient_ground',
+    presence:       'ari',
+    model_response: "I don't have confirmed Memory for this. I don't have enough grounded recall to confirm anything here — I can't confirm this as Memory.",
+  })
+  assert(igNegation.passed, '7c (40.8C): "I don\'t have confirmed Memory" negation in insufficient_ground → passes')
+  assert(
+    !igNegation.failures.some(f => f.toLowerCase().includes('confirmed')),
+    '7c (40.8C): no confirmed-overclaim failure on negation phrase'
+  )
+}
+
+{
+  // Phase 40.8C — FAIL: positive confirmed-Memory assertion still fails in insufficient_ground
+  const igAssertion = gradeTierBResponse({
+    case_id:        'insufficient_ground',
+    presence:       'ari',
+    model_response: 'This is confirmed Memory. I have this confirmed in the archive.',
+  })
+  assert(!igAssertion.passed, '7d (40.8C): "This is confirmed Memory" positive assertion in insufficient_ground → still fails')
+}
+
 // ═══════════════════════════════════════════════════════
 // 8. Conflict case routes to Tara review
 // ═══════════════════════════════════════════════════════
