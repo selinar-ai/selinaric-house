@@ -59,6 +59,11 @@ export function normalizeLibraryTitle(value: string): string {
  * Determines match quality for a scored result.
  */
 function getMatchQuality(result: LibrarySearchResult, query: string): LibraryMatchQuality {
+  // Section heading body match (Library Section Retrieval Patch) — treated as
+  // strong direct so the section body is injected with expanded context.
+  if (result.matchedFields.includes('section_heading') && result.score >= 40) {
+    return 'strong_direct'
+  }
   // Exact phase match
   if (result.matchedFields.includes('phase_code') && result.score >= 120) {
     return 'exact_phase'
@@ -334,6 +339,113 @@ export function userRequestsSuperseded(message: string): boolean {
   return SUPERSEDED_REQUEST_PATTERNS.some(p => p.test(message))
 }
 
+// ─── Section-Aware Excerpt Extraction (Library Section Retrieval Patch) ────
+//
+// Long structured documents (e.g. a 55K-char DOCX with a table of contents)
+// contain each section heading twice: once as a TOC entry
+// ("Part 12 — Technology Stack\t24") and once as the real section heading
+// followed by prose. First-occurrence indexOf() snippets always return the
+// TOC line — never the section body — and head-truncation of attachment
+// excerpts can never reach a section deep in the document.
+//
+// These helpers resolve "Part N ..." queries to the actual section body and
+// expand the excerpt from that heading until the next "Part N" heading.
+// This protects long structured documents with tables of contents from
+// first-match retrieval errors.
+//
+// Retrieval precision only. Not Memory. Not Archive. No canonical status
+// change. No prompt authority change. No governance change.
+
+export interface SectionReference {
+  partNumber: number
+  sectionTitle: string | null
+}
+
+// Tolerates em dash, en dash, hyphen, colon, or plain whitespace between
+// the part number and the section title.
+const SECTION_QUERY_PATTERN = /\bpart\s+(\d{1,3})\b\s*(?:[—–\-:]\s*)?([^\n?.!,;]{2,80})?/i
+
+/**
+ * Detects a section reference in a chat Library query.
+ * "Part 12 — Technology Stack" / "Part 12 - Technology Stack" /
+ * "Part 12 Technology Stack" / "Part 12" all resolve to partNumber 12.
+ */
+export function extractSectionReference(query: string): SectionReference | null {
+  const m = query.match(SECTION_QUERY_PATTERN)
+  if (!m) return null
+  const rawTitle = m[2]?.trim() ?? ''
+  return {
+    partNumber: parseInt(m[1], 10),
+    sectionTitle: rawTitle.length >= 2 ? rawTitle : null,
+  }
+}
+
+type SectionHeadingOccurrence = { index: number; line: string }
+
+/**
+ * Finds all line-start occurrences of "Part N ..." in a document.
+ * Line-start anchoring excludes mid-prose cross-references ("as described in Part 12").
+ */
+function findSectionHeadingOccurrences(text: string, partNumber: number): SectionHeadingOccurrence[] {
+  const re = new RegExp(`(^|\\n)[ \\t]*(part[ \\t]+${partNumber}\\b[^\\n]*)`, 'gi')
+  const out: SectionHeadingOccurrence[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    out.push({ index: m.index + m[1].length, line: m[2] })
+  }
+  return out
+}
+
+/**
+ * Classifies a heading occurrence as a likely Table of Contents entry.
+ * TOC signals: the heading line ends with a tab/page number, or the next
+ * non-blank content is another "Part N" / numbered-subsection line.
+ */
+function isTocHeadingLine(text: string, occ: SectionHeadingOccurrence): boolean {
+  if (/\t\s*\d{1,4}\s*$/.test(occ.line) || /\s{2,}\d{1,4}\s*$/.test(occ.line)) return true
+  const afterStart = occ.index + occ.line.length
+  const after = text.substring(afterStart, afterStart + 200)
+  if (/^\s*(?:part\s+\d{1,3}\b|\d{1,2}\.\d)/i.test(after)) return true
+  return false
+}
+
+/**
+ * Returns the index of the real section body heading for "Part N", skipping
+ * TOC occurrences. Returns -1 if the document has no such heading.
+ * If every occurrence looks like TOC, falls back to the last occurrence
+ * (later in the document is more likely the body).
+ */
+export function findSectionBodyStart(text: string, partNumber: number): number {
+  const occs = findSectionHeadingOccurrences(text, partNumber)
+  if (occs.length === 0) return -1
+  const nonToc = occs.filter(o => !isTocHeadingLine(text, o))
+  if (nonToc.length > 0) return nonToc[0].index
+  return occs[occs.length - 1].index
+}
+
+/**
+ * Extracts the section body for "Part N": from the section heading until the
+ * next "Part N" heading, capped at maxLen with word-boundary truncation.
+ * Returns null if the document has no matching section heading.
+ */
+export function extractSectionExcerpt(text: string, partNumber: number, maxLen: number): string | null {
+  const start = findSectionBodyStart(text, partNumber)
+  if (start === -1) return null
+
+  const headingLineEnd = text.indexOf('\n', start)
+  const searchFrom = headingLineEnd === -1 ? text.length : headingLineEnd
+  const nextHeading = text.substring(searchFrom).match(/\n[ \t]*part[ \t]+\d{1,3}\b/i)
+  const end = nextHeading && nextHeading.index !== undefined
+    ? searchFrom + nextHeading.index
+    : text.length
+
+  let excerpt = text.substring(start, end).trim()
+  if (excerpt.length > maxLen) {
+    excerpt = excerpt.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+  }
+  return excerpt.length > 0 ? excerpt : null
+}
+
 // ─── Phase Reference Detection (Phase 33L.1) ──────────────────────────────
 
 const PHASE_REF_PATTERN = /\bphase\s+(\d+[a-z]*(?:\.\d+)?)\b/i
@@ -410,6 +522,7 @@ function scoreItem(
   terms: string[],
   files: Record<string, unknown>[],
   phaseRef?: string | null,
+  sectionRef?: SectionReference | null,
 ): { score: number; matchedFields: string[]; matchedFiles: LibraryMatchedFile[]; snippets: LibrarySnippet[]; reason: string } {
   let score = 0
   const matchedFields: string[] = []
@@ -527,7 +640,25 @@ function scoreItem(
     const ocrQuality = (file.ocr_quality as string) ?? null
     const needsReview = (file.needs_review as boolean) ?? false
 
-    if (containsQuery(cleanedText, query)) {
+    // Section-aware file match (Library Section Retrieval Patch): "Part N"
+    // queries resolve to the section body occurrence, not the first-occurrence
+    // TOC line. Also matches dash-variant queries ("Part 12 Technology Stack")
+    // that plain substring matching misses against "Part 12 — Technology Stack".
+    const sectionText = cleanedText.length > 0 ? cleanedText : extractedText
+    const sectionStart = sectionRef ? findSectionBodyStart(sectionText, sectionRef.partNumber) : -1
+
+    if (sectionRef && sectionStart !== -1) {
+      const sectionSnippet = extractSectionExcerpt(sectionText, sectionRef.partNumber, MAX_SNIPPET)
+        ?? extractSnippet(sectionText, query)
+      score += 40
+      if (!matchedFields.includes('section_heading')) matchedFields.push('section_heading')
+      matchedFiles.push({
+        fileId: file.id as string, fileName, fileType, extractionMethod, ocrQuality, needsReview,
+        matchedField: cleanedText.length > 0 ? 'cleaned_extracted_text' : 'extracted_text',
+        snippet: sectionSnippet,
+      })
+      reasons.push(`Section heading body match (Part ${sectionRef.partNumber}) in ${fileName}`)
+    } else if (containsQuery(cleanedText, query)) {
       score += 25
       matchedFiles.push({
         fileId: file.id as string, fileName, fileType, extractionMethod, ocrQuality, needsReview,
@@ -780,6 +911,11 @@ export function isUsefulLibraryResult(result: LibrarySearchResult, query: string
     return true
   }
 
+  // Library Section Retrieval Patch: a resolved section body match is inherently useful
+  if (result.matchedFields.includes('section_heading')) {
+    return true
+  }
+
   // Phase 33L.3: Exact or near-exact title match is inherently useful (covers all collections)
   if (result.matchedFields.includes('title') && result.score >= 80) {
     return true
@@ -849,6 +985,8 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
 
   const terms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2)
   const phaseRef = extractPhaseReference(query)
+  // Library Section Retrieval Patch: detect "Part N ..." section queries once
+  const sectionRef = extractSectionReference(query)
   const allowedScopes = getAllowedScopes(presenceId)
   const warnings: string[] = []
 
@@ -967,7 +1105,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
 
   for (const item of allItems) {
     const itemFiles = filesByItemId[item.id as string] ?? []
-    const { score, matchedFields, matchedFiles, snippets, reason: matchReason } = scoreItem(item, query, terms, itemFiles, phaseRef)
+    const { score, matchedFields, matchedFiles, snippets, reason: matchReason } = scoreItem(item, query, terms, itemFiles, phaseRef, sectionRef)
 
     if (score < MIN_USEFUL_SCORE) continue
 
@@ -1052,9 +1190,18 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
           if (extractionStatus === 'extracted') {
             const bestText = cleanedText.length > 20 ? cleanedText : extractedText
             if (bestText.length > 20) {
-              excerpt = bestText.length <= attMaxLen
-                ? bestText
-                : bestText.slice(0, attMaxLen).replace(/\s\S*$/, '') + '…'
+              // Library Section Retrieval Patch: section queries get the
+              // section body (heading → next "Part N" heading) instead of a
+              // head-of-document slice, which can never reach sections deep
+              // in a long file (e.g. Part 12 at 82% of a 55K-char DOCX).
+              if (sectionRef) {
+                excerpt = extractSectionExcerpt(bestText, sectionRef.partNumber, attMaxLen)
+              }
+              if (!excerpt) {
+                excerpt = bestText.length <= attMaxLen
+                  ? bestText
+                  : bestText.slice(0, attMaxLen).replace(/\s\S*$/, '') + '…'
+              }
             }
           }
 
