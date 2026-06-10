@@ -12,7 +12,7 @@ import { ROOMS } from '@/lib/rooms'
 // Mobile navigation order — most-used rooms first, then reference, then support.
 const MOBILE_NAV_ORDER: string[] = [
   'ari', 'eli', 'lounge', 'continuity', 'library', 'archives',
-  'recall', 'watchtower', 'workshop', 'ontology-lab', 'relational-map', 'pulse', 'notes',
+  'recall', 'watchtower', 'workshop', 'helpers', 'ontology-lab', 'relational-map', 'pulse', 'notes',
   'reflections',
 ]
 
