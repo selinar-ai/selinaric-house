@@ -521,14 +521,11 @@ export type HelperValidationResult = {
 }
 
 /**
- * A draft may omit provenance ONLY for the narrow safe diagnostic case: a
- * `no_action` + `deterministic_check` output (e.g. "nothing to suggest"). Every
- * other output must carry at least one source_ref.
+ * Provenance is mandatory for EVERY helper output — there is no empty-provenance
+ * carve-out. Even a `no_action` + `deterministic_check` "nothing to suggest"
+ * output must record what source was checked. No ghost diagnostics in the
+ * ledger. (Phase 41.1 provenance tightening; mirrors the 41.2 non-empty CHECK.)
  */
-function provenanceMayBeEmpty(draft: HelperOutputDraft): boolean {
-  return draft.suggested_action === 'no_action' && draft.output_status === 'deterministic_check'
-}
-
 export function validateHelperOutputDraft(draft: HelperOutputDraft): HelperValidationResult {
   const errors: string[] = []
 
@@ -559,12 +556,12 @@ export function validateHelperOutputDraft(draft: HelperOutputDraft): HelperValid
     errors.push(`suggested_action '${String(draft.suggested_action)}' is not in the allowed vocabulary`)
   }
 
-  // 6. Provenance (C5): mandatory except the narrow no_action diagnostic.
+  // 6. Provenance (C5): mandatory for EVERY output — no empty-provenance carve-out.
   if (!Array.isArray(draft.source_refs)) {
     errors.push('source_refs must be an array')
   } else {
-    if (draft.source_refs.length === 0 && !provenanceMayBeEmpty(draft)) {
-      errors.push('source_refs is mandatory (empty allowed only for a no_action deterministic_check)')
+    if (draft.source_refs.length === 0) {
+      errors.push('source_refs is mandatory — every helper output must record what source was checked')
     }
     for (const ref of draft.source_refs) {
       // C1 / C5: a forbidden surface (incl. helper_output → self-citation) can never be provenance.

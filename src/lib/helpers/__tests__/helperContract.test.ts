@@ -256,8 +256,10 @@ section('I. Source provenance')
 {
   // Provenance mandatory for a normal suggestion.
   assert(!validateHelperOutputDraft(makeDraft({ source_refs: [] })).valid, 'empty source_refs rejected for a normal suggestion')
-  // Narrow safe exception: a no_action deterministic_check may have empty provenance.
-  assert(validateHelperOutputDraft(makeDraft({ source_refs: [], suggested_action: 'no_action', output_status: 'deterministic_check' })).valid, 'no_action deterministic_check may have empty provenance')
+  // No carve-out: even a no_action deterministic_check must record the checked source.
+  assert(!validateHelperOutputDraft(makeDraft({ source_refs: [], suggested_action: 'no_action', output_status: 'deterministic_check' })).valid, 'no_action deterministic_check still requires provenance (no ghost diagnostics)')
+  // A no_action deterministic_check WITH provenance is valid (names what it checked).
+  assert(validateHelperOutputDraft(makeDraft({ source_refs: [{ source_surface: 'library_item', source_id: 'lib-9' }], suggested_action: 'no_action', output_status: 'deterministic_check' })).valid, 'no_action deterministic_check with provenance is valid')
   // helper-output-as-source rejected (C5).
   assert(!validateHelperOutputDraft(makeDraft({ source_refs: [{ source_surface: 'helper_output' as never, source_id: 'h-1' }] })).valid, 'helper_output provenance rejected')
   // A surface the helper may not read is rejected as provenance.
