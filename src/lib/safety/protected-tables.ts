@@ -261,6 +261,21 @@ export const PROTECTED_TABLES: ProtectedTableEntry[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Phase 41.2 — Helper Output Ledger (trace, not truth)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    table: 'helper_outputs',
+    category: 'A',
+    deletionPolicy: 'soft_delete_only',
+    hasSoftDelete: true,
+    hasTestOwned: true,
+    cascadeChildren: [],
+    parentFkBehaviour: 'none',
+    note: 'Helper output ledger (Phase 41.2). Trace, not truth — never Memory/evidence/prompt. No FK in (provenance is ids in source_refs jsonb), so outside every CASCADE path. Has deleted_at + test_owned. Migration 074.',
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Category B — Testable but protected
   // ═══════════════════════════════════════════════════════════════════════════
 
