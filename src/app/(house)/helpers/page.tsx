@@ -21,6 +21,7 @@ import {
   isSoftDeleted,
   isLibraryMetadataHelper,
   asLibraryMetadataPayload,
+  reviewStateForDisplay,
   type HelperOutputRow,
 } from '@/lib/helpers/helperReviewPresenter'
 
@@ -133,6 +134,7 @@ function HelperOutputCard({ row, labels }: { row: HelperOutputRow; labels: Recor
         <span>created: {row.created_at ?? '—'}</span>
         <span>by: {row.created_by}</span>
         <span>scope: {row.presence_scope}</span>
+        <span>review_state: {reviewStateForDisplay(row)}</span>
         <span>human_review_required: {String(row.human_review_required)}</span>
         <span>reviewed_by: {row.reviewed_by ?? '—'}</span>
         <span>reviewed_at: {row.reviewed_at ?? '—'}</span>

@@ -10,6 +10,8 @@
  * review approval.
  */
 
+import { isHelperReviewState } from './helperReviewActions'
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FIXED COPY — boundary language Tara must always see
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +62,25 @@ export type HelperOutputRow = {
   source_refs: HelperOutputSourceRef[]
   suggestion_payload: unknown
   deleted_at: string | null
+  /**
+   * Persisted review-support state (Phase 41.7). Optional/back-compatible: until
+   * the migration is run and the API selects the column, this is absent and the
+   * surface shows the default. Display-only — there is no review control here.
+   */
+  review_state?: string | null
+}
+
+/** The default review state for any helper output (Phase 41.6/41.7). */
+export const DEFAULT_REVIEW_STATE = 'unreviewed'
+
+/**
+ * Read-only review state for display. Returns the row's persisted review_state
+ * when it is one of the six known states, otherwise falls back to 'unreviewed'.
+ * This NEVER changes state — it only chooses what to render.
+ */
+export function reviewStateForDisplay(row: HelperOutputRow): string {
+  const s = row.review_state
+  return typeof s === 'string' && isHelperReviewState(s) ? s : DEFAULT_REVIEW_STATE
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
