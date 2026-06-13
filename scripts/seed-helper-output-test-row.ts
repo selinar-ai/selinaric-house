@@ -25,7 +25,6 @@ import { readFileSync, existsSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
-import { createClient } from '@supabase/supabase-js'
 
 import {
   inspectLibraryItem,
@@ -35,6 +34,7 @@ import {
 import {
   insertHelperOutputs,
   type HelperOutputDbClient,
+  type HelperOutputInsertResult,
   type VerificationRunMarker,
 } from '../src/lib/helpers/helperOutputStore'
 import type { HelperPresenceScope } from '../src/lib/helpers/helperContract'
@@ -62,9 +62,15 @@ function refuse(message: string): never {
   process.exit(1)
 }
 
-// ─── env loader (only called once an action is confirmed) ────────────────────
+// ─── env loader + PostgREST client (no supabase-js — avoids the Node<22
+//     Realtime/WebSocket requirement; matches the house's fetch-based scripts) ─
 
-function loadEnvAndClient() {
+type Rest = {
+  url: string
+  headers: Record<string, string>
+}
+
+function loadEnvAndRest(): Rest {
   const __dirname = dirname(fileURLToPath(import.meta.url))
   const envPath = resolve(__dirname, '..', '.env.local')
   if (existsSync(envPath)) {
@@ -82,7 +88,42 @@ function loadEnvAndClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !key) refuse('Missing NEXT_PUBLIC_SUPABASE_URL or a Supabase key in .env.local')
-  return createClient(url, key)
+  return { url: url.replace(/\/$/, ''), headers: { apikey: key, Authorization: `Bearer ${key}` } }
+}
+
+/**
+ * Minimal HelperOutputDbClient backed by PostgREST fetch. Only the insert path
+ * the writer needs is implemented; it writes to /rest/v1/<table> and returns the
+ * representation. This keeps the validated writer (insertHelperOutputs) intact.
+ */
+function restHelperOutputClient(rest: Rest): HelperOutputDbClient {
+  return {
+    from(table) {
+      return {
+        insert(rows) {
+          return {
+            async select(_columns): Promise<HelperOutputInsertResult> {
+              const res = await fetch(`${rest.url}/rest/v1/${table}`, {
+                method: 'POST',
+                headers: { ...rest.headers, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+                body: JSON.stringify(rows),
+              })
+              if (!res.ok) {
+                return { data: null, error: { message: `${res.status} ${await res.text()}` } }
+              }
+              return { data: (await res.json()) as HelperOutputInsertResult['data'], error: null }
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+async function restGet<T>(rest: Rest, pathAndQuery: string): Promise<T[]> {
+  const res = await fetch(`${rest.url}/rest/v1/${pathAndQuery}`, { headers: rest.headers })
+  if (!res.ok) refuse(`read failed: ${res.status} ${await res.text()}`)
+  return (await res.json()) as T[]
 }
 
 // ─── fixture (no production read) ────────────────────────────────────────────
@@ -113,7 +154,7 @@ async function seed() {
     expected: 'visible_in_helper_review_surface',
   }
 
-  const supabase = loadEnvAndClient()
+  const rest = loadEnvAndRest()
   const libraryItemId = flagValue('--library-item-id')
 
   let item: LibraryItemSnapshot
@@ -121,12 +162,12 @@ async function seed() {
 
   if (libraryItemId) {
     // Real-target mode: read ONE item (+ its files). Never a scan, never "all".
-    const { data: itemRow, error: itemErr } = await supabase
-      .from('library_items')
-      .select('id, title, description, tags, presence_scope')
-      .eq('id', libraryItemId)
-      .single()
-    if (itemErr || !itemRow) refuse(`Library item not found: ${libraryItemId}`)
+    const itemRows = await restGet<{
+      id: string; title: string | null; description: string | null
+      tags: string[] | null; presence_scope: string | null
+    }>(rest, `library_items?id=eq.${encodeURIComponent(libraryItemId)}&select=id,title,description,tags,presence_scope`)
+    const itemRow = itemRows[0]
+    if (!itemRow) refuse(`Library item not found: ${libraryItemId}`)
     item = {
       id: itemRow.id,
       title: itemRow.title ?? '',
@@ -134,11 +175,11 @@ async function seed() {
       tags: Array.isArray(itemRow.tags) ? itemRow.tags : [],
       presence_scope: (itemRow.presence_scope ?? 'house') as HelperPresenceScope,
     }
-    const { data: fileRows } = await supabase
-      .from('library_item_files')
-      .select('id, library_item_id, file_name, file_type, extraction_status, extracted_text, extraction_char_count')
-      .eq('library_item_id', libraryItemId)
-    files = (fileRows ?? []).map((f) => ({
+    const fileRows = await restGet<{
+      id: string; library_item_id: string; file_name: string; file_type: string
+      extraction_status: string; extracted_text: string | null; extraction_char_count: number | null
+    }>(rest, `library_item_files?library_item_id=eq.${encodeURIComponent(libraryItemId)}&select=id,library_item_id,file_name,file_type,extraction_status,extracted_text,extraction_char_count`)
+    files = fileRows.map((f) => ({
       id: f.id,
       library_item_id: f.library_item_id,
       file_name: f.file_name,
@@ -160,7 +201,7 @@ async function seed() {
   }
 
   const inserted = await insertHelperOutputs(
-    supabase as unknown as HelperOutputDbClient,
+    restHelperOutputClient(rest),
     drafts,
     { testOwned: true, runMarker: marker },
   )
@@ -177,16 +218,20 @@ async function cleanup() {
   const runId = flagValue('--run-id')
   if (!runId) refuse('cleanup requires --run-id <run_id>')
 
-  const supabase = loadEnvAndClient()
-  const { data, error } = await supabase
-    .from('helper_outputs')
-    .update({ deleted_at: new Date().toISOString() })
-    .eq('test_owned', true)
-    .is('deleted_at', null)
-    .filter('suggestion_payload->_verification->>run_id', 'eq', runId)
-    .select('id')
-  if (error) refuse(`cleanup failed: ${error.message}`)
-  console.log(`\n[seed-helper-output] Soft-deleted ${(data ?? []).length} test_owned row(s) for run_id ${runId}.\n`)
+  const rest = loadEnvAndRest()
+  // Soft-delete ONLY: PATCH deleted_at, scoped to this run_id + test_owned, and
+  // only rows not already soft-deleted. Never a hard delete, never "all".
+  const query =
+    `helper_outputs?test_owned=eq.true&deleted_at=is.null` +
+    `&suggestion_payload->_verification->>run_id=eq.${encodeURIComponent(runId)}`
+  const res = await fetch(`${rest.url}/rest/v1/${query}`, {
+    method: 'PATCH',
+    headers: { ...rest.headers, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+    body: JSON.stringify({ deleted_at: new Date().toISOString() }),
+  })
+  if (!res.ok) refuse(`cleanup failed: ${res.status} ${await res.text()}`)
+  const rows = (await res.json()) as { id: string }[]
+  console.log(`\n[seed-helper-output] Soft-deleted ${rows.length} test_owned row(s) for run_id ${runId}.\n`)
 }
 
 // ─── dispatch (refuses before any env/DB work when no action is given) ───────
