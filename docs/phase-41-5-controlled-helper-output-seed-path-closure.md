@@ -130,6 +130,40 @@ Before opening Phase 41.6, decide whether to run one controlled fixture seed as 
 
 ---
 
+## Post-Closure Controlled Fixture Seed Verification
+
+A controlled fixture seed verification was performed **after** this Phase 41.5 closure record was written, to prove the helper → ledger → review surface → cleanup path end-to-end with real DB rows.
+
+- **Mode:** fixture mode only (no production Library read or scan).
+- **Seed result:** inserted **3** `test_owned = true` helper output rows.
+- **`run_id`:** `2026-06-13T08-10-18-906Z_c2eb2e03`
+- **Visibility:** the rows appeared in `/helpers` through the protected, read-only Helper Review surface (active default view).
+- **The rows remained inert** — confirmed by server read-back:
+  - not Memory (`not_memory = true`)
+  - not evidence (`not_evidence = true`)
+  - prompt-ineligible (`prompt_eligible = false`)
+  - no review routing (`review_routed = false`)
+  - no review decision (`reviewed_by` / `reviewed_at` null; `output_status = deterministic_check`)
+  - no authority movement (`authority_changed = false`)
+
+- **Cleanup** was performed using the exact scoped soft-delete command:
+
+  ```bash
+  npx tsx scripts/seed-helper-output-test-row.ts --cleanup-test-owned-helper-output --run-id 2026-06-13T08-10-18-906Z_c2eb2e03
+  ```
+
+  - Rows soft-deleted: **3**.
+  - No hard delete occurred — the rows still exist with `deleted_at` set.
+  - No other helper outputs were touched (cleanup scoped to this `run_id` + `test_owned = true`).
+  - Active `helper_outputs` count returned to **0**.
+  - The rows no longer appear in the `/helpers` default active view (visible only behind the explicit "Show soft-deleted trace" filter).
+
+- No production Library scan occurred. No prompt visibility was added. No review actions were added. **41.6 was not started.**
+
+A transport-only fix to the seed script (`@supabase/supabase-js` → House PostgREST fetch, for Node < 22 compatibility) was committed separately as `ab7a8d9`; it changed no safety behaviour.
+
+---
+
 ## 9. Stop Condition
 
 Phase 41.5 is closed. Do not run the seed. Do not scan production Library. Do not add review actions. Do not make helper outputs prompt-visible. Do not start 41.6 without a separate approved brief.
