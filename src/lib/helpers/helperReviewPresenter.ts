@@ -30,6 +30,10 @@ export const HELPER_REVIEW_EMPTY_SECONDARY =
 
 export const SOFT_DELETED_LABEL = 'Soft-deleted trace'
 
+/** Read-only governance caption for the queue surface (Phase 41.11). */
+export const HELPER_QUEUE_CAPTION =
+  'Queue rank is not authority. Queue bucket is not truth. Batch candidate is not approval.'
+
 /** Library schema uses `description` as the summary-like field. Never invent one. */
 export const SUMMARY_FIELD_LABEL = 'Description / summary'
 

@@ -7,13 +7,14 @@
 // authority surface. Does not feed helper outputs into prompts.
 // Review visibility is not review approval.
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   HELPER_REVIEW_TITLE,
   HELPER_REVIEW_SUBTITLE,
   HELPER_REVIEW_BOUNDARY_TEXT,
   HELPER_REVIEW_EMPTY_PRIMARY,
   HELPER_REVIEW_EMPTY_SECONDARY,
+  HELPER_QUEUE_CAPTION,
   SOFT_DELETED_LABEL,
   authorityFlags,
   renderedProvenance,
@@ -25,6 +26,7 @@ import {
   reviewBurdenForDisplay,
   type HelperOutputRow,
 } from '@/lib/helpers/helperReviewPresenter'
+import { buildReviewQueue, type ReviewQueueEntry } from '@/lib/helpers/helperReviewQueue'
 
 type ApiResponse = {
   rows: HelperOutputRow[]
@@ -109,13 +111,25 @@ function FlagPill({ label, value, safe }: { label: string; value: boolean; safe:
   )
 }
 
-function HelperOutputCard({ row, labels }: { row: HelperOutputRow; labels: Record<string, string> }) {
+function HelperOutputCard({ row, labels, entry }: { row: HelperOutputRow; labels: Record<string, string>; entry?: ReviewQueueEntry }) {
   const deleted = isSoftDeleted(row)
   const provenance = renderedProvenance(row.source_refs, labels)
   const libView = isLibraryMetadataHelper(row) ? asLibraryMetadataPayload(row.suggestion_payload) : null
 
   return (
     <div className={`border rounded-lg px-4 py-3 ${deleted ? 'border-house-border/20 bg-house-bg/10 opacity-60' : 'border-house-border/40 bg-house-bg/30'}`}>
+      {/* Queue line — read-only rank + bucket (Phase 41.11). Not authority. */}
+      {entry && (
+        <div className="flex items-center gap-2 flex-wrap mb-1.5">
+          <span className="font-mono text-[9px] px-2 py-0.5 rounded border border-house-border/40 text-text-secondary/70">
+            #{entry.queue_rank}
+          </span>
+          <span className="font-mono text-[9px] px-2 py-0.5 rounded border border-house-border/40 text-text-secondary/70">
+            {entry.queue_bucket}
+          </span>
+        </div>
+      )}
+
       {/* Header line */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono text-[10px] text-text-primary/80">{row.helper_type}</span>
@@ -254,6 +268,17 @@ export default function HelperReviewPage() {
     setFilters((prev) => ({ ...prev, [key]: value }))
   }
 
+  // Read-only queue ordering via the Phase 41.10 model. includeInactive keeps
+  // every fetched row visible (deleted only arrive when the toggle requests
+  // them) — nothing is hidden; the model only orders by queue_rank and labels
+  // the bucket. No mutation, no review execution.
+  const queue = useMemo(() => buildReviewQueue(rows, { includeInactive: true }), [rows])
+  const rowById = useMemo(() => {
+    const m = new Map<string, HelperOutputRow>()
+    for (const r of rows) m.set(r.id, r)
+    return m
+  }, [rows])
+
   return (
     <div className="flex flex-col min-h-full">
       {/* ── Header + boundary ───────────────────────────────────────── */}
@@ -265,6 +290,7 @@ export default function HelperReviewPage() {
         <p className="font-body text-[11px] text-text-muted/70 mt-2 max-w-3xl border border-house-border/30 rounded bg-house-bg/20 px-3 py-2">
           {HELPER_REVIEW_BOUNDARY_TEXT}
         </p>
+        <p className="font-body text-[10px] text-text-muted/50 mt-1.5 italic">{HELPER_QUEUE_CAPTION}</p>
       </div>
 
       {/* ── Filters ─────────────────────────────────────────────────── */}
@@ -300,9 +326,11 @@ export default function HelperReviewPage() {
           </div>
         ) : (
           <div className="space-y-3 max-w-4xl">
-            {rows.map((row) => (
-              <HelperOutputCard key={row.id} row={row} labels={labels} />
-            ))}
+            {queue.entries.map((e) => {
+              const row = rowById.get(e.id)
+              if (!row) return null
+              return <HelperOutputCard key={e.id} row={row} labels={labels} entry={e} />
+            })}
           </div>
         )}
       </div>

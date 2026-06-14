@@ -33,7 +33,10 @@ const HELPER_OUTPUT_COLUMNS =
   'id, helper_type, output_status, suggested_action, confidence_label, presence_scope, ' +
   'created_by, created_at, not_memory, not_evidence, prompt_eligible, authority_changed, ' +
   'human_review_required, review_routed, reviewed_by, reviewed_at, source_refs, ' +
-  'suggestion_payload, deleted_at'
+  'suggestion_payload, deleted_at, review_state, ' +
+  // Phase 41.11: persisted review-burden fields (migration 076, live) — read-only.
+  'risk_class, review_priority, review_mode, batch_eligible, sample_required, ' +
+  'escalation_required, escalation_reasons'
 
 type SourceRef = { source_surface: string; source_id: string }
 
