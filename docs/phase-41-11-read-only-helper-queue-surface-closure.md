@@ -98,6 +98,33 @@ Phase 41 sequence:
 
 ---
 
+## Visual Verification — Production `/helpers`
+
+Tara manually checked `/helpers` in production after the Phase 41.11 push (2026-06-14). A user-facing visual check only — no code path was exercised beyond loading the read-only surface.
+
+**Observed:**
+- `/helpers` loads successfully; the Helper Review page renders.
+- Governance caption visible: *"Queue rank is not authority. Queue bucket is not truth. Batch candidate is not approval."*
+- The "Show soft-deleted trace" toggle works.
+- With the toggle checked, the 4 soft-deleted helper outputs are visible.
+- Queue/burden metadata is displayed read-only: risk, priority, mode, `batch_eligible`, `sample_required`, `escalation_required`, reasons.
+- No buttons visible. No review controls visible. No mutation controls visible. No helper-run controls visible.
+- The displayed rows were soft-deleted traces, not active helper outputs.
+
+**Scope of the check:**
+- User-facing visual check only.
+- No seed was created.
+- No helper output was mutated.
+- No review action was taken.
+- No helper was run.
+- No Library scan occurred.
+- No prompt visibility or authority movement occurred.
+- **41.12 was not started.**
+
+The read-only queue surface behaves exactly as designed: it shows, orders, and explains burden, and offers no way to act on it.
+
+---
+
 ## 9. Stop Condition
 
 Phase 41.11 is closed at implementation level. Do not add review buttons, mutation routes, schema, or review execution. Do not push without approval. Do not start 41.12 without a separate approved brief.
