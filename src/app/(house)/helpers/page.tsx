@@ -22,6 +22,7 @@ import {
   isLibraryMetadataHelper,
   asLibraryMetadataPayload,
   reviewStateForDisplay,
+  reviewBurdenForDisplay,
   type HelperOutputRow,
 } from '@/lib/helpers/helperReviewPresenter'
 
@@ -146,6 +147,26 @@ function HelperOutputCard({ row, labels }: { row: HelperOutputRow; labels: Recor
           <FlagPill key={f.key} label={f.label} value={f.value} safe={f.safe} />
         ))}
       </div>
+
+      {/* Review burden — read-only triage metadata (Phase 41.9). Renders only
+          when the row carries persisted burden; no controls. */}
+      {(() => {
+        const burden = reviewBurdenForDisplay(row)
+        if (!burden) return null
+        return (
+          <div className="flex items-center gap-3 flex-wrap mt-1.5 font-mono text-[9px] text-text-muted/45">
+            <span>risk: {burden.risk_class}</span>
+            <span>priority: {burden.review_priority}</span>
+            <span>mode: {burden.review_mode}</span>
+            <span>batch_eligible: {String(burden.batch_eligible)}</span>
+            <span>sample_required: {String(burden.sample_required)}</span>
+            <span>escalation_required: {String(burden.escalation_required)}</span>
+            {burden.escalation_reasons.length > 0 && (
+              <span>reasons: {burden.escalation_reasons.join(', ')}</span>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Provenance — multi-ref, never collapsed */}
       <div className="mt-2.5 border-t border-house-border/20 pt-2">

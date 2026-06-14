@@ -68,6 +68,19 @@ export type HelperOutputRow = {
    * surface shows the default. Display-only — there is no review control here.
    */
   review_state?: string | null
+
+  /**
+   * Persisted review-burden classification (Phase 41.9). Optional/back-compatible
+   * — the API does not select these yet, so they are absent in v1 and the burden
+   * line simply does not render. Display-only metadata; no controls.
+   */
+  risk_class?: string | null
+  review_priority?: string | null
+  review_mode?: string | null
+  batch_eligible?: boolean | null
+  sample_required?: boolean | null
+  escalation_required?: boolean | null
+  escalation_reasons?: string[] | null
 }
 
 /** The default review state for any helper output (Phase 41.6/41.7). */
@@ -81,6 +94,35 @@ export const DEFAULT_REVIEW_STATE = 'unreviewed'
 export function reviewStateForDisplay(row: HelperOutputRow): string {
   const s = row.review_state
   return typeof s === 'string' && isHelperReviewState(s) ? s : DEFAULT_REVIEW_STATE
+}
+
+/** Read-only review-burden view for display (Phase 41.9). */
+export type ReviewBurdenDisplay = {
+  risk_class: string
+  review_priority: string
+  review_mode: string
+  batch_eligible: boolean
+  sample_required: boolean
+  escalation_required: boolean
+  escalation_reasons: string[]
+}
+
+/**
+ * Read-only burden view, or null when the row carries no persisted burden (the
+ * v1 API does not select these columns, so this is null and the burden line
+ * does not render). NEVER changes anything — display selection only.
+ */
+export function reviewBurdenForDisplay(row: HelperOutputRow): ReviewBurdenDisplay | null {
+  if (typeof row.risk_class !== 'string') return null
+  return {
+    risk_class: row.risk_class,
+    review_priority: typeof row.review_priority === 'string' ? row.review_priority : '—',
+    review_mode: typeof row.review_mode === 'string' ? row.review_mode : '—',
+    batch_eligible: row.batch_eligible === true,
+    sample_required: row.sample_required === true,
+    escalation_required: row.escalation_required === true,
+    escalation_reasons: Array.isArray(row.escalation_reasons) ? row.escalation_reasons : [],
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

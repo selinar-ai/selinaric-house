@@ -319,14 +319,17 @@ export function classifyReviewBurden(input: ReviewBurdenInput): ReviewBurden {
   }
 
   // Medium-risk action (e.g. staleness) → individual review, not batchable.
+  // Governance: medium means individual review is required, so escalation_required
+  // is true with at least one reason (Phase 41 / 41.9 schema rule).
   if (isMediumAction) {
+    pushReason(escalation_reasons, 'human_judgement_required')
     return {
       risk_class: 'medium',
       review_priority: 'normal',
       review_mode: 'individual_review_required',
       batch_eligible: false,
       sample_required: false,
-      escalation_required: false,
+      escalation_required: true,
       escalation_reasons,
     }
   }
@@ -352,7 +355,7 @@ export function classifyReviewBurden(input: ReviewBurdenInput): ReviewBurden {
     review_mode: 'individual_review_required',
     batch_eligible: false,
     sample_required: false,
-    escalation_required: false,
+    escalation_required: true,
     escalation_reasons,
   }
 }
@@ -451,14 +454,15 @@ export function isBatchEligible(input: ReviewBurdenInput, burden: ReviewBurden):
 export function defaultBurdenForHelperType(helperType: HelperType | string): ReviewBurden {
   if (helperType === 'library_metadata_helper') {
     // Even the v1 helper's *default* (absent a specific output) is conservative.
+    // medium ⟹ individual review required ⟹ escalation_required with a reason.
     return {
       risk_class: 'medium',
       review_priority: 'normal',
       review_mode: 'individual_review_required',
       batch_eligible: false,
       sample_required: false,
-      escalation_required: false,
-      escalation_reasons: [],
+      escalation_required: true,
+      escalation_reasons: ['human_judgement_required'],
     }
   }
   return authorityCritical(['human_judgement_required', 'bulk_review_not_allowed'])

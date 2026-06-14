@@ -97,9 +97,37 @@ section('C. Medium-risk not batchable')
   assert(b.batch_eligible === false, 'medium not batch eligible')
   assert(b.review_mode === 'individual_review_required', 'medium → individual review')
   assert(!isBatchEligible(input({ suggested_action: 'flag_stale_document' }), b), 'medium fails independent batch gate')
+  // Governance (41.9 schema rule): medium requires escalation + non-empty reasons.
+  assert(b.escalation_required === true, 'medium → escalation_required true')
+  assert(b.escalation_reasons.length >= 1, 'medium → non-empty escalation_reasons')
   // Unknown action for a known helper → classify upward (medium).
   const u = classifyReviewBurden(input({ suggested_action: 'some_unknown_action' }))
   assert(u.risk_class === 'medium' && u.batch_eligible === false, 'unknown action → medium, not batchable')
+  assert(u.review_mode === 'individual_review_required', 'unknown action → individual review')
+  assert(u.escalation_required === true && u.escalation_reasons.length >= 1, 'unknown action → escalation_required + reasons')
+}
+
+// ── Governance invariant: escalation_required=false only for low + no_review/batch
+section('C2. escalation_required=false only for low (matches 41.9 ho_escalation_required_low_only)')
+{
+  const samples: ReviewBurdenInput[] = [
+    input({ suggested_action: 'add_summary' }),              // low / batch
+    input({ suggested_action: 'no_action', clean_no_issue: true }), // low / no_review
+    input({ suggested_action: 'flag_stale_document' }),      // medium
+    input({ suggested_action: 'some_unknown_action' }),      // medium
+    input({ sensitive_scope: true }),                        // high
+    input({ prompt_eligible: true }),                        // authority_critical
+    input({ helper_type: 'retrieval_gap_helper' }),          // authority_critical
+  ]
+  for (const s of samples) {
+    const b = classifyReviewBurden(s)
+    if (b.escalation_required === false) {
+      assert(b.risk_class === 'low' && (b.review_mode === 'no_review_needed' || b.review_mode === 'batch_review_allowed'),
+        `escalation_required=false only for low+no_review/batch (got ${b.risk_class}/${b.review_mode})`)
+    } else {
+      assert(b.escalation_reasons.length >= 1, `escalation_required=true carries reasons (${b.risk_class})`)
+    }
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -194,6 +222,7 @@ section('G. Unknown/deferred helper types')
   // The v1 helper's own default is conservative (medium, individual) — not low.
   const lib = defaultBurdenForHelperType('library_metadata_helper')
   assert(lib.risk_class === 'medium' && lib.batch_eligible === false, 'library helper default is medium, not batchable')
+  assert(lib.escalation_required === true && lib.escalation_reasons.length >= 1, 'library default: medium → escalation_required + reasons')
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
