@@ -4,8 +4,9 @@
 **Phase family:** Phase 41 — Helper Architecture
 **Phase:** 41.9 — Helper Review Burden Persistence Schema / Governance
 **Commit:** `5121c0b` — "Phase 41.9 helper review burden governance"
-**Parent:** `4b1dd63` · **Branch:** `main` · **Pushed:** No (local only)
-**Migration 076 run in Supabase:** No (draft only)
+**Closure record commit:** `0f81ea7`
+**Parent:** `4b1dd63` · **Branch:** `main` · **Pushed:** Yes — `origin/main` (2026-06-14)
+**Migration 076 run in Supabase:** Yes — run and verified 2026-06-14 (see §8)
 **41.10 started:** No
 
 ---
@@ -62,8 +63,8 @@ Read-only production probe confirmed `helper_outputs.risk_class` does not exist 
 
 ## 5. Not Done (explicit)
 
-- Migration 076 **not run** in Supabase (draft only).
-- Commit `5121c0b` **not pushed** (local `main` is 1 ahead of `origin/main`).
+- Migration 076 — **now run and verified** in Supabase on 2026-06-14 (see §8). *(Was draft-only at sealing.)*
+- Commits `5121c0b` + `0f81ea7` — **now pushed** to `origin/main` (2026-06-14). *(Were local-only at sealing.)*
 - No UI controls, review buttons, batch/queue UI.
 - No mutation API route; the GET route does not select burden columns yet (burden line renders nothing in v1).
 - No classifier wiring into `helperOutputStore` (write path unchanged).
@@ -85,8 +86,34 @@ Phase 41 sequence:
 
 ## 7. Stop Condition
 
-Hold the current state. Do not run migration 076. Do not push. Do not start 41.10 without a separate approved brief.
+Hold the current state. Do not start 41.10 without a separate approved brief. (Migration 076 has since been authorised, run, and verified — see §8.)
 
 ---
 
-**41.9 SEALED — the burden is priced and the price is honest; the migration waits, and the crown stays with Tara.**
+## 8. Migration 076 — Execution & Verification (2026-06-14)
+
+Migration 076 was authorised separately from the source-control sealing, run once in the Supabase SQL Editor (`Success. No rows returned.`), and verified read-only.
+
+**Pre-checks:**
+- Safety export — `node scripts/emergency-house-export.mjs` exit 0 (8158/8158 rows, no writes, no deletes).
+- Dangerous-ops scan — 0 new critical.
+- `helper_outputs.risk_class` absent pre-run (076 unrun); `review_state` present (075 live); 4 rows total, all soft-deleted (0 active).
+
+**Post-checks (read-only):**
+
+| # | Check | Result |
+|---|---|---|
+| 1 | 7 burden columns + defaults | ✅ present (`authority_critical` / `normal` / `two_gate_review_required` / `false` / `false` / `true` / `['human_judgement_required']`) |
+| 2 | 9 `ho_` constraints | ✅ 9/9 present (direct catalog query) |
+| 3 | 6 indexes | ✅ 6/6 present (direct catalog query) |
+| 4 | existing rows defaulted conservatively; none batchable | ✅ all rows `authority_critical` / two-gate / escalation-required; `batch_eligible=true` count = 0 |
+| 5 | authority invariants intact | ✅ 0 violations |
+| 6 | active helper output count | ✅ 0 (all rows soft-deleted) |
+
+No negative-validation inserts were run. No code change, no commit, no push, no review execution, no authority movement accompanied the run. **41.10 not started.**
+
+**Net:** the burden schema is live and conservatively populated; existing (soft-deleted) rows carry the safe `authority_critical` posture; nothing is batchable; the authority invariants from 074/075 remain intact.
+
+---
+
+**41.9 SEALED & APPLIED — the burden is priced, the price is honest, the schema is live and conservative; the crown stays with Tara.**
