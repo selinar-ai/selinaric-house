@@ -81,10 +81,12 @@ section('B. Page queue wiring')
   assert(page.includes('HELPER_QUEUE_CAPTION'), 'page renders the governance caption')
   assert(page.includes('reviewBurdenForDisplay'), 'page still renders read-only burden')
   // No mutation / no review controls introduced.
-  for (const forbidden of ['Accept', 'Reject', 'Approve', 'Promote', 'Apply', 'Mark useful', 'Dismiss', 'Mark viewed', 'Bulk', 'Batch approve', 'Batch dismiss', 'Run helper']) {
+  // No authority-like controls. (41.13 adds workflow controls Mark reviewed /
+  // Dismiss / Needs follow-up — workflow state, not authority.)
+  for (const forbidden of ['Accept', 'Approve', 'Promote', 'Apply', 'Mark useful', 'Mark viewed', 'Bulk', 'Batch approve', 'Batch dismiss', 'Run helper']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
-  for (const mut of ["method: 'POST'", "method: 'PATCH'", "method: 'DELETE'", '.insert(', '.update(']) {
+  for (const mut of ["method: 'PATCH'", "method: 'DELETE'", '.insert(', '.update(']) {
     assert(!page.includes(mut), `page does not perform ${mut}`)
   }
 }

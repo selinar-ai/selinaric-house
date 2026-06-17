@@ -34,6 +34,11 @@ export const SOFT_DELETED_LABEL = 'Soft-deleted trace'
 export const HELPER_QUEUE_CAPTION =
   'Queue rank is not authority. Queue bucket is not truth. Batch candidate is not approval.'
 
+/** Boundary caption shown near the row-local review controls (Phase 41.13). */
+export const HELPER_REVIEW_CONTROLS_CAPTION =
+  'Review action changes workflow state only. It does not apply this helper output, ' +
+  'create evidence, move authority, or make anything prompt-visible.'
+
 /** Library schema uses `description` as the summary-like field. Never invent one. */
 export const SUMMARY_FIELD_LABEL = 'Description / summary'
 

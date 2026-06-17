@@ -14,6 +14,7 @@ import {
   isForbiddenWorkflowAction,
   parseReviewRequestBody,
   planHelperReviewMutation,
+  availableWorkflowActions,
   type HelperReviewWorkflowAction,
   type ReviewMutationRow,
 } from '../helperReviewMutation'
@@ -152,6 +153,27 @@ section('F. Plan carries no authority')
     const keys = Object.keys(p).sort()
     assert(JSON.stringify(keys) === JSON.stringify(['action', 'new_state', 'ok', 'previous_state']), 'plan exposes only action + states (no authority fields)')
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// G. availableWorkflowActions (UI control gating)
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('G. availableWorkflowActions')
+{
+  // unreviewed → all three actions are valid transitions.
+  assert(JSON.stringify(availableWorkflowActions('unreviewed').sort()) === JSON.stringify(['dismiss_not_useful', 'mark_reviewed_no_action', 'needs_followup']), 'unreviewed → all three actions')
+  // viewed → mark_reviewed (viewed→viewed) is a no-op; only dismiss + needs_followup.
+  assert(JSON.stringify(availableWorkflowActions('viewed').sort()) === JSON.stringify(['dismiss_not_useful', 'needs_followup']), 'viewed → dismiss + needs_followup (no mark_reviewed no-op)')
+  // useful → only needs_followup (useful→dismissed is not allowed in 41.6).
+  assert(JSON.stringify(availableWorkflowActions('useful')) === JSON.stringify(['needs_followup']), 'useful → needs_followup only')
+  // needs_action / needs_decision → only dismiss.
+  assert(JSON.stringify(availableWorkflowActions('needs_action')) === JSON.stringify(['dismiss_not_useful']), 'needs_action → dismiss only')
+  assert(JSON.stringify(availableWorkflowActions('needs_decision')) === JSON.stringify(['dismiss_not_useful']), 'needs_decision → dismiss only')
+  // dismissed is terminal → no actions; unknown state → no actions.
+  assert(availableWorkflowActions('dismissed').length === 0, 'dismissed → no actions (terminal)')
+  assert(availableWorkflowActions('bogus').length === 0, 'unknown state → no actions')
+  assert(availableWorkflowActions('').length === 0, 'empty state → no actions')
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

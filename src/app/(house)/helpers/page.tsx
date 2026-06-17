@@ -1,13 +1,16 @@
 'use client'
 
-// Phase 41.4 — Helper Output Review Surface
-// Read-only. Shows inert helper_outputs trace so Tara can inspect helper labour.
-// Does NOT accept/reject/route/approve/promote anything. Does not run helpers.
-// Does not mutate helper_outputs, library_items, library_item_files, or any
-// authority surface. Does not feed helper outputs into prompts.
-// Review visibility is not review approval.
+// Phase 41.4 — Helper Output Review Surface (Phase 41.13 — row-local controls)
+// Shows inert helper_outputs trace so Tara can inspect helper labour, and
+// provides row-local WORKFLOW review controls (Mark reviewed / Dismiss / Needs
+// follow-up) that call the governed Phase 41.12 route to change review_state
+// only — one row, one action per click.
+// Does NOT accept/approve/apply/promote/route anything, run helpers, mutate
+// burden fields, payload, source refs, authority flags, library_items,
+// library_item_files, or any authority surface, or feed helper outputs into
+// prompts. Review action changes workflow state only — it is not approval.
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   HELPER_REVIEW_TITLE,
   HELPER_REVIEW_SUBTITLE,
@@ -15,6 +18,7 @@ import {
   HELPER_REVIEW_EMPTY_PRIMARY,
   HELPER_REVIEW_EMPTY_SECONDARY,
   HELPER_QUEUE_CAPTION,
+  HELPER_REVIEW_CONTROLS_CAPTION,
   SOFT_DELETED_LABEL,
   authorityFlags,
   renderedProvenance,
@@ -27,6 +31,17 @@ import {
   type HelperOutputRow,
 } from '@/lib/helpers/helperReviewPresenter'
 import { buildReviewQueue, type ReviewQueueEntry } from '@/lib/helpers/helperReviewQueue'
+import { availableWorkflowActions, type HelperReviewWorkflowAction } from '@/lib/helpers/helperReviewMutation'
+
+// UI-facing labels for the three Phase 41.12 workflow actions. Raw action enum
+// values are NEVER shown to Tara.
+const WORKFLOW_ACTION_LABELS: Record<HelperReviewWorkflowAction, string> = {
+  mark_reviewed_no_action: 'Mark reviewed',
+  dismiss_not_useful: 'Dismiss',
+  needs_followup: 'Needs follow-up',
+}
+
+type RowMessage = { kind: 'error' | 'conflict'; text: string }
 
 type ApiResponse = {
   rows: HelperOutputRow[]
@@ -111,10 +126,22 @@ function FlagPill({ label, value, safe }: { label: string; value: boolean; safe:
   )
 }
 
-function HelperOutputCard({ row, labels, entry }: { row: HelperOutputRow; labels: Record<string, string>; entry?: ReviewQueueEntry }) {
+function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
+  row: HelperOutputRow
+  labels: Record<string, string>
+  entry?: ReviewQueueEntry
+  onAction?: (row: HelperOutputRow, action: HelperReviewWorkflowAction) => void
+  isActing?: boolean
+  message?: RowMessage
+}) {
   const deleted = isSoftDeleted(row)
   const provenance = renderedProvenance(row.source_refs, labels)
   const libView = isLibraryMetadataHelper(row) ? asLibraryMetadataPayload(row.suggestion_payload) : null
+
+  // Row-local review controls (Phase 41.13). Shown only for an active, non-
+  // soft-deleted, non-terminal row that has at least one allowed transition.
+  const actions = availableWorkflowActions(reviewStateForDisplay(row))
+  const showControls = !deleted && (entry?.is_active ?? false) && actions.length > 0
 
   return (
     <div className={`border rounded-lg px-4 py-3 ${deleted ? 'border-house-border/20 bg-house-bg/10 opacity-60' : 'border-house-border/40 bg-house-bg/30'}`}>
@@ -231,6 +258,33 @@ function HelperOutputCard({ row, labels, entry }: { row: HelperOutputRow; labels
           </pre>
         </div>
       )}
+
+      {/* Row-local review controls (Phase 41.13). Workflow state only — one row,
+          one action per click. Soft-deleted / terminal rows show no controls. */}
+      {showControls && (
+        <div className="mt-3 border-t border-house-border/20 pt-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {actions.map((action) => (
+              <button
+                key={action}
+                type="button"
+                disabled={!!isActing}
+                onClick={() => onAction?.(row, action)}
+                className="font-body text-[10px] px-2.5 py-1 rounded border border-house-border/50 text-text-secondary/80 hover:border-house-border/80 hover:text-text-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {WORKFLOW_ACTION_LABELS[action]}
+              </button>
+            ))}
+            {isActing && <span className="font-mono text-[9px] text-text-muted/50">working…</span>}
+          </div>
+          {message && (
+            <p className={`font-body text-[10px] mt-1.5 ${message.kind === 'conflict' ? 'text-amber-300/80' : 'text-red-300/80'}`}>
+              {message.text}
+            </p>
+          )}
+          <p className="font-body text-[9px] text-text-muted/40 mt-1.5 italic">{HELPER_REVIEW_CONTROLS_CAPTION}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -241,6 +295,10 @@ export default function HelperReviewPage() {
   const [labels, setLabels] = useState<Record<string, string>>({})
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  // Phase 41.13 — row-local review-action state.
+  const [actingId, setActingId] = useState<string | null>(null)
+  const [rowMessages, setRowMessages] = useState<Record<string, RowMessage>>({})
+  const inFlightRef = useRef(false)
 
   const fetchRows = useCallback(async (f: Filters) => {
     setLoading(true)
@@ -268,6 +326,47 @@ export default function HelperReviewPage() {
     setFilters((prev) => ({ ...prev, [key]: value }))
   }
 
+  // Phase 41.13 — perform one workflow review action on exactly one row via the
+  // existing Phase 41.12 route. Single in-flight (double-click safe); optimistic
+  // concurrency via expectedReviewState; row-local success/error; updates only
+  // the acted row. No batch, no authority movement, no helper execution.
+  const onReviewAction = useCallback(async (row: HelperOutputRow, action: HelperReviewWorkflowAction) => {
+    if (inFlightRef.current) return
+    inFlightRef.current = true
+    setActingId(row.id)
+    setRowMessages((m) => { const n = { ...m }; delete n[row.id]; return n })
+    try {
+      const res = await fetch(`/api/helpers/outputs/${row.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) }),
+      })
+      if (res.status === 200) {
+        const data = await res.json()
+        const updated = data?.row as Partial<HelperOutputRow> | undefined
+        if (updated && updated.id) {
+          setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...updated } : r)))
+        }
+        return
+      }
+      if (res.status === 409) {
+        setRowMessages((m) => ({ ...m, [row.id]: { kind: 'conflict', text: 'This helper output changed since the queue loaded. Refresh and review the latest state.' } }))
+        return
+      }
+      const text = res.status === 401 ? 'Session expired — please sign in again. No change was made.'
+        : res.status === 404 ? 'This helper output was not found. No change was made.'
+        : res.status === 422 ? 'That action is not valid for this row’s current state. No change was made.'
+        : res.status === 400 ? 'Invalid request. No change was made.'
+        : 'Something went wrong — no change was made.'
+      setRowMessages((m) => ({ ...m, [row.id]: { kind: 'error', text } }))
+    } catch {
+      setRowMessages((m) => ({ ...m, [row.id]: { kind: 'error', text: 'Network error — no change was made.' } }))
+    } finally {
+      inFlightRef.current = false
+      setActingId(null)
+    }
+  }, [])
+
   // Read-only queue ordering via the Phase 41.10 model. includeInactive keeps
   // every fetched row visible (deleted only arrive when the toggle requests
   // them) — nothing is hidden; the model only orders by queue_rank and labels
@@ -291,6 +390,7 @@ export default function HelperReviewPage() {
           {HELPER_REVIEW_BOUNDARY_TEXT}
         </p>
         <p className="font-body text-[10px] text-text-muted/50 mt-1.5 italic">{HELPER_QUEUE_CAPTION}</p>
+        <p className="font-body text-[10px] text-text-muted/50 mt-1 italic">{HELPER_REVIEW_CONTROLS_CAPTION}</p>
       </div>
 
       {/* ── Filters ─────────────────────────────────────────────────── */}
@@ -329,7 +429,17 @@ export default function HelperReviewPage() {
             {queue.entries.map((e) => {
               const row = rowById.get(e.id)
               if (!row) return null
-              return <HelperOutputCard key={e.id} row={row} labels={labels} entry={e} />
+              return (
+                <HelperOutputCard
+                  key={e.id}
+                  row={row}
+                  labels={labels}
+                  entry={e}
+                  onAction={onReviewAction}
+                  isActing={actingId === e.id}
+                  message={rowMessages[e.id]}
+                />
+              )
             })}
           </div>
         )}

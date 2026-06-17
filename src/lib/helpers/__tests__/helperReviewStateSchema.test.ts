@@ -140,10 +140,12 @@ section('E. Page displays review_state read-only')
   assert(page.includes('reviewStateForDisplay'), 'page renders review_state via the read-only helper')
   assert(page.includes('review_state:'), 'page shows a review_state label')
   // Still no mutation controls of any kind.
-  for (const forbidden of ['Accept', 'Reject', 'Approve', 'Promote', 'Mark useful', 'Dismiss', 'Mark viewed', 'Bulk']) {
+  // No authority-like controls. (41.13 adds workflow controls incl. Dismiss —
+  // a workflow state change, not an authority move.)
+  for (const forbidden of ['Accept', 'Approve', 'Promote', 'Apply', 'Mark useful', 'Mark viewed', 'Bulk']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
-  for (const mut of ["method: 'POST'", "method: 'PATCH'", "method: 'DELETE'", '.insert(', '.update(']) {
+  for (const mut of ["method: 'PATCH'", "method: 'DELETE'", '.insert(', '.update(']) {
     assert(!page.includes(mut), `page does not perform ${mut}`)
   }
 }

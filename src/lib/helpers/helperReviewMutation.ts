@@ -50,6 +50,19 @@ export const WORKFLOW_ACTION_TARGET_STATE: Record<HelperReviewWorkflowAction, He
 }
 
 /**
+ * Which workflow actions are legal from a given current review state — i.e. the
+ * action's target state is an allowed Phase 41.6 transition. Pure; used by the
+ * UI to decide which row-local controls to show (a terminal/unknown state yields
+ * an empty list → no controls). It never executes anything.
+ */
+export function availableWorkflowActions(currentReviewState: string): HelperReviewWorkflowAction[] {
+  if (!isHelperReviewState(currentReviewState)) return []
+  return HELPER_REVIEW_WORKFLOW_ACTIONS.filter((a) =>
+    isAllowedTransition(currentReviewState, WORKFLOW_ACTION_TARGET_STATE[a]),
+  )
+}
+
+/**
  * Authority-like action tokens that must be rejected if received. Not part of
  * the workflow vocabulary and runtime-rejected so an `as any` still fails.
  */

@@ -177,10 +177,12 @@ section('G. Page burden display is read-only')
   const page = readSrc('../../../app/(house)/helpers/page.tsx')
   assert(page.includes('reviewBurdenForDisplay'), 'page renders burden via the read-only helper')
   // Still no mutation controls.
-  for (const forbidden of ['Accept', 'Reject', 'Approve', 'Promote', 'Mark useful', 'Dismiss', 'Mark viewed', 'Bulk', 'Batch approve', 'Batch dismiss']) {
+  // No authority-like controls. (41.13 adds workflow controls incl. Dismiss —
+  // a workflow state change, not an authority move.)
+  for (const forbidden of ['Accept', 'Approve', 'Promote', 'Apply', 'Mark useful', 'Mark viewed', 'Bulk', 'Batch approve', 'Batch dismiss']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
-  for (const mut of ["method: 'POST'", "method: 'PATCH'", "method: 'DELETE'", '.insert(', '.update(']) {
+  for (const mut of ["method: 'PATCH'", "method: 'DELETE'", '.insert(', '.update(']) {
     assert(!page.includes(mut), `page does not perform ${mut}`)
   }
 }

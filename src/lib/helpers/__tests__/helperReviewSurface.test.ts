@@ -235,11 +235,14 @@ section('H. Page is read-only visibility')
   // Multi-ref provenance + summary label rendering.
   assert(page.includes('renderedProvenance') && page.includes('provenanceSummary'), 'page renders multi-ref provenance')
   assert(page.includes('checked_fields_labelled'), 'page renders relabelled checked fields')
-  // No write/mutation controls.
-  for (const forbidden of ['Accept', 'Reject', 'Approve', 'Promote', 'Mark reviewed', 'Run helper', 'Bulk']) {
+  // No authority-like controls. (Phase 41.13 adds the workflow controls
+  // Mark reviewed / Dismiss / Needs follow-up — those are NOT authority moves.)
+  for (const forbidden of ['Accept', 'Approve', 'Promote', 'Apply', 'Run helper', 'Bulk']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
-  for (const mut of ["method: 'POST'", "method: 'PATCH'", "method: 'PUT'", "method: 'DELETE'", '.insert(', '.update(', '.delete(']) {
+  // No direct DB mutation, and no PATCH/PUT/DELETE. (A single POST to the
+  // governed Phase 41.12 review route is allowed from 41.13.)
+  for (const mut of ["method: 'PATCH'", "method: 'PUT'", "method: 'DELETE'", '.insert(', '.update(', '.delete(']) {
     assert(!page.includes(mut), `page does not perform ${mut}`)
   }
 }
