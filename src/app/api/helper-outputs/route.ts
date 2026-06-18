@@ -113,5 +113,31 @@ export async function GET(request: NextRequest) {
     for (const f of (files ?? []) as Array<{ id: string; file_name: string }>) labels[f.id] = f.file_name
   }
 
-  return NextResponse.json({ rows: rows ?? [], labels, total: count ?? (rows?.length ?? 0) })
+  // ── Read-only review-event trace (Phase 41.14) ─────────────────────────────
+  // Workflow history per row, fetched through the narrow definer read. The
+  // events table is never granted a direct SELECT; this RPC returns SAFE summary
+  // fields only. Best-effort: if the migration is not live (or the RPC errors),
+  // rows return an empty trace and the surface shows "No review events yet." —
+  // the listing never fails because of the trace. A trace is never authority.
+  const baseRows = (rows ?? []) as unknown as Array<{ id: string }>
+  const outputIds = baseRows.map((r) => r.id).filter((id): id is string => typeof id === 'string')
+
+  const eventsByOutput: Record<string, unknown[]> = {}
+  if (outputIds.length > 0) {
+    const { data: events, error: eventsError } = await supabase.rpc(
+      'helper_review_events_for_outputs',
+      { p_helper_output_ids: outputIds },
+    )
+    if (!eventsError && Array.isArray(events)) {
+      for (const ev of events as Array<{ helper_output_id?: string }>) {
+        const key = typeof ev.helper_output_id === 'string' ? ev.helper_output_id : null
+        if (!key) continue
+        ;(eventsByOutput[key] ??= []).push(ev)
+      }
+    }
+  }
+
+  const rowsWithTrace = baseRows.map((r) => ({ ...r, review_events: eventsByOutput[r.id] ?? [] }))
+
+  return NextResponse.json({ rows: rowsWithTrace, labels, total: count ?? (rows?.length ?? 0) })
 }

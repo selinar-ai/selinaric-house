@@ -39,6 +39,15 @@ export const HELPER_REVIEW_CONTROLS_CAPTION =
   'Review action changes workflow state only. It does not apply this helper output, ' +
   'create evidence, move authority, or make anything prompt-visible.'
 
+/** Boundary caption shown beneath the read-only review trace (Phase 41.14). */
+export const HELPER_REVIEW_TRACE_CAPTION =
+  'Review trace records workflow movement only. It does not make a helper output ' +
+  'true, evidentiary, prompt-visible, applied, Memory, or authority.'
+
+/** Disclosure label / empty state for the read-only review trace (Phase 41.14). */
+export const HELPER_REVIEW_TRACE_TOGGLE = 'Show review trace'
+export const HELPER_REVIEW_TRACE_EMPTY = 'No review events yet.'
+
 /** Library schema uses `description` as the summary-like field. Never invent one. */
 export const SUMMARY_FIELD_LABEL = 'Description / summary'
 
@@ -49,6 +58,26 @@ export const SUMMARY_FIELD_LABEL = 'Description / summary'
 export type HelperOutputSourceRef = {
   source_surface: string
   source_id: string
+}
+
+/**
+ * Read-only review-event summary (Phase 41.14). Mirrors the SAFE fields the
+ * narrow definer read returns — workflow movement only. No payload, no source
+ * refs, no prompt/target data. A trace row is never Memory, evidence, or
+ * authority; the locked booleans below are display-only echoes of that law.
+ */
+export type HelperReviewEvent = {
+  id: string
+  helper_output_id: string
+  previous_review_state: string | null
+  new_review_state: string | null
+  action: string
+  actor: string
+  created_at: string | null
+  authority_changed?: boolean | null
+  not_memory?: boolean | null
+  not_evidence?: boolean | null
+  not_prompt_authority?: boolean | null
 }
 
 export type HelperOutputRow = {
@@ -71,6 +100,12 @@ export type HelperOutputRow = {
   source_refs: HelperOutputSourceRef[]
   suggestion_payload: unknown
   deleted_at: string | null
+  /**
+   * Read-only review-event trace (Phase 41.14). Safe summary rows only — no
+   * payload, no source refs, no prompt/target data. Trace records workflow
+   * movement; it is never evidence, Memory, or authority.
+   */
+  review_events?: HelperReviewEvent[] | null
   /**
    * Persisted review-support state (Phase 41.7). Optional/back-compatible: until
    * the migration is run and the API selects the column, this is absent and the
@@ -275,4 +310,69 @@ export function asLibraryMetadataPayload(payload: unknown): LibraryMetadataPaylo
         ? (o.observed_state as Record<string, unknown>)
         : null,
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW TRACE — read-only workflow history (Phase 41.14)
+//
+// Pure rendering for the review-event trace. NEVER mutates and NEVER confers
+// authority — it formats what already happened. Past-tense, neutral labels.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Human-readable, past-tense labels for the workflow actions in the trace.
+ * Distinct from the control-button labels: a trace describes a movement that
+ * already happened ("Dismissed"), a button names an action to take ("Dismiss").
+ */
+export const TRACE_ACTION_LABELS: Record<string, string> = {
+  mark_reviewed_no_action: 'Marked reviewed',
+  dismiss_not_useful: 'Dismissed',
+  needs_followup: 'Flagged for follow-up',
+}
+
+export function traceActionLabel(action: string): string {
+  return TRACE_ACTION_LABELS[action] ?? action
+}
+
+const TRACE_MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+
+/**
+ * Deterministic, timezone-stable date for a trace line ("17 Jun 2026"). Uses UTC
+ * parts so tests and renders agree regardless of locale. Returns '' for missing
+ * or unparseable input — a trace line never throws.
+ */
+export function formatTraceDate(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getUTCDate()} ${TRACE_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+
+/**
+ * One read-only trace line: previous → new state · action · actor · when.
+ * Movement only. Renders defensively if a state is null (shows '—').
+ */
+export function reviewTraceLine(event: HelperReviewEvent): string {
+  const prev = event.previous_review_state ?? '—'
+  const next = event.new_review_state ?? '—'
+  const when = formatTraceDate(event.created_at)
+  const parts = [`${prev} → ${next}`, traceActionLabel(event.action), event.actor]
+  if (when) parts.push(when)
+  return parts.join(' · ')
+}
+
+/** Safe, ascending (oldest-first) trace for a row — never throws, never mutates. */
+export function reviewTraceForDisplay(row: HelperOutputRow): HelperReviewEvent[] {
+  const events = row.review_events
+  if (!Array.isArray(events) || events.length === 0) return []
+  return [...events].sort((a, b) => {
+    const at = a.created_at ?? ''
+    const bt = b.created_at ?? ''
+    if (at < bt) return -1
+    if (at > bt) return 1
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
 }

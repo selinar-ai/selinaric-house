@@ -28,6 +28,11 @@ import {
   asLibraryMetadataPayload,
   reviewStateForDisplay,
   reviewBurdenForDisplay,
+  reviewTraceForDisplay,
+  reviewTraceLine,
+  HELPER_REVIEW_TRACE_CAPTION,
+  HELPER_REVIEW_TRACE_TOGGLE,
+  HELPER_REVIEW_TRACE_EMPTY,
   type HelperOutputRow,
 } from '@/lib/helpers/helperReviewPresenter'
 import { buildReviewQueue, type ReviewQueueEntry } from '@/lib/helpers/helperReviewQueue'
@@ -137,6 +142,8 @@ function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
   const deleted = isSoftDeleted(row)
   const provenance = renderedProvenance(row.source_refs, labels)
   const libView = isLibraryMetadataHelper(row) ? asLibraryMetadataPayload(row.suggestion_payload) : null
+  // Read-only review-event trace (Phase 41.14) — workflow history, oldest first.
+  const trace = reviewTraceForDisplay(row)
 
   // Row-local review controls (Phase 41.13). Shown only for an active, non-
   // soft-deleted, non-terminal row that has at least one allowed transition.
@@ -285,6 +292,30 @@ function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
           <p className="font-body text-[9px] text-text-muted/40 mt-1.5 italic">{HELPER_REVIEW_CONTROLS_CAPTION}</p>
         </div>
       )}
+
+      {/* Read-only review trace (Phase 41.14). Workflow history only — previous →
+          new state, action, actor, when. Shows for every row, soft-deleted
+          included; never a control, never authority. Native <details> keeps it
+          keyboard-usable and reduced-motion-safe. */}
+      <div className="mt-2.5 border-t border-house-border/15 pt-2">
+        {trace.length > 0 ? (
+          <details className="group">
+            <summary className="font-body text-[10px] text-text-muted/55 cursor-pointer select-none hover:text-text-secondary/70">
+              {HELPER_REVIEW_TRACE_TOGGLE} ({trace.length})
+            </summary>
+            <ol className="mt-1.5 space-y-0.5 list-none">
+              {trace.map((ev) => (
+                <li key={ev.id} className="font-mono text-[9px] text-text-secondary/60 break-words">
+                  {reviewTraceLine(ev)}
+                </li>
+              ))}
+            </ol>
+          </details>
+        ) : (
+          <p className="font-body text-[9px] text-text-muted/40">{HELPER_REVIEW_TRACE_EMPTY}</p>
+        )}
+        <p className="font-body text-[9px] text-text-muted/35 mt-1 italic">{HELPER_REVIEW_TRACE_CAPTION}</p>
+      </div>
     </div>
   )
 }
@@ -299,6 +330,11 @@ export default function HelperReviewPage() {
   const [actingId, setActingId] = useState<string | null>(null)
   const [rowMessages, setRowMessages] = useState<Record<string, RowMessage>>({})
   const inFlightRef = useRef(false)
+  // Latest filters, readable from the (stable) review-action callback without
+  // making it depend on filter state — used to re-read the trace post-action
+  // with the user's current filters/toggles preserved.
+  const filtersRef = useRef(filters)
+  filtersRef.current = filters
 
   const fetchRows = useCallback(async (f: Filters) => {
     setLoading(true)
@@ -347,6 +383,24 @@ export default function HelperReviewPage() {
         if (updated && updated.id) {
           setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...updated } : r)))
         }
+        // The 41.12 mutation response carries the new review_state but NOT the
+        // review_events trace. Re-read through the existing read-only 41.14 read
+        // path (GET list, current filters preserved) and merge the fresh trace
+        // into just the acted row, so the new event appears immediately without
+        // a manual reload. Read-only: no new route, no new mutation, best-effort
+        // (a failed re-read leaves the successful action intact, trace pending).
+        try {
+          const traceRes = await fetch(buildUrl(filtersRef.current))
+          if (traceRes.ok) {
+            const traceData = (await traceRes.json()) as ApiResponse
+            const fresh = (traceData.rows ?? []).find((r) => r.id === row.id)
+            if (fresh) {
+              setRows((prev) => prev.map((r) => (r.id === row.id
+                ? { ...r, review_events: fresh.review_events ?? [] }
+                : r)))
+            }
+          }
+        } catch { /* trace refresh is best-effort; the action already succeeded */ }
         return
       }
       if (res.status === 409) {
