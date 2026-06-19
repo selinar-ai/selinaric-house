@@ -57,6 +57,8 @@ import {
   type WorkshopRoomTile,
   type WorkshopRoomState,
 } from '@/lib/helpers/helperWorkshop'
+import { motion, AnimatePresence } from 'motion/react'
+import { useReducedMotion, WORKSHOP_MOTION } from '@/lib/helpers/workshopMotion'
 
 // UI-facing labels for the three Phase 41.12 workflow actions. Raw action enum
 // values are NEVER shown to Tara.
@@ -351,63 +353,159 @@ function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
 
 const WORKSHOP_VIEW_STORAGE_KEY = 'selinaric_helper_view_mode'
 
-/** Soft ambient styling per room state. Glow = review state, never authority. */
-function roomStateVisual(state: WorkshopRoomState): { dot: string; glow: string; pulse: boolean; label: string } {
+// Slice 2 — transition variants (transform/opacity only; GPU-friendly).
+// Entering a room reads as a soft corridor-zoom in; the map zooms gently out.
+// Stepping prev/next cross-fades the presented output. All disabled under
+// reduced motion (the page renders the plain switch instead).
+const MAP_STAGE_ANIM = {
+  initial: { opacity: 0, scale: 1.02 },
+  animate: { opacity: 1, scale: 1 },
+  exit: { opacity: 0, scale: 1.02 },
+  transition: { duration: 0.26, ease: 'easeOut' as const },
+}
+const ROOM_STAGE_ANIM = {
+  initial: { opacity: 0, scale: 0.96 },
+  animate: { opacity: 1, scale: 1 },
+  exit: { opacity: 0, scale: 0.98 },
+  transition: { duration: 0.3, ease: 'easeOut' as const },
+}
+const CARD_STEP_ANIM = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -6 },
+  transition: { duration: 0.22, ease: 'easeOut' as const },
+}
+
+/**
+ * Soft ambient styling per room state. Glow = review state, never authority.
+ * `wash` is a faint, low-alpha radial tint behind the tile content (Slice 5) —
+ * it enriches the room's interior glow while keeping text fully legible.
+ */
+function roomStateVisual(state: WorkshopRoomState): { dot: string; glow: string; wash: string; pulse: boolean; label: string } {
   switch (state) {
     case 'needs attention':
-      return { dot: '#E6B25A', glow: '0 0 18px 1px rgba(230,178,90,0.35)', pulse: true, label: 'needs attention' }
+      return { dot: '#E6B25A', glow: '0 0 18px 1px rgba(230,178,90,0.35)', wash: 'radial-gradient(circle at 26% 28%, rgba(230,178,90,0.14), transparent 62%)', pulse: true, label: 'needs attention' }
     case 'follow-up needed':
-      return { dot: '#C97AA8', glow: '0 0 14px 1px rgba(201,122,168,0.28)', pulse: false, label: 'follow-up needed' }
+      return { dot: '#C97AA8', glow: '0 0 14px 1px rgba(201,122,168,0.28)', wash: 'radial-gradient(circle at 26% 28%, rgba(201,122,168,0.12), transparent 62%)', pulse: false, label: 'follow-up needed' }
     case 'reviewed / trace visible':
-      return { dot: '#6FA8C9', glow: '0 0 10px 1px rgba(111,168,201,0.22)', pulse: false, label: 'reviewed / trace visible' }
+      return { dot: '#6FA8C9', glow: '0 0 10px 1px rgba(111,168,201,0.22)', wash: 'radial-gradient(circle at 26% 28%, rgba(111,168,201,0.10), transparent 62%)', pulse: false, label: 'reviewed / trace visible' }
     case 'kept as trace':
-      return { dot: '#8A5CCF', glow: '0 0 10px 1px rgba(138,92,207,0.22)', pulse: false, label: 'kept as trace' }
+      return { dot: '#8A5CCF', glow: '0 0 10px 1px rgba(138,92,207,0.22)', wash: 'radial-gradient(circle at 26% 28%, rgba(138,92,207,0.10), transparent 62%)', pulse: false, label: 'kept as trace' }
     case 'resting':
-      return { dot: '#6E5A8A', glow: 'none', pulse: false, label: 'resting' }
+      return { dot: '#6E5A8A', glow: 'none', wash: 'none', pulse: false, label: 'resting' }
     default:
-      return { dot: '#3A3450', glow: 'none', pulse: false, label: 'empty' }
+      return { dot: '#3A3450', glow: 'none', wash: 'none', pulse: false, label: 'empty' }
   }
 }
 
 /**
- * The silent courier — head + two hands, ghost-like, no legs. Pure decoration:
- * aria-hidden, NO text, NO role, NO interactivity. It presents; it never speaks.
- * Animation is gentle and disabled under prefers-reduced-motion.
+ * The silent courier sprite — head + two hands, ghost-like, no legs. Pure
+ * decoration: aria-hidden, NO text, NO role, NO interactivity. It presents; it
+ * never speaks. Motion is applied by AnimatedCourier; this is the still form.
  */
 function WorkshopCourier() {
   return (
-    <div aria-hidden="true" className="shrink-0 select-none motion-safe:animate-pulse motion-reduce:animate-none">
-      <svg width="44" height="52" viewBox="0 0 44 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <div aria-hidden="true" className="shrink-0 select-none">
+      <svg width="64" height="80" viewBox="0 0 64 80" fill="none" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <radialGradient id="courierGlow" cx="50%" cy="40%" r="60%">
-            <stop offset="0%" stopColor="#E6B25A" stopOpacity="0.85" />
-            <stop offset="60%" stopColor="#C97AA8" stopOpacity="0.55" />
-            <stop offset="100%" stopColor="#8A5CCF" stopOpacity="0.15" />
+          <radialGradient id="courierHalo" cx="50%" cy="44%" r="56%">
+            <stop offset="0%" stopColor="#E6B25A" stopOpacity="0.5" />
+            <stop offset="55%" stopColor="#C97AA8" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#8A5CCF" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="courierBody" cx="50%" cy="28%" r="80%">
+            <stop offset="0%" stopColor="#F4E3FB" />
+            <stop offset="60%" stopColor="#D6ABE8" />
+            <stop offset="100%" stopColor="#B488D2" />
           </radialGradient>
         </defs>
-        {/* ghostly body */}
-        <path d="M22 6 C12 6 8 14 8 24 L8 40 C8 42 10 42 11 40 C12 38 14 38 15 40 C16 42 18 42 19 40 C20 38 24 38 25 40 C26 42 28 42 29 40 C30 38 32 38 33 40 C34 42 36 42 36 40 L36 24 C36 14 32 6 22 6 Z" fill="url(#courierGlow)" stroke="#E6B25A" strokeOpacity="0.4" strokeWidth="0.75" />
-        {/* eyes — presence, not speech */}
-        <circle cx="18" cy="22" r="1.6" fill="#2A2440" />
-        <circle cx="26" cy="22" r="1.6" fill="#2A2440" />
-        {/* two hands, no legs */}
-        <circle cx="6" cy="30" r="3" fill="#C97AA8" fillOpacity="0.8" />
-        <circle cx="38" cy="30" r="3" fill="#C97AA8" fillOpacity="0.8" />
+        {/* candle-gold halo */}
+        <circle cx="32" cy="38" r="32" fill="url(#courierHalo)" />
+        {/* ghostly body — no legs, scalloped hem */}
+        <path d="M16 40 C12 52 12 60 14 66 C15.5 70 19 70 21 66 C23 62 27 62 29 66 C31 70 33 70 35 66 C37 62 41 62 43 66 C45 70 48.5 70 50 66 C52 60 52 52 48 40 Z" fill="url(#courierBody)" stroke="#F0D9A8" strokeOpacity="0.45" strokeWidth="0.8" />
+        {/* head */}
+        <circle cx="32" cy="24" r="16" fill="url(#courierBody)" stroke="#F0D9A8" strokeOpacity="0.45" strokeWidth="0.8" />
+        {/* a gentle face — presence, never speech */}
+        <circle cx="26" cy="22" r="2.1" fill="#2A2440" />
+        <circle cx="38" cy="22" r="2.1" fill="#2A2440" />
+        <path d="M26 29 Q32 34 38 29" fill="none" stroke="#2A2440" strokeOpacity="0.7" strokeWidth="2" strokeLinecap="round" />
+        {/* the page it carries */}
+        <g transform="rotate(-7 32 54)">
+          <rect x="22" y="46" width="20" height="16" rx="2" fill="#F3E7C9" stroke="#C9B68A" strokeWidth="0.8" />
+          <line x1="25" y1="51" x2="39" y2="51" stroke="#C9B68A" strokeWidth="1.1" />
+          <line x1="25" y1="55" x2="39" y2="55" stroke="#C9B68A" strokeWidth="1.1" />
+        </g>
+        {/* two hands holding the page */}
+        <circle cx="15" cy="52" r="5" fill="#E0A6C8" />
+        <circle cx="49" cy="52" r="5" fill="#E0A6C8" />
       </svg>
     </div>
   )
 }
 
-/** One room tile on the map. A button (keyboard-usable) that enters the room. */
+/**
+ * Motion wrapper for the courier (Slice 1). It drifts in carrying the page,
+ * settles into a slow idle bob, and — keyed by the presented item + its review
+ * state — gently exits and re-enters whenever the presentation changes (a
+ * successful 200 action, or stepping to another item). Still silent and
+ * aria-hidden. Under prefers-reduced-motion it renders the still sprite with no
+ * motion at all. `presentKey` changing is the only trigger; nothing here calls
+ * the review route or reads data.
+ */
+function AnimatedCourier({ presentKey }: { presentKey: string }) {
+  const reduce = useReducedMotion()
+  if (reduce) return <WorkshopCourier />
+  return (
+    <div className="shrink-0" style={{ width: 64, minHeight: 80 }}>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={presentKey}
+          initial={{ opacity: 0, x: -22 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 16 }}
+          transition={{ duration: WORKSHOP_MOTION.courierTravel.duration, ease: WORKSHOP_MOTION.courierTravel.ease }}
+        >
+          <motion.div
+            animate={{ y: [0, -WORKSHOP_MOTION.courierBob.distance, 0] }}
+            transition={{ repeat: Infinity, duration: WORKSHOP_MOTION.courierBob.duration, ease: WORKSHOP_MOTION.courierBob.ease }}
+          >
+            <WorkshopCourier />
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/**
+ * One room tile on the map. A button (keyboard-usable) that enters the room.
+ * Slice 3: a gentle candle-glow PULSE on attention states (opacity only, tied to
+ * the existing review-state visual), plus hover/tap micro-interactions. All
+ * stilled under reduced motion. Glow is review state, never authority.
+ */
 function WorkshopRoomTileButton({ tile, onEnter }: { tile: WorkshopRoomTile; onEnter: (id: WorkshopRoomId) => void }) {
   const v = roomStateVisual(tile.state)
+  const reduce = useReducedMotion()
+  const pulsing = v.pulse && !reduce
   return (
-    <button
+    <motion.button
       type="button"
       onClick={() => onEnter(tile.id)}
-      style={{ boxShadow: v.glow }}
-      className="text-left rounded-xl border border-house-border/40 bg-house-bg/40 px-4 py-3.5 transition-colors hover:border-house-border/70 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60"
+      whileHover={reduce ? undefined : { y: -2 }}
+      whileTap={reduce ? undefined : { scale: 0.99 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      style={{ boxShadow: pulsing ? 'none' : v.glow, backgroundImage: v.wash }}
+      className="relative text-left rounded-xl border border-house-border/40 bg-house-bg/40 px-4 py-3.5 transition-colors hover:border-house-border/70 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60"
     >
+      {pulsing && (
+        <motion.span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-xl"
+          style={{ boxShadow: v.glow }}
+          animate={{ opacity: [WORKSHOP_MOTION.glowPulse.min, WORKSHOP_MOTION.glowPulse.max, WORKSHOP_MOTION.glowPulse.min] }}
+          transition={{ repeat: Infinity, duration: WORKSHOP_MOTION.glowPulse.duration, ease: WORKSHOP_MOTION.glowPulse.ease }}
+        />
+      )}
       <div className="flex items-center justify-between gap-2">
         <span className="font-display text-[15px] font-light tracking-wide text-text-primary/90">{tile.name}</span>
         <span className="font-mono text-[10px] px-2 py-0.5 rounded-full border border-house-border/40 text-text-secondary/75">
@@ -418,29 +516,61 @@ function WorkshopRoomTileButton({ tile, onEnter }: { tile: WorkshopRoomTile; onE
       {/* Technical clarity — what kind of Agent work is present (display only). */}
       <p className="font-mono text-[9px] text-text-secondary/60 mt-1">{tile.agentSummary}</p>
       <div className="flex items-center gap-1.5 mt-2.5">
-        <span
-          style={{ backgroundColor: v.dot }}
-          className={`inline-block w-1.5 h-1.5 rounded-full ${v.pulse ? 'motion-safe:animate-pulse motion-reduce:animate-none' : ''}`}
-        />
+        <span style={{ backgroundColor: v.dot }} className="inline-block w-1.5 h-1.5 rounded-full" />
         <span className="font-mono text-[9px] text-text-muted/50">{v.label}</span>
       </div>
-    </button>
+    </motion.button>
+  )
+}
+
+/**
+ * Atrium ambience (Slice 3) — a few subtle candle-dust motes drifting over the
+ * map. Pure decoration: aria-hidden, pointer-events-none, behind the tiles.
+ * Subtle by default and rendered ONLY when motion is allowed — fully off under
+ * prefers-reduced-motion (no toggle in v1, per Ari).
+ */
+function WorkshopMotes() {
+  const reduce = useReducedMotion()
+  if (reduce) return null
+  const motes = [
+    { left: '16%', top: '6%', delay: 0.2 },
+    { left: '44%', top: '18%', delay: 1.4 },
+    { left: '72%', top: '9%', delay: 2.1 },
+    { left: '86%', top: '28%', delay: 0.8 },
+    { left: '28%', top: '36%', delay: 3.0 },
+    { left: '62%', top: '42%', delay: 1.1 },
+  ]
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+      {motes.map((m, i) => (
+        <motion.span
+          key={i}
+          className="absolute w-1 h-1 rounded-full"
+          style={{ left: m.left, top: m.top, backgroundColor: '#E6B25A' }}
+          animate={{ opacity: [WORKSHOP_MOTION.motes.minOpacity, WORKSHOP_MOTION.motes.maxOpacity, WORKSHOP_MOTION.motes.minOpacity], y: [0, -6, 0] }}
+          transition={{ repeat: Infinity, duration: WORKSHOP_MOTION.motes.duration, ease: WORKSHOP_MOTION.motes.ease, delay: m.delay }}
+        />
+      ))}
+    </div>
   )
 }
 
 /** Level 1 — the workshop map: an Atrium and the room tiles. Read-only nav. */
 function WorkshopMap({ tiles, onEnter }: { tiles: WorkshopRoomTile[]; onEnter: (id: WorkshopRoomId) => void }) {
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="text-center mb-5">
-        <span className="font-display text-xs tracking-[0.3em] uppercase text-text-muted/50">{WORKSHOP_ATRIUM_LABEL}</span>
+    <div className="relative max-w-4xl mx-auto">
+      <WorkshopMotes />
+      <div className="relative z-10">
+        <div className="text-center mb-5">
+          <span className="font-display text-xs tracking-[0.3em] uppercase text-text-muted/50">{WORKSHOP_ATRIUM_LABEL}</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {tiles.map((t) => (
+            <WorkshopRoomTileButton key={t.id} tile={t} onEnter={onEnter} />
+          ))}
+        </div>
+        <p className="font-body text-[10px] text-text-muted/45 italic mt-5 max-w-2xl mx-auto text-center">{WORKSHOP_MAP_CAPTION}</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-        {tiles.map((t) => (
-          <WorkshopRoomTileButton key={t.id} tile={t} onEnter={onEnter} />
-        ))}
-      </div>
-      <p className="font-body text-[10px] text-text-muted/45 italic mt-5 max-w-2xl mx-auto text-center">{WORKSHOP_MAP_CAPTION}</p>
     </div>
   )
 }
@@ -465,9 +595,41 @@ function WorkshopRoom({
   rowMessages: Record<string, RowMessage>
 }) {
   const def = roomDef(roomId)
+  const reduce = useReducedMotion()
   const safeIndex = entries.length === 0 ? 0 : Math.min(Math.max(0, index), entries.length - 1)
   const entry = entries[safeIndex]
   const row = entry ? rowById.get(entry.id) : undefined
+
+  // The presented output: silent courier + Agent clarity + the SAME card + the
+  // governance boundary. Keyed by entry.id so stepping prev/next cross-fades it,
+  // while a successful action updates it in place (the courier re-presents).
+  const presented = row ? (
+    <>
+      {/* The courier presents the page, then the page itself is the SAME card. */}
+      <div className="flex items-start gap-3 mb-2">
+        <AnimatedCourier presentKey={`${entry?.id ?? 'none'}:${reviewStateForDisplay(row)}`} />
+        <div className="pt-1">
+          {/* Agent clarity — what kind of work this is, and what it is preparing.
+              Display language only; the courier itself stays silent. */}
+          <p className="font-display text-[13px] font-light tracking-wide text-text-primary/85">{agentDisplayName(row.helper_type)}</p>
+          <p className="font-body text-[10px] text-text-secondary/70 mt-0.5">{agentOutcomeSubline(row.helper_type)}</p>
+          <p className="font-body text-[9px] text-text-muted/40 italic mt-1">{WORKSHOP_COURIER_CAPTION}</p>
+        </div>
+      </div>
+
+      <HelperOutputCard
+        row={row}
+        labels={labels}
+        entry={entry}
+        onAction={onAction}
+        isActing={actingId === entry?.id}
+        message={entry ? rowMessages[entry.id] : undefined}
+      />
+
+      {/* Governance boundary — visible near the review controls. */}
+      <p className="font-body text-[9px] text-text-muted/45 italic mt-2">{WORKSHOP_AGENT_BOUNDARY}</p>
+    </>
+  ) : null
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -488,29 +650,19 @@ function WorkshopRoom({
 
       {row ? (
         <div className="rounded-xl border border-house-border/30 bg-house-bg/20 p-3 md:p-4">
-          {/* The courier presents the page, then the page itself is the SAME card. */}
-          <div className="flex items-start gap-3 mb-2">
-            <WorkshopCourier />
-            <div className="pt-1">
-              {/* Agent clarity — what kind of work this is, and what it is preparing.
-                  Display language only; the courier itself stays silent. */}
-              <p className="font-display text-[13px] font-light tracking-wide text-text-primary/85">{agentDisplayName(row.helper_type)}</p>
-              <p className="font-body text-[10px] text-text-secondary/70 mt-0.5">{agentOutcomeSubline(row.helper_type)}</p>
-              <p className="font-body text-[9px] text-text-muted/40 italic mt-1">{WORKSHOP_COURIER_CAPTION}</p>
-            </div>
-          </div>
-
-          <HelperOutputCard
-            row={row}
-            labels={labels}
-            entry={entry}
-            onAction={onAction}
-            isActing={actingId === entry?.id}
-            message={entry ? rowMessages[entry.id] : undefined}
-          />
-
-          {/* Governance boundary — visible near the review controls. */}
-          <p className="font-body text-[9px] text-text-muted/45 italic mt-2">{WORKSHOP_AGENT_BOUNDARY}</p>
+          {reduce ? presented : (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={entry?.id ?? 'none'}
+                initial={CARD_STEP_ANIM.initial}
+                animate={CARD_STEP_ANIM.animate}
+                exit={CARD_STEP_ANIM.exit}
+                transition={CARD_STEP_ANIM.transition}
+              >
+                {presented}
+              </motion.div>
+            </AnimatePresence>
+          )}
 
           {/* Walk the room — one piece of work at a time. */}
           {entries.length > 1 && (
@@ -694,6 +846,38 @@ export default function HelperReviewPage() {
     [queue, selectedRoomId],
   )
 
+  // Slice 2 — page-level reduced-motion gate for the map ↔ room corridor-zoom.
+  const reduceMotion = useReducedMotion()
+
+  const workshopMapView = (
+    <>
+      <WorkshopMap tiles={workshopTiles} onEnter={enterRoom} />
+      {/* Empty-state boundary clarification (Phase 41.16). Shows only when there
+          are no active helper outputs. Explanatory text only — no link/route/
+          bridge/import. */}
+      {!loading && activeHelperCount === 0 && (
+        <p className="font-body text-[10px] text-text-muted/55 italic mt-6 max-w-2xl mx-auto text-center border border-house-border/25 rounded-lg bg-house-bg/15 px-4 py-3">
+          {WORKSHOP_EMPTY_CLARIFICATION}
+        </p>
+      )}
+    </>
+  )
+
+  const workshopRoomView = selectedRoomId ? (
+    <WorkshopRoom
+      roomId={selectedRoomId}
+      entries={roomEntries}
+      rowById={rowById}
+      labels={labels}
+      index={roomItemIndex}
+      onBack={backToMap}
+      onStep={stepRoom}
+      onAction={onReviewAction}
+      actingId={actingId}
+      rowMessages={rowMessages}
+    />
+  ) : null
+
   return (
     <div className="flex flex-col min-h-full">
       {/* ── Header + boundary ───────────────────────────────────────── */}
@@ -758,32 +942,33 @@ export default function HelperReviewPage() {
         </div>
 
         {viewMode === 'workshop' ? (
-          /* ── Workshop ─────────────────────────────────────────────── */
-          selectedRoomId === null ? (
-            <>
-              <WorkshopMap tiles={workshopTiles} onEnter={enterRoom} />
-              {/* Empty-state boundary clarification (Phase 41.16). Shows only when
-                  there are no active helper outputs. Explanatory text only — it
-                  creates no link, route, bridge, or candidate import. */}
-              {!loading && activeHelperCount === 0 && (
-                <p className="font-body text-[10px] text-text-muted/55 italic mt-6 max-w-2xl mx-auto text-center border border-house-border/25 rounded-lg bg-house-bg/15 px-4 py-3">
-                  {WORKSHOP_EMPTY_CLARIFICATION}
-                </p>
-              )}
-            </>
+          /* ── Workshop ─ map ↔ room corridor-zoom (Slice 2) ─────────── */
+          reduceMotion ? (
+            selectedRoomId === null ? workshopMapView : workshopRoomView
           ) : (
-            <WorkshopRoom
-              roomId={selectedRoomId}
-              entries={roomEntries}
-              rowById={rowById}
-              labels={labels}
-              index={roomItemIndex}
-              onBack={backToMap}
-              onStep={stepRoom}
-              onAction={onReviewAction}
-              actingId={actingId}
-              rowMessages={rowMessages}
-            />
+            <AnimatePresence mode="wait" initial={false}>
+              {selectedRoomId === null ? (
+                <motion.div
+                  key="ws-map"
+                  initial={MAP_STAGE_ANIM.initial}
+                  animate={MAP_STAGE_ANIM.animate}
+                  exit={MAP_STAGE_ANIM.exit}
+                  transition={MAP_STAGE_ANIM.transition}
+                >
+                  {workshopMapView}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={`ws-room:${selectedRoomId}`}
+                  initial={ROOM_STAGE_ANIM.initial}
+                  animate={ROOM_STAGE_ANIM.animate}
+                  exit={ROOM_STAGE_ANIM.exit}
+                  transition={ROOM_STAGE_ANIM.transition}
+                >
+                  {workshopRoomView}
+                </motion.div>
+              )}
+            </AnimatePresence>
           )
         ) : (
           /* ── List (fallback / emergency staircase) ────────────────── */

@@ -298,7 +298,7 @@ section('F. Silent courier + forbidden surface')
   }
 
   // Accessibility / reduced-motion / mobile fallback signals.
-  assert(page.includes('motion-reduce:animate-none'), 'animations respect prefers-reduced-motion')
+  assert(page.includes('useReducedMotion'), 'animations respect prefers-reduced-motion (useReducedMotion gate)')
   assert(page.includes('focus-visible:ring'), 'interactive elements have visible keyboard focus')
   assert(page.includes('grid-cols-1') && page.includes('sm:grid-cols-2'), 'map collapses to a single-column list on mobile')
 }
@@ -429,6 +429,155 @@ section('I. Empty-state clarification + closure record')
   for (const falseClaim of ['bridge exists', 'bridge is live', 'candidates are imported', 'now imports candidates', 'Workshop reads graph_candidate_suggestions']) {
     assert(!new RegExp(falseClaim, 'i').test(closure), `closure record does not claim "${falseClaim}"`)
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// K. Visual pass Slice 1 — courier motion (presentation only)
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('K. Courier motion (Slice 1)')
+{
+  const page = readSrc('../../../app/(house)/helpers/page.tsx')
+
+  // One animation dependency, via the current Motion React entry + the seam module.
+  assert(page.includes("from 'motion/react'"), 'imports from the current motion/react entry')
+  assert(page.includes("from '@/lib/helpers/workshopMotion'"), 'uses the workshopMotion seam (useReducedMotion + constants)')
+  assert(!page.includes("'framer-motion'"), 'does not import the legacy framer-motion path')
+
+  // The still sprite no longer self-animates (motion now drives it) but stays silent.
+  const sprite = page.slice(page.indexOf('function WorkshopCourier'), page.indexOf('function AnimatedCourier'))
+  assert(sprite.includes('aria-hidden="true"'), 'courier sprite stays aria-hidden')
+  assert(!sprite.includes('animate-pulse'), 'courier sprite no longer self-animates with CSS (motion drives it)')
+  assert(!sprite.includes('<text') && !/recommend|approve|decide|suggest/i.test(sprite), 'courier sprite stays silent (no text/recommendation)')
+
+  // The motion wrapper: reduced-motion returns the still sprite; reuses it; keyed.
+  const anim = page.slice(page.indexOf('function AnimatedCourier'), page.indexOf('function WorkshopRoomTileButton'))
+  assert(anim.includes('const reduce = useReducedMotion()'), 'courier reads reduced-motion preference')
+  assert(anim.includes('if (reduce) return <WorkshopCourier'), 'reduced motion → still sprite, no animation')
+  assert(anim.includes('<AnimatePresence') && anim.includes('mode="wait"'), 'exit completes before re-enter (mode=wait)')
+  assert(anim.includes('<WorkshopCourier'), 'animated courier wraps the SAME silent sprite')
+  assert(anim.includes('WORKSHOP_MOTION.courierBob') && anim.includes('WORKSHOP_MOTION.courierTravel'), 'uses the seam timing constants (idle bob + travel)')
+  assert(!anim.includes('onClick') && !/recommend|approve|decide|suggest/i.test(anim), 'animated courier is non-interactive and silent')
+
+  // The room presents via the animated courier, keyed by item id + review state,
+  // so a successful action (state change) or stepping re-presents the courier.
+  const roomFn = page.slice(page.indexOf('function WorkshopRoom'), page.indexOf('export default function'))
+  assert(roomFn.includes('<AnimatedCourier presentKey='), 'room uses the animated courier')
+  assert(/presentKey=\{`\$\{entry\?\.id[^`]*reviewStateForDisplay\(row\)\}`\}/.test(roomFn), 'courier key = item id + review state (re-presents on 200 action / step)')
+
+  // Slice 1 did NOT touch the review-action path or add a route.
+  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 1')
+  const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 1')
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// L. Visual pass Slice 2 — room transitions (presentation only)
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('L. Room transitions (Slice 2)')
+{
+  const page = readSrc('../../../app/(house)/helpers/page.tsx')
+
+  // Transition variants exist and are transform/opacity only (GPU-friendly).
+  assert(page.includes('MAP_STAGE_ANIM') && page.includes('ROOM_STAGE_ANIM') && page.includes('CARD_STEP_ANIM'), 'map/room/card transition variants defined')
+  const variants = page.slice(page.indexOf('const MAP_STAGE_ANIM'), page.indexOf('const CARD_STEP_ANIM') + 240)
+  assert(/opacity/.test(variants) && /scale/.test(variants), 'transitions animate opacity + scale')
+  for (const layout of ['width:', 'height:', 'left:', 'top:', 'margin']) {
+    assert(!variants.includes(layout), `transitions do not animate layout property "${layout}" (no jank)`)
+  }
+
+  // Map ↔ room corridor-zoom via AnimatePresence, page-level reduced-motion gate.
+  assert(page.includes('const reduceMotion = useReducedMotion()'), 'page reads reduced-motion preference')
+  assert(page.includes('key="ws-map"') && page.includes('`ws-room:${selectedRoomId}`'), 'map and each room are keyed stages')
+  assert(page.includes('selectedRoomId === null ? workshopMapView : workshopRoomView'), 'reduced motion → plain map/room switch, no animation')
+  assert(page.includes('<AnimatePresence mode="wait" initial={false}>'), 'map↔room waits for exit and skips the first-paint animation')
+
+  // Room-level prev/next cross-fade, keyed by item id, reduced-motion safe.
+  const roomFn = page.slice(page.indexOf('function WorkshopRoom'), page.indexOf('export default function'))
+  assert(roomFn.includes('const reduce = useReducedMotion()'), 'room reads reduced-motion preference')
+  assert(roomFn.includes('{reduce ? presented : ('), 'reduced motion → plain presented content, no slide')
+  assert(roomFn.includes('key={entry?.id ?? ') && roomFn.includes('CARD_STEP_ANIM'), 'presented output cross-fades keyed by item id (step), not on action')
+
+  // Slice 2 did NOT touch the review-action path or add a route.
+  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 2')
+  const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 2')
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// M. Visual pass Slice 3 — map ambience (presentation only)
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('M. Map ambience (Slice 3)')
+{
+  const page = readSrc('../../../app/(house)/helpers/page.tsx')
+
+  // Tile glow pulse — tied to the existing review-state visual, opacity only,
+  // reduced-motion safe; tile hover/tap micro-interactions are also gated.
+  const tileFn = page.slice(page.indexOf('function WorkshopRoomTileButton'), page.indexOf('function WorkshopMotes'))
+  assert(tileFn.includes('const v = roomStateVisual(tile.state)'), 'glow derives from the existing review-state visual mapping')
+  assert(tileFn.includes('const reduce = useReducedMotion()') && tileFn.includes('const pulsing = v.pulse && !reduce'), 'pulse is gated by review state + reduced motion')
+  assert(tileFn.includes('WORKSHOP_MOTION.glowPulse') && /animate=\{\{\s*opacity:/.test(tileFn), 'glow pulse animates opacity only (GPU-friendly)')
+  assert(tileFn.includes('whileHover={reduce ? undefined :') && tileFn.includes('whileTap={reduce ? undefined :'), 'hover/tap micro-interactions disabled under reduced motion')
+  assert(!tileFn.includes('animate-pulse'), 'tile dot no longer uses the CSS pulse (motion drives the glow)')
+
+  // Atrium motes — subtle, decorative, off under reduced motion, behind content.
+  const motesFn = page.slice(page.indexOf('function WorkshopMotes'), page.indexOf('function WorkshopMap'))
+  assert(motesFn.includes('if (reduce) return null'), 'motes are fully OFF under reduced motion (no toggle in v1)')
+  assert(motesFn.includes('aria-hidden="true"') && motesFn.includes('pointer-events-none'), 'motes are decorative + non-interactive')
+  assert(motesFn.includes('w-1 h-1') && motesFn.includes('WORKSHOP_MOTION.motes'), 'motes are subtle (1px) and use the seam timing')
+  assert(motesFn.includes('z-0'), 'motes sit behind the tiles')
+
+  // The map renders the motes behind content (relative + z-10 content layer).
+  const mapFn = page.slice(page.indexOf('function WorkshopMap'), page.indexOf('export default function'))
+  assert(mapFn.includes('<WorkshopMotes />') && mapFn.includes('relative max-w-4xl') && mapFn.includes('relative z-10'), 'map layers motes behind the tile content')
+
+  // Slice 3 did NOT touch the review-action path or add a route.
+  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 3')
+  const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 3')
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// N. Visual pass Slice 5 — courier character + room glow richness
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('N. Courier character + room wash (Slice 5)')
+{
+  const page = readSrc('../../../app/(house)/helpers/page.tsx')
+
+  // The richer Storybook-Spirit sprite: larger, has a face + carries a page,
+  // but stays silent (no text), aria-hidden, non-interactive.
+  const sprite = page.slice(page.indexOf('function WorkshopCourier'), page.indexOf('function AnimatedCourier'))
+  assert(sprite.includes('aria-hidden="true"'), 'courier stays aria-hidden')
+  assert(sprite.includes('viewBox="0 0 64 80"'), 'courier scaled up to a character (64×80)')
+  assert(sprite.includes('#F3E7C9'), 'courier carries a page (parchment fill)')
+  assert(sprite.includes('Q26 29') || sprite.includes('Q32 34'), 'courier has a gentle face (smile path)')
+  assert(!sprite.includes('<text') && !/recommend|approve|decide|suggest/i.test(sprite), 'courier stays silent (no text/recommendation)')
+  // Its motion wrapper grew to fit the character.
+  assert(page.includes('style={{ width: 64, minHeight: 80 }}'), 'courier motion wrapper sized to the character')
+
+  // Per-room glow richness: a low-alpha state-tinted wash, behind content, legible.
+  const visualFn = page.slice(page.indexOf('function roomStateVisual'), page.indexOf('/**\n * The silent courier'))
+  assert(visualFn.includes('wash:'), 'roomStateVisual returns a per-state wash')
+  assert(visualFn.includes('radial-gradient') && visualFn.includes('transparent 62%'), 'wash is a soft radial that fades out')
+  // Legibility-first: washes use low alpha (<= 0.14) and calm states have none.
+  const alphas = [...visualFn.matchAll(/rgba\([^)]*?,\s*(0\.\d+)\)/g)].map((m) => parseFloat(m[1]))
+  const washAlphas = alphas.filter((a) => a <= 0.2)
+  assert(washAlphas.length > 0 && washAlphas.every((a) => a <= 0.14), 'wash tints stay faint (<= 0.14 alpha) for legibility')
+  assert(visualFn.includes("case 'resting':") && /resting'[\s\S]*?wash: 'none'/.test(visualFn), 'calm (resting) state has no wash')
+  // The tile applies the wash as a background behind its content.
+  assert(page.includes('backgroundImage: v.wash'), 'tile renders the wash behind content (background layer)')
+
+  // Slice 5 is presentation only — no review-path or route change.
+  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 5')
+  const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 5')
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
