@@ -35,8 +35,27 @@ import {
   HELPER_REVIEW_TRACE_EMPTY,
   type HelperOutputRow,
 } from '@/lib/helpers/helperReviewPresenter'
-import { buildReviewQueue, type ReviewQueueEntry } from '@/lib/helpers/helperReviewQueue'
+import { buildReviewQueue, type ReviewQueueEntry, type ReviewQueue } from '@/lib/helpers/helperReviewQueue'
 import { availableWorkflowActions, type HelperReviewWorkflowAction } from '@/lib/helpers/helperReviewMutation'
+import {
+  WORKSHOP_ATRIUM_LABEL,
+  WORKSHOP_VIEW_LABELS,
+  WORKSHOP_MAP_CAPTION,
+  WORKSHOP_COURIER_CAPTION,
+  WORKSHOP_BACK_LABEL,
+  WORKSHOP_ROOM_EMPTY,
+  buildWorkshopMap,
+  bucketInRoom,
+  roomDef,
+  isWorkshopViewMode,
+  agentDisplayName,
+  agentOutcomeSubline,
+  WORKSHOP_AGENT_BOUNDARY,
+  type WorkshopViewMode,
+  type WorkshopRoomId,
+  type WorkshopRoomTile,
+  type WorkshopRoomState,
+} from '@/lib/helpers/helperWorkshop'
 
 // UI-facing labels for the three Phase 41.12 workflow actions. Raw action enum
 // values are NEVER shown to Tara.
@@ -320,6 +339,210 @@ function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 41.15 — Workshop spatial surface (presentation only)
+//
+// A calm map of rooms (Level 1) and an in-room single-output review (Level 2).
+// It reuses the exact same data, the exact same review handler, and the exact
+// same trace as the list. It adds NO route, NO mutation, NO authority. Room glow
+// is review state only; the courier is silent. Soft House velvet palette.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WORKSHOP_VIEW_STORAGE_KEY = 'selinaric_helper_view_mode'
+
+/** Soft ambient styling per room state. Glow = review state, never authority. */
+function roomStateVisual(state: WorkshopRoomState): { dot: string; glow: string; pulse: boolean; label: string } {
+  switch (state) {
+    case 'needs attention':
+      return { dot: '#E6B25A', glow: '0 0 18px 1px rgba(230,178,90,0.35)', pulse: true, label: 'needs attention' }
+    case 'follow-up needed':
+      return { dot: '#C97AA8', glow: '0 0 14px 1px rgba(201,122,168,0.28)', pulse: false, label: 'follow-up needed' }
+    case 'reviewed / trace visible':
+      return { dot: '#6FA8C9', glow: '0 0 10px 1px rgba(111,168,201,0.22)', pulse: false, label: 'reviewed / trace visible' }
+    case 'kept as trace':
+      return { dot: '#8A5CCF', glow: '0 0 10px 1px rgba(138,92,207,0.22)', pulse: false, label: 'kept as trace' }
+    case 'resting':
+      return { dot: '#6E5A8A', glow: 'none', pulse: false, label: 'resting' }
+    default:
+      return { dot: '#3A3450', glow: 'none', pulse: false, label: 'empty' }
+  }
+}
+
+/**
+ * The silent courier — head + two hands, ghost-like, no legs. Pure decoration:
+ * aria-hidden, NO text, NO role, NO interactivity. It presents; it never speaks.
+ * Animation is gentle and disabled under prefers-reduced-motion.
+ */
+function WorkshopCourier() {
+  return (
+    <div aria-hidden="true" className="shrink-0 select-none motion-safe:animate-pulse motion-reduce:animate-none">
+      <svg width="44" height="52" viewBox="0 0 44 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="courierGlow" cx="50%" cy="40%" r="60%">
+            <stop offset="0%" stopColor="#E6B25A" stopOpacity="0.85" />
+            <stop offset="60%" stopColor="#C97AA8" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#8A5CCF" stopOpacity="0.15" />
+          </radialGradient>
+        </defs>
+        {/* ghostly body */}
+        <path d="M22 6 C12 6 8 14 8 24 L8 40 C8 42 10 42 11 40 C12 38 14 38 15 40 C16 42 18 42 19 40 C20 38 24 38 25 40 C26 42 28 42 29 40 C30 38 32 38 33 40 C34 42 36 42 36 40 L36 24 C36 14 32 6 22 6 Z" fill="url(#courierGlow)" stroke="#E6B25A" strokeOpacity="0.4" strokeWidth="0.75" />
+        {/* eyes — presence, not speech */}
+        <circle cx="18" cy="22" r="1.6" fill="#2A2440" />
+        <circle cx="26" cy="22" r="1.6" fill="#2A2440" />
+        {/* two hands, no legs */}
+        <circle cx="6" cy="30" r="3" fill="#C97AA8" fillOpacity="0.8" />
+        <circle cx="38" cy="30" r="3" fill="#C97AA8" fillOpacity="0.8" />
+      </svg>
+    </div>
+  )
+}
+
+/** One room tile on the map. A button (keyboard-usable) that enters the room. */
+function WorkshopRoomTileButton({ tile, onEnter }: { tile: WorkshopRoomTile; onEnter: (id: WorkshopRoomId) => void }) {
+  const v = roomStateVisual(tile.state)
+  return (
+    <button
+      type="button"
+      onClick={() => onEnter(tile.id)}
+      style={{ boxShadow: v.glow }}
+      className="text-left rounded-xl border border-house-border/40 bg-house-bg/40 px-4 py-3.5 transition-colors hover:border-house-border/70 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-display text-[15px] font-light tracking-wide text-text-primary/90">{tile.name}</span>
+        <span className="font-mono text-[10px] px-2 py-0.5 rounded-full border border-house-border/40 text-text-secondary/75">
+          {tile.count}
+        </span>
+      </div>
+      <p className="font-body text-[10px] text-text-muted/55 mt-0.5">{tile.subtitle}</p>
+      {/* Technical clarity — what kind of Agent work is present (display only). */}
+      <p className="font-mono text-[9px] text-text-secondary/60 mt-1">{tile.agentSummary}</p>
+      <div className="flex items-center gap-1.5 mt-2.5">
+        <span
+          style={{ backgroundColor: v.dot }}
+          className={`inline-block w-1.5 h-1.5 rounded-full ${v.pulse ? 'motion-safe:animate-pulse motion-reduce:animate-none' : ''}`}
+        />
+        <span className="font-mono text-[9px] text-text-muted/50">{v.label}</span>
+      </div>
+    </button>
+  )
+}
+
+/** Level 1 — the workshop map: an Atrium and the room tiles. Read-only nav. */
+function WorkshopMap({ tiles, onEnter }: { tiles: WorkshopRoomTile[]; onEnter: (id: WorkshopRoomId) => void }) {
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="text-center mb-5">
+        <span className="font-display text-xs tracking-[0.3em] uppercase text-text-muted/50">{WORKSHOP_ATRIUM_LABEL}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {tiles.map((t) => (
+          <WorkshopRoomTileButton key={t.id} tile={t} onEnter={onEnter} />
+        ))}
+      </div>
+      <p className="font-body text-[10px] text-text-muted/45 italic mt-5 max-w-2xl mx-auto text-center">{WORKSHOP_MAP_CAPTION}</p>
+    </div>
+  )
+}
+
+/**
+ * Level 2 — the room: ONE helper output at a time via the SAME HelperOutputCard
+ * (so controls call the SAME review handler and show the SAME trace). A silent
+ * courier presents; optional prev/next walks the room. Back returns to the map.
+ */
+function WorkshopRoom({
+  roomId, entries, rowById, labels, index, onBack, onStep, onAction, actingId, rowMessages,
+}: {
+  roomId: WorkshopRoomId
+  entries: ReviewQueueEntry[]
+  rowById: Map<string, HelperOutputRow>
+  labels: Record<string, string>
+  index: number
+  onBack: () => void
+  onStep: (delta: number) => void
+  onAction: (row: HelperOutputRow, action: HelperReviewWorkflowAction) => void
+  actingId: string | null
+  rowMessages: Record<string, RowMessage>
+}) {
+  const def = roomDef(roomId)
+  const safeIndex = entries.length === 0 ? 0 : Math.min(Math.max(0, index), entries.length - 1)
+  const entry = entries[safeIndex]
+  const row = entry ? rowById.get(entry.id) : undefined
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      {/* Room header — back + name + position */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="font-body text-[11px] px-2.5 py-1 rounded border border-house-border/50 text-text-secondary/80 hover:border-house-border/80 hover:text-text-primary/90 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60 transition-colors"
+        >
+          ← {WORKSHOP_BACK_LABEL}
+        </button>
+        <div className="text-right">
+          <div className="font-display text-base font-light tracking-wide text-text-primary/90">{def?.name}</div>
+          <div className="font-body text-[10px] text-text-muted/50">{def?.subtitle}</div>
+        </div>
+      </div>
+
+      {row ? (
+        <div className="rounded-xl border border-house-border/30 bg-house-bg/20 p-3 md:p-4">
+          {/* The courier presents the page, then the page itself is the SAME card. */}
+          <div className="flex items-start gap-3 mb-2">
+            <WorkshopCourier />
+            <div className="pt-1">
+              {/* Agent clarity — what kind of work this is, and what it is preparing.
+                  Display language only; the courier itself stays silent. */}
+              <p className="font-display text-[13px] font-light tracking-wide text-text-primary/85">{agentDisplayName(row.helper_type)}</p>
+              <p className="font-body text-[10px] text-text-secondary/70 mt-0.5">{agentOutcomeSubline(row.helper_type)}</p>
+              <p className="font-body text-[9px] text-text-muted/40 italic mt-1">{WORKSHOP_COURIER_CAPTION}</p>
+            </div>
+          </div>
+
+          <HelperOutputCard
+            row={row}
+            labels={labels}
+            entry={entry}
+            onAction={onAction}
+            isActing={actingId === entry?.id}
+            message={entry ? rowMessages[entry.id] : undefined}
+          />
+
+          {/* Governance boundary — visible near the review controls. */}
+          <p className="font-body text-[9px] text-text-muted/45 italic mt-2">{WORKSHOP_AGENT_BOUNDARY}</p>
+
+          {/* Walk the room — one piece of work at a time. */}
+          {entries.length > 1 && (
+            <div className="flex items-center justify-between gap-3 mt-3">
+              <button
+                type="button"
+                onClick={() => onStep(-1)}
+                disabled={safeIndex === 0}
+                className="font-body text-[11px] px-2.5 py-1 rounded border border-house-border/50 text-text-secondary/80 hover:border-house-border/80 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60 transition-colors"
+              >
+                ← Previous
+              </button>
+              <span className="font-mono text-[10px] text-text-muted/50">{safeIndex + 1} of {entries.length}</span>
+              <button
+                type="button"
+                onClick={() => onStep(1)}
+                disabled={safeIndex >= entries.length - 1}
+                className="font-body text-[11px] px-2.5 py-1 rounded border border-house-border/50 text-text-secondary/80 hover:border-house-border/80 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60 transition-colors"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-house-border/30 bg-house-bg/15 px-6 py-10 text-center">
+          <p className="font-body text-[12px] text-text-muted/60">{WORKSHOP_ROOM_EMPTY}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function HelperReviewPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [rows, setRows] = useState<HelperOutputRow[]>([])
@@ -335,6 +558,32 @@ export default function HelperReviewPage() {
   // with the user's current filters/toggles preserved.
   const filtersRef = useRef(filters)
   filtersRef.current = filters
+
+  // Phase 41.15 — spatial Workshop view state. View preference is SESSION-only
+  // (never persisted to the database). Workshop is the default room Tara stands
+  // in; List remains the fallback/safety view. selectedRoomId === null means the
+  // map (Level 1); a room id means the in-room single-output view (Level 2).
+  const [viewMode, setViewMode] = useState<WorkshopViewMode>('workshop')
+  const [selectedRoomId, setSelectedRoomId] = useState<WorkshopRoomId | null>(null)
+  const [roomItemIndex, setRoomItemIndex] = useState(0)
+
+  // Read the session-only view preference after mount (avoids SSR/hydration
+  // mismatch). Defaults to Workshop when absent or unrecognised.
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(WORKSHOP_VIEW_STORAGE_KEY)
+      if (isWorkshopViewMode(saved)) setViewMode(saved)
+    } catch { /* sessionStorage unavailable — keep the Workshop default */ }
+  }, [])
+
+  const selectView = useCallback((mode: WorkshopViewMode) => {
+    setViewMode(mode)
+    try { sessionStorage.setItem(WORKSHOP_VIEW_STORAGE_KEY, mode) } catch { /* non-persistent is fine */ }
+  }, [])
+
+  const enterRoom = useCallback((id: WorkshopRoomId) => { setSelectedRoomId(id); setRoomItemIndex(0) }, [])
+  const backToMap = useCallback(() => { setSelectedRoomId(null); setRoomItemIndex(0) }, [])
+  const stepRoom = useCallback((delta: number) => { setRoomItemIndex((i) => i + delta) }, [])
 
   const fetchRows = useCallback(async (f: Filters) => {
     setLoading(true)
@@ -425,21 +674,52 @@ export default function HelperReviewPage() {
   // every fetched row visible (deleted only arrive when the toggle requests
   // them) — nothing is hidden; the model only orders by queue_rank and labels
   // the bucket. No mutation, no review execution.
-  const queue = useMemo(() => buildReviewQueue(rows, { includeInactive: true }), [rows])
+  const queue: ReviewQueue = useMemo(() => buildReviewQueue(rows, { includeInactive: true }), [rows])
   const rowById = useMemo(() => {
     const m = new Map<string, HelperOutputRow>()
     for (const r of rows) m.set(r.id, r)
     return m
   }, [rows])
 
+  // Phase 41.15 — workshop map tiles + the entries that belong to the open room.
+  // Both derive purely from the SAME queue the list uses; the map can never
+  // disagree with the list or invent counts.
+  const workshopTiles = useMemo(() => buildWorkshopMap(queue, rows), [queue, rows])
+  const roomEntries = useMemo(
+    () => (selectedRoomId ? queue.entries.filter((e) => bucketInRoom(e.queue_bucket, selectedRoomId)) : []),
+    [queue, selectedRoomId],
+  )
+
   return (
     <div className="flex flex-col min-h-full">
       {/* ── Header + boundary ───────────────────────────────────────── */}
       <div className="border-b border-house-border bg-house-surface px-4 py-4 md:px-6 shrink-0">
-        <h1 className="font-display text-xl font-light tracking-[0.15em] text-text-primary">
-          {HELPER_REVIEW_TITLE.toUpperCase()}
-        </h1>
-        <p className="font-body text-xs text-text-muted mt-1 italic">{HELPER_REVIEW_SUBTITLE}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="font-display text-xl font-light tracking-[0.15em] text-text-primary">
+              {HELPER_REVIEW_TITLE.toUpperCase()}
+            </h1>
+            <p className="font-body text-xs text-text-muted mt-1 italic">{HELPER_REVIEW_SUBTITLE}</p>
+          </div>
+          {/* View toggle — Workshop (default) / List (fallback). Session-only. */}
+          <div role="group" aria-label="Review view" className="flex items-center gap-0.5 rounded-lg border border-house-border/40 bg-house-bg/30 p-0.5 shrink-0">
+            {(['workshop', 'list'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={viewMode === mode}
+                onClick={() => selectView(mode)}
+                className={`font-body text-[11px] px-3 py-1 rounded-md transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C97AA8]/60 ${
+                  viewMode === mode
+                    ? 'bg-house-border/30 text-text-primary/90'
+                    : 'text-text-muted/60 hover:text-text-secondary/80'
+                }`}
+              >
+                {WORKSHOP_VIEW_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="font-body text-[11px] text-text-muted/70 mt-2 max-w-3xl border border-house-border/30 rounded bg-house-bg/20 px-3 py-2">
           {HELPER_REVIEW_BOUNDARY_TEXT}
         </p>
@@ -467,35 +747,56 @@ export default function HelperReviewPage() {
         </div>
       </div>
 
-      {/* ── List ────────────────────────────────────────────────────── */}
+      {/* ── Body — Workshop (default) or List (fallback) ────────────── */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 md:px-6">
         <div className="font-body text-[10px] text-text-muted/50 uppercase tracking-widest mb-3">
           {loading ? 'Loading…' : `${total} helper output${total !== 1 ? 's' : ''}`}
         </div>
 
-        {!loading && rows.length === 0 ? (
-          <div className="border border-house-border/30 rounded-lg bg-house-bg/15 px-6 py-10 text-center max-w-xl mx-auto">
-            <p className="font-display text-base font-light text-text-primary/70">{HELPER_REVIEW_EMPTY_PRIMARY}</p>
-            <p className="font-body text-[11px] text-text-muted/60 mt-2">{HELPER_REVIEW_EMPTY_SECONDARY}</p>
-          </div>
+        {viewMode === 'workshop' ? (
+          /* ── Workshop ─────────────────────────────────────────────── */
+          selectedRoomId === null ? (
+            <WorkshopMap tiles={workshopTiles} onEnter={enterRoom} />
+          ) : (
+            <WorkshopRoom
+              roomId={selectedRoomId}
+              entries={roomEntries}
+              rowById={rowById}
+              labels={labels}
+              index={roomItemIndex}
+              onBack={backToMap}
+              onStep={stepRoom}
+              onAction={onReviewAction}
+              actingId={actingId}
+              rowMessages={rowMessages}
+            />
+          )
         ) : (
-          <div className="space-y-3 max-w-4xl">
-            {queue.entries.map((e) => {
-              const row = rowById.get(e.id)
-              if (!row) return null
-              return (
-                <HelperOutputCard
-                  key={e.id}
-                  row={row}
-                  labels={labels}
-                  entry={e}
-                  onAction={onReviewAction}
-                  isActing={actingId === e.id}
-                  message={rowMessages[e.id]}
-                />
-              )
-            })}
-          </div>
+          /* ── List (fallback / emergency staircase) ────────────────── */
+          !loading && rows.length === 0 ? (
+            <div className="border border-house-border/30 rounded-lg bg-house-bg/15 px-6 py-10 text-center max-w-xl mx-auto">
+              <p className="font-display text-base font-light text-text-primary/70">{HELPER_REVIEW_EMPTY_PRIMARY}</p>
+              <p className="font-body text-[11px] text-text-muted/60 mt-2">{HELPER_REVIEW_EMPTY_SECONDARY}</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-w-4xl">
+              {queue.entries.map((e) => {
+                const row = rowById.get(e.id)
+                if (!row) return null
+                return (
+                  <HelperOutputCard
+                    key={e.id}
+                    row={row}
+                    labels={labels}
+                    entry={e}
+                    onAction={onReviewAction}
+                    isActing={actingId === e.id}
+                    message={rowMessages[e.id]}
+                  />
+                )
+              })}
+            </div>
+          )
         )}
       </div>
     </div>
