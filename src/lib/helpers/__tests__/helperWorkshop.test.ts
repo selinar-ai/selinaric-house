@@ -28,6 +28,7 @@ import {
   WORKSHOP_COURIER_CAPTION,
   WORKSHOP_ATRIUM_LABEL,
   WORKSHOP_AGENT_BOUNDARY,
+  WORKSHOP_EMPTY_CLARIFICATION,
   NO_ACTIVE_AGENT_LABEL,
   MULTIPLE_AGENTS_LABEL,
   buildWorkshopMap,
@@ -388,6 +389,45 @@ section('H. Page wiring — Agent clarity')
   // governance comments — section F already forbids the actual control labels.)
   for (const forbidden of ['Apply output', 'Promote', 'creating truth', 'make truth', 'Approve Agent', 'Apply Agent']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' wording`)
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// I. Phase 41.16 — empty-state boundary clarification + closure record
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('I. Empty-state clarification + closure record')
+{
+  // Wording: truthful boundary, no bridge/import/execution implied.
+  assert(WORKSHOP_EMPTY_CLARIFICATION.includes('No active Agent work in the Helper Workshop'), 'clarification: no active Agent work')
+  assert(/Memory Candidate and Graph candidate queues remain on their governed review surfaces/.test(WORKSHOP_EMPTY_CLARIFICATION), 'clarification: candidates remain on their governed surfaces')
+  assert(/future bridge phase/.test(WORKSHOP_EMPTY_CLARIFICATION), 'clarification: bridge is future-facing, not present')
+  // Must NOT imply a present bridge/import/execution exists.
+  for (const bad of ['imported', 'imports', 'bridged', 'executes', 'executed', 'bridge exists', 'now appears here', 'has been deposited']) {
+    assert(!new RegExp(bad, 'i').test(WORKSHOP_EMPTY_CLARIFICATION), `clarification does not imply a present "${bad}"`)
+  }
+
+  const page = readSrc('../../../app/(house)/helpers/page.tsx')
+  // Rendered only when there are no active helper outputs.
+  assert(page.includes('WORKSHOP_EMPTY_CLARIFICATION'), 'page renders the empty-state clarification')
+  assert(page.includes('activeHelperCount === 0'), 'clarification is gated on zero active helper outputs')
+  assert(page.includes("rows.filter((r) => !isSoftDeleted(r)).length"), 'active count = non-soft-deleted rows (read-only, no new source)')
+
+  // No candidate data is read anywhere in the page (no bridge/import path).
+  for (const banned of ['graph_candidate_suggestions', 'graph-candidate-suggestions', 'candidate_type', 'memory_candidate', '/api/graph']) {
+    assert(!page.includes(banned), `page does not read candidate data (${banned})`)
+  }
+  // Still no new endpoint beyond the two existing ones.
+  const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by 41.16')
+
+  // Closure record exists and does not claim a bridge already exists.
+  const closure = readSrc('../../../../docs/phase-41-helper-floor-closure-record.md')
+  assert(/Helper Floor Closure Record/.test(closure), 'closure record present')
+  assert(/Memory Crown boundary/.test(closure) && /excluded \/ future-facing/.test(closure), 'closure record keeps the Memory Crown boundary')
+  assert(/future, separately\s+governed bridge phase|future governed phase/.test(closure), 'closure record states a bridge requires a future governed phase')
+  for (const falseClaim of ['bridge exists', 'bridge is live', 'candidates are imported', 'now imports candidates', 'Workshop reads graph_candidate_suggestions']) {
+    assert(!new RegExp(falseClaim, 'i').test(closure), `closure record does not claim "${falseClaim}"`)
   }
 }
 

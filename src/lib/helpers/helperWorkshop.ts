@@ -74,6 +74,18 @@ export const WORKSHOP_MAP_CAPTION =
   'only — it is not urgency, truth, evidence, Memory, or authority. Moving between ' +
   'rooms changes nothing.'
 
+/**
+ * Shown below the map when there are no active helper outputs. It explains the
+ * data boundary truthfully (Phase 41.16): an empty Workshop means no active
+ * helper_outputs rows — NOT that the House has no candidates. Memory/Graph
+ * candidate queues live on their own governed surfaces; nothing here reads,
+ * bridges, or imports them. This is explanatory boundary text only.
+ */
+export const WORKSHOP_EMPTY_CLARIFICATION =
+  'No active Agent work in the Helper Workshop. Memory Candidate and Graph candidate ' +
+  'queues remain on their governed review surfaces until a future bridge phase ' +
+  'deposits them here as helper outputs.'
+
 /** Shown in the room. The courier is the helper law made visible: it never speaks. */
 export const WORKSHOP_COURIER_CAPTION =
   'The courier presents helper labour. It does not speak, recommend, decide, ' +

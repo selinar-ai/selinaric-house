@@ -41,6 +41,7 @@ import {
   WORKSHOP_ATRIUM_LABEL,
   WORKSHOP_VIEW_LABELS,
   WORKSHOP_MAP_CAPTION,
+  WORKSHOP_EMPTY_CLARIFICATION,
   WORKSHOP_COURIER_CAPTION,
   WORKSHOP_BACK_LABEL,
   WORKSHOP_ROOM_EMPTY,
@@ -685,6 +686,9 @@ export default function HelperReviewPage() {
   // Both derive purely from the SAME queue the list uses; the map can never
   // disagree with the list or invent counts.
   const workshopTiles = useMemo(() => buildWorkshopMap(queue, rows), [queue, rows])
+  // Active helper outputs = non-soft-deleted rows. Drives the empty-state
+  // boundary clarification (Phase 41.16) — read-only count, no new data source.
+  const activeHelperCount = useMemo(() => rows.filter((r) => !isSoftDeleted(r)).length, [rows])
   const roomEntries = useMemo(
     () => (selectedRoomId ? queue.entries.filter((e) => bucketInRoom(e.queue_bucket, selectedRoomId)) : []),
     [queue, selectedRoomId],
@@ -756,7 +760,17 @@ export default function HelperReviewPage() {
         {viewMode === 'workshop' ? (
           /* ── Workshop ─────────────────────────────────────────────── */
           selectedRoomId === null ? (
-            <WorkshopMap tiles={workshopTiles} onEnter={enterRoom} />
+            <>
+              <WorkshopMap tiles={workshopTiles} onEnter={enterRoom} />
+              {/* Empty-state boundary clarification (Phase 41.16). Shows only when
+                  there are no active helper outputs. Explanatory text only — it
+                  creates no link, route, bridge, or candidate import. */}
+              {!loading && activeHelperCount === 0 && (
+                <p className="font-body text-[10px] text-text-muted/55 italic mt-6 max-w-2xl mx-auto text-center border border-house-border/25 rounded-lg bg-house-bg/15 px-4 py-3">
+                  {WORKSHOP_EMPTY_CLARIFICATION}
+                </p>
+              )}
+            </>
           ) : (
             <WorkshopRoom
               roomId={selectedRoomId}
