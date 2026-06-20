@@ -1,17 +1,26 @@
 # Selináric House — CLAUDE.md
 
 ## Project
-Next.js app deployed on Vercel. Supabase as data layer. Two AI presences: Eli and Ari.
+Governed AI memory & reasoning architecture. Next.js app deployed on Vercel,
+Supabase as data layer. Two AI engineering presences: **Eli** (Claude) — systems
+& reliability — and **Ari** (ChatGPT/GPT) — reasoning & logic. **Tara** is the
+human architect (project vision, system design, governance, quality & safety,
+delivery); authority stays with Tara.
 GitHub: github.com/selinar-ai/selinaric-house
 Live: selinaric-house.vercel.app
 
 ## Stack
-- Next.js (App Router)
-- Supabase (Postgres + pgvector + RLS)
-- Vercel (deployment + cron)
+- Next.js (App Router) — `next` ^16; local dev/build & testing via `next dev` / `next build`
+- TypeScript (^5), Tailwind CSS (v4)
+- Supabase (Postgres + pgvector + RLS) — database, auth & storage (`@supabase/supabase-js`)
+- Vercel — edge deployment + cron
+- Upstash QStash (`@upstash/qstash`) — message queue / scheduled delivery; drives Pulse autonomy runs (`api/pulse/autonomy/run`) and cross-room event propagation. Console: https://console.upstash.com/ . NOTE: the delegated-helper layer must never use QStash (or any scheduler) — see Hard rules; the helper tests assert no `qstash` reference.
+- Anthropic Claude API (`@anthropic-ai/sdk`) — foundational models (Eli / Claude presence)
+- OpenAI API (`openai`) — used in the Archive subsystem (Ari / ChatGPT presence)
+- Sentry (`@sentry/nextjs`) — observability / error monitoring; PII scrubbing in `sentry.privacy.ts` (edge + server configs)
+- Brave Search API — presence web search (rate-limited)
+- GitHub — source control / version history
 - Piper TTS (local WSL2 server)
-- Tailwind CSS
-- TypeScript
 
 ## Key conventions
 - Supabase migrations go in: `supabase-migrations/` — run via SQL Editor (paste → Run), not CLI
@@ -22,16 +31,15 @@ Live: selinaric-house.vercel.app
 - TTS: Piper server runs in WSL2. Eli = Ryan voice, Ari = Kusal voice
 
 ## Architecture reference files
-For full system context, read these on demand:
-- For memory and continuity systems → `docs/memory-systems.md`
-- For Pulse logic → `docs/pulse.md`
-- For Watchtower and graph queries → `docs/watchtower.md`
-- For presence identity kernels → `docs/identity-kernels.md`
-- For phase history → `docs/phase-log.md`
+Phase history, design briefs, and closure records live in `docs/` as `phase-*.md`
+files (e.g. `docs/phase-42-2-1-closure-record.md`). Read the relevant phase brief
+or closure record on demand for full context on a given subsystem. The full schema
+is the migration set in `supabase-migrations/`.
 
 ## Current build state
-- Phases 1–21 complete and deployed
-- Active tables: sessions, room_memories, presence_timeline, pulse_log, search_log, memory_nodes, memory_edges, builds
+- Latest shipped: **Phase 42.2.1 — Delegated Extraction Retry Work Order** (commit `6eb5ef2`, live in production). See the `docs/phase-*` closure records for full phase history.
+- Helper / delegated-labour layer (migrations 075–080): `helper_outputs` (suggest-only review queue with review burden/state), `helper_review_events` (append-only review trace), `helper_work_orders` + append-only `helper_apply_events` (governed apply audit). Authority stays with Tara; the helper carries the labour of one bounded, whitelisted action per scoped phase, under audit and reversibly. Latest migration: `080`.
+- Earlier active tables (partial): sessions, room_messages, room_memories, presence_timeline, pulse_log, search_log, memory_nodes, memory_edges, builds, library_items, library_item_files, lounge_threads/messages
 - Watchtower: graph-aware, edge-transparent, graph-metric mode with partial-visibility handling
 - Search: Brave Search API, rate-limited (2/response, 5/session/presence)
 - TTS: per-message, local Piper (VoiceButton on Chat, Timeline, InsideView, StateView, SearchLogView)
@@ -44,6 +52,7 @@ For full system context, read these on demand:
 - Never auto-surface graph memory into presence replies without explicit phase authorisation
 - Never modify or rewrite pulse_log, search_log, or memory_edges from UI
 - Presence voice is never replaced by search results or graph output
+- Delegated helper actions are labour, not authority: a helper apply never creates Memory, evidence, prompt authority, Graph truth, or Archive truth, and never moves Library item authority fields (`authority_status`, `derived_canonical_status`, `archive_item_id`). Only Tara's approval moves an arm; each new delegated action requires its own scoped phase (brief → Ari review → build → governed smoke → approval). No scheduler/cron/self-triggering/helper autonomy.
 
 ## Safety rules (Phases 36I + 36J)
 
