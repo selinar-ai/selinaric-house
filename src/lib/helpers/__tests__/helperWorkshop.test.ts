@@ -252,12 +252,12 @@ section('E. Page wiring')
   assert(roomFn.includes('WORKSHOP_COURIER_CAPTION'), 'room shows the silent-courier boundary caption')
 
   // The single review handler is unchanged: one POST to the existing 41.12 route.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'exactly one POST in the page (the existing 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(page.includes('/api/helpers/outputs/${row.id}/review'), 'reuses the existing single-row review route')
 
   // No NEW endpoints — only the two existing ones may appear.
   const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
-  const allowed = (u: string) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')
+  const allowed = (u: string) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/') || u.startsWith('/api/helpers/work-orders/')
   assert(apiRefs.length > 0 && apiRefs.every(allowed), `only existing endpoints referenced (${[...new Set(apiRefs)].join(', ')})`)
 
   // No new mutation surface of any kind.
@@ -290,7 +290,7 @@ section('F. Silent courier + forbidden surface')
 
   // No authority / approval / execution controls.
   for (const forbidden of [
-    'Approve', 'Accept', 'Apply', 'Promote', 'Confirm', 'Make Memory', 'Make Evidence',
+    'Approve output', 'Accept', 'Apply output', 'Promote', 'Confirm', 'Make Memory', 'Make Evidence',
     'Send to Prompt', 'Send to Graph', 'Route to Reasoning', 'Make Candidate', 'Auto-fix',
     'Run helper', 'Re-run', 'Execute helper', 'Make truth', 'Restore', 'Undo',
   ]) {
@@ -381,7 +381,7 @@ section('H. Page wiring — Agent clarity')
 
   // The Agent layer is display only — it added no mutation/route and the review
   // body is still exactly action + expectedReviewState.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review body unchanged by the Agent layer')
 
   // No approval/authority CONTROL wording introduced by the Agent layer. (Plain
@@ -419,7 +419,7 @@ section('I. Empty-state clarification + closure record')
   }
   // Still no new endpoint beyond the two existing ones.
   const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
-  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by 41.16')
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/') || u.startsWith('/api/helpers/work-orders/')), 'no new endpoint introduced by 41.16')
 
   // Closure record exists and does not claim a bridge already exists.
   const closure = readSrc('../../../../docs/phase-41-helper-floor-closure-record.md')
@@ -466,10 +466,10 @@ section('K. Courier motion (Slice 1)')
   assert(/presentKey=\{`\$\{entry\?\.id[^`]*reviewStateForDisplay\(row\)\}`\}/.test(roomFn), 'courier key = item id + review state (re-presents on 200 action / step)')
 
   // Slice 1 did NOT touch the review-action path or add a route.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 1')
   const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
-  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 1')
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/') || u.startsWith('/api/helpers/work-orders/')), 'no new endpoint introduced by Slice 1')
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -501,10 +501,10 @@ section('L. Room transitions (Slice 2)')
   assert(roomFn.includes('key={entry?.id ?? ') && roomFn.includes('CARD_STEP_ANIM'), 'presented output cross-fades keyed by item id (step), not on action')
 
   // Slice 2 did NOT touch the review-action path or add a route.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 2')
   const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
-  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 2')
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/') || u.startsWith('/api/helpers/work-orders/')), 'no new endpoint introduced by Slice 2')
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -536,10 +536,10 @@ section('M. Map ambience (Slice 3)')
   assert(mapFn.includes('<WorkshopMotes />') && mapFn.includes('relative max-w-4xl') && mapFn.includes('relative z-10'), 'map layers motes behind the tile content')
 
   // Slice 3 did NOT touch the review-action path or add a route.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 3')
   const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
-  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 3')
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/') || u.startsWith('/api/helpers/work-orders/')), 'no new endpoint introduced by Slice 3')
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -574,10 +574,10 @@ section('N. Courier character + room wash (Slice 5)')
   assert(page.includes('backgroundImage: v.wash'), 'tile renders the wash behind content (background layer)')
 
   // Slice 5 is presentation only — no review-path or route change.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'still exactly one POST (the existing 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(page.includes('body: JSON.stringify({ action, expectedReviewState: reviewStateForDisplay(row) })'), 'review request body unchanged by Slice 5')
   const apiRefs = [...page.matchAll(/['`](\/api\/[a-z0-9/\[\]$.{}_-]+)['`]/gi)].map((m) => m[1])
-  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/')), 'no new endpoint introduced by Slice 5')
+  assert(apiRefs.every((u) => u.startsWith('/api/helper-outputs') || u.startsWith('/api/helpers/outputs/') || u.startsWith('/api/helpers/work-orders/')), 'no new endpoint introduced by Slice 5')
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

@@ -237,7 +237,7 @@ section('H. Page is read-only visibility')
   assert(page.includes('checked_fields_labelled'), 'page renders relabelled checked fields')
   // No authority-like controls. (Phase 41.13 adds the workflow controls
   // Mark reviewed / Dismiss / Needs follow-up — those are NOT authority moves.)
-  for (const forbidden of ['Accept', 'Approve', 'Promote', 'Apply', 'Run helper', 'Bulk']) {
+  for (const forbidden of ['Accept', 'Approve output', 'Promote', 'Apply output', 'Run helper', 'Bulk']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
   // No direct DB mutation, and no PATCH/PUT/DELETE. (A single POST to the

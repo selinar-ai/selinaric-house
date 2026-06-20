@@ -59,6 +59,22 @@ import {
 } from '@/lib/helpers/helperWorkshop'
 import { motion, AnimatePresence } from 'motion/react'
 import { useReducedMotion, WORKSHOP_MOTION } from '@/lib/helpers/workshopMotion'
+import {
+  isDelegatableExtractionOutput,
+  WORKSHOP_DELEGATE_RETRY_LABEL,
+  WORKSHOP_ROLLBACK_LABEL,
+  WORKSHOP_APPLY_TRACE_TITLE,
+  WORKSHOP_DELEGATE_CAPTION,
+} from '@/lib/helpers/helperWorkOrder'
+
+// Result of a delegated apply / rollback, shown in the row's Apply trace.
+type DelegateResult = {
+  workOrderId: string
+  status: 'applied' | 'failed' | 'rolled_back'
+  before?: unknown
+  after?: unknown
+  error?: string
+}
 
 // UI-facing labels for the three Phase 41.12 workflow actions. Raw action enum
 // values are NEVER shown to Tara.
@@ -153,15 +169,21 @@ function FlagPill({ label, value, safe }: { label: string; value: boolean; safe:
   )
 }
 
-function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
+function HelperOutputCard({ row, labels, entry, onAction, isActing, message, onDelegate, onRollback, delegateResult, isDelegating }: {
   row: HelperOutputRow
   labels: Record<string, string>
   entry?: ReviewQueueEntry
   onAction?: (row: HelperOutputRow, action: HelperReviewWorkflowAction) => void
   isActing?: boolean
   message?: RowMessage
+  onDelegate?: (row: HelperOutputRow) => void
+  onRollback?: (row: HelperOutputRow, workOrderId: string) => void
+  delegateResult?: DelegateResult
+  isDelegating?: boolean
 }) {
   const deleted = isSoftDeleted(row)
+  // Phase 42.2.1 — only the delegatable extraction-retry issue gets an apply control.
+  const canDelegate = !deleted && isDelegatableExtractionOutput(row)
   const provenance = renderedProvenance(row.source_refs, labels)
   const libView = isLibraryMetadataHelper(row) ? asLibraryMetadataPayload(row.suggestion_payload) : null
   // Read-only review-event trace (Phase 41.14) — workflow history, oldest first.
@@ -338,6 +360,51 @@ function HelperOutputCard({ row, labels, entry, onAction, isActing, message }: {
         )}
         <p className="font-body text-[9px] text-text-muted/35 mt-1 italic">{HELPER_REVIEW_TRACE_CAPTION}</p>
       </div>
+
+      {/* Delegated apply (Phase 42.2.1) — ONLY the file_extraction_not_run issue.
+          Approve authorises the helper to retry extraction for one file, under
+          audit, reversible. Separate from the review trace: this is labour
+          performed, not workflow movement. */}
+      {canDelegate && (
+        <div className="mt-2.5 border-t border-house-border/20 pt-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              disabled={!!isDelegating || delegateResult?.status === 'applied' || delegateResult?.status === 'rolled_back'}
+              onClick={() => onDelegate?.(row)}
+              className="font-body text-[10px] px-2.5 py-1 rounded border border-[#6FA8C9]/50 text-[#9fc6dd] hover:border-[#6FA8C9]/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {WORKSHOP_DELEGATE_RETRY_LABEL}
+            </button>
+            {isDelegating && <span className="font-mono text-[9px] text-text-muted/50">working…</span>}
+          </div>
+          <p className="font-body text-[9px] text-text-muted/40 mt-1.5 italic">{WORKSHOP_DELEGATE_CAPTION}</p>
+
+          {delegateResult && (
+            <div className="mt-2 border-t border-house-border/10 pt-2">
+              <p className="font-body text-[10px] text-text-muted/60">{WORKSHOP_APPLY_TRACE_TITLE}</p>
+              <p className="font-mono text-[9px] text-text-secondary/65 mt-1 break-words">
+                retry_extraction · {delegateResult.status}{delegateResult.error ? ` · ${delegateResult.error}` : ''}
+              </p>
+              {(delegateResult.before != null || delegateResult.after != null) && (
+                <pre className="font-mono text-[9px] text-text-muted/45 mt-1 whitespace-pre-wrap break-words">
+                  before: {JSON.stringify(delegateResult.before)}{'\n'}after:  {JSON.stringify(delegateResult.after)}
+                </pre>
+              )}
+              {delegateResult.status === 'applied' && (
+                <button
+                  type="button"
+                  disabled={!!isDelegating}
+                  onClick={() => onRollback?.(row, delegateResult.workOrderId)}
+                  className="font-body text-[10px] px-2.5 py-1 mt-1.5 rounded border border-amber-300/40 text-amber-200/80 hover:border-amber-300/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {WORKSHOP_ROLLBACK_LABEL}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -582,6 +649,7 @@ function WorkshopMap({ tiles, onEnter }: { tiles: WorkshopRoomTile[]; onEnter: (
  */
 function WorkshopRoom({
   roomId, entries, rowById, labels, index, onBack, onStep, onAction, actingId, rowMessages,
+  onDelegate, onRollback, delegateResults, delegatingId,
 }: {
   roomId: WorkshopRoomId
   entries: ReviewQueueEntry[]
@@ -593,6 +661,10 @@ function WorkshopRoom({
   onAction: (row: HelperOutputRow, action: HelperReviewWorkflowAction) => void
   actingId: string | null
   rowMessages: Record<string, RowMessage>
+  onDelegate: (row: HelperOutputRow) => void
+  onRollback: (row: HelperOutputRow, workOrderId: string) => void
+  delegateResults: Record<string, DelegateResult>
+  delegatingId: string | null
 }) {
   const def = roomDef(roomId)
   const reduce = useReducedMotion()
@@ -624,6 +696,10 @@ function WorkshopRoom({
         onAction={onAction}
         isActing={actingId === entry?.id}
         message={entry ? rowMessages[entry.id] : undefined}
+        onDelegate={onDelegate}
+        onRollback={onRollback}
+        delegateResult={entry ? delegateResults[entry.id] : undefined}
+        isDelegating={delegatingId === entry?.id}
       />
 
       {/* Governance boundary — visible near the review controls. */}
@@ -706,6 +782,10 @@ export default function HelperReviewPage() {
   const [actingId, setActingId] = useState<string | null>(null)
   const [rowMessages, setRowMessages] = useState<Record<string, RowMessage>>({})
   const inFlightRef = useRef(false)
+  // Phase 42.2.1 — delegated apply (extraction retry) per-row state.
+  const [delegateResults, setDelegateResults] = useState<Record<string, DelegateResult>>({})
+  const [delegatingId, setDelegatingId] = useState<string | null>(null)
+  const delegateInFlightRef = useRef(false)
   // Latest filters, readable from the (stable) review-action callback without
   // making it depend on filter state — used to re-read the trace post-action
   // with the user's current filters/toggles preserved.
@@ -823,6 +903,52 @@ export default function HelperReviewPage() {
     }
   }, [])
 
+  // Phase 42.2.1 — approve the delegated extraction retry. One Tara click → the
+  // governed output-scoped route creates+approves a work order, retries
+  // extraction for the one file, and records the append-only apply audit. The
+  // Apply trace (before/after) is shown from the response.
+  const onDelegate = useCallback(async (row: HelperOutputRow) => {
+    if (delegateInFlightRef.current) return
+    delegateInFlightRef.current = true
+    setDelegatingId(row.id)
+    try {
+      const res = await fetch(`/api/helpers/outputs/${row.id}/delegate/retry-extraction`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 200 && data?.ok) {
+        setDelegateResults((m) => ({ ...m, [row.id]: { workOrderId: data.work_order.id, status: 'applied', before: data.apply?.before, after: data.apply?.after } }))
+      } else {
+        setDelegateResults((m) => ({ ...m, [row.id]: { workOrderId: data?.work_order_id ?? '', status: 'failed', error: data?.reason ?? data?.error ?? `HTTP ${res.status}` } }))
+      }
+    } catch {
+      setDelegateResults((m) => ({ ...m, [row.id]: { workOrderId: '', status: 'failed', error: 'Network error' } }))
+    } finally {
+      delegateInFlightRef.current = false
+      setDelegatingId(null)
+    }
+  }, [])
+
+  // Roll back an applied retry — restores the recorded before-snapshot and
+  // appends a rolled_back apply event (the reversibility proof).
+  const onRollback = useCallback(async (row: HelperOutputRow, workOrderId: string) => {
+    if (delegateInFlightRef.current) return
+    delegateInFlightRef.current = true
+    setDelegatingId(row.id)
+    try {
+      const res = await fetch(`/api/helpers/work-orders/${workOrderId}/rollback`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      setDelegateResults((m) => {
+        const prev = m[row.id] ?? { workOrderId, status: 'applied' as const }
+        if (res.status === 200 && data?.ok) return { ...m, [row.id]: { ...prev, status: 'rolled_back', after: data.rollback?.restored } }
+        return { ...m, [row.id]: { ...prev, error: data?.reason ?? data?.error ?? `HTTP ${res.status}` } }
+      })
+    } catch {
+      setDelegateResults((m) => ({ ...m, [row.id]: { ...(m[row.id] ?? { workOrderId, status: 'applied' as const }), error: 'Network error' } }))
+    } finally {
+      delegateInFlightRef.current = false
+      setDelegatingId(null)
+    }
+  }, [])
+
   // Read-only queue ordering via the Phase 41.10 model. includeInactive keeps
   // every fetched row visible (deleted only arrive when the toggle requests
   // them) — nothing is hidden; the model only orders by queue_rank and labels
@@ -875,6 +1001,10 @@ export default function HelperReviewPage() {
       onAction={onReviewAction}
       actingId={actingId}
       rowMessages={rowMessages}
+      onDelegate={onDelegate}
+      onRollback={onRollback}
+      delegateResults={delegateResults}
+      delegatingId={delegatingId}
     />
   ) : null
 
@@ -991,6 +1121,10 @@ export default function HelperReviewPage() {
                     onAction={onReviewAction}
                     isActing={actingId === e.id}
                     message={rowMessages[e.id]}
+                    onDelegate={onDelegate}
+                    onRollback={onRollback}
+                    delegateResult={delegateResults[e.id]}
+                    isDelegating={delegatingId === e.id}
                   />
                 )
               })}

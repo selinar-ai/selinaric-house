@@ -124,7 +124,7 @@ section('E. Single-row, no batch')
 section('F. No authority/execution controls')
 {
   const page = readSrc(PAGE)
-  for (const forbidden of ['Approve', 'Accept', 'Apply', 'Promote', 'Confirm', 'Make Memory', 'Make Evidence', 'Send to Prompt', 'Send to Graph', 'Route to Reasoning', 'Make Candidate', 'Auto-fix', 'Run helper', 'Re-run']) {
+  for (const forbidden of ['Approve output', 'Accept', 'Apply output', 'Promote', 'Confirm', 'Make Memory', 'Make Evidence', 'Send to Prompt', 'Send to Graph', 'Route to Reasoning', 'Make Candidate', 'Auto-fix', 'Run helper', 'Re-run']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
   // No direct DB mutation / no protected-surface mutation paths referenced.

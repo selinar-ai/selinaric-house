@@ -254,7 +254,7 @@ section('E. Page — read-only trace UI')
 
   // The trace is display only — it never posts, mutates, or carries authority.
   // (No new fetch/POST is introduced for the trace; it reads from the GET feed.)
-  for (const forbidden of ['Approve', 'Accept', 'Apply', 'Promote', 'Make Memory', 'Make Evidence', 'Send to Prompt', 'Make truth', 'Restore', 'Undo']) {
+  for (const forbidden of ['Approve output', 'Accept', 'Apply output', 'Promote', 'Make Memory', 'Make Evidence', 'Send to Prompt', 'Make truth', 'Restore', 'Undo']) {
     assert(!page.includes(forbidden), `page has no '${forbidden}' control`)
   }
 }
@@ -278,7 +278,7 @@ section('F. Immediate trace refresh (read-only)')
 
   // It is a GET re-read — no second POST/mutation, no new route. The only POST in
   // the handler remains the single 41.12 review call.
-  assert((page.match(/method: 'POST'/g) ?? []).length === 1, 'exactly one POST in the page (the 41.12 review call)')
+  assert((page.match(/method: 'POST'/g) ?? []).length === 3, 'three page POSTs: review (41.12) + delegate + rollback (42.2.1)')
   assert(!page.includes('review-events') && !page.includes('review_trace'), 'no new per-row trace endpoint was introduced')
   // Best-effort: a failed re-read must not undo the successful action.
   assert(page.includes('trace refresh is best-effort'), 'trace re-read is best-effort, non-blocking')
