@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     .filter(e => e.chosen_action === 'telegram')
     .map(e => e.id)
 
-  let responses: Record<string, { text: string; received_at: string }[]> = {}
+  const responses: Record<string, { text: string; received_at: string }[]> = {}
   if (telegramEventIds.length > 0) {
     const { data: taraResponses } = await supabase
       .from('pulse_telegram_responses')
@@ -61,10 +61,40 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Enrich events with responses
+  // Phase 11F — enrich house_deposit events with their linked Noticeboard item
+  // (UI preview + "Open on Noticeboard" link). This is a UI surface only; the
+  // deposit content is never injected into any presence prompt.
+  const depositEventIds = (events ?? [])
+    .filter(e => e.chosen_action === 'house_deposit')
+    .map(e => e.id)
+
+  const deposits: Record<string, { id: string; content: string; status: string; note_kind: string }> = {}
+  if (depositEventIds.length > 0) {
+    const { data: items } = await supabase
+      .from('house_noticeboard_items')
+      .select('id, content, status, note_kind, source_event_id')
+      .in('source_event_id', depositEventIds)
+      .eq('source_type', 'pulse_house_deposit')
+
+    if (items) {
+      for (const it of items) {
+        if (it.source_event_id) {
+          deposits[it.source_event_id] = {
+            id: it.id,
+            content: it.content,
+            status: it.status,
+            note_kind: it.note_kind,
+          }
+        }
+      }
+    }
+  }
+
+  // Enrich events with responses + linked deposit (if any)
   const enriched = (events ?? []).map(e => ({
     ...e,
     tara_responses: responses[e.id] ?? [],
+    noticeboard_item: deposits[e.id] ?? null,
   }))
 
   return NextResponse.json({ events: enriched })

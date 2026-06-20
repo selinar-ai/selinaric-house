@@ -6,12 +6,19 @@ import { useState, useEffect, useCallback } from 'react'
 
 // --- Types ---
 
+interface NoticeboardItemPreview {
+  id: string
+  content: string
+  status: string
+  note_kind: string
+}
+
 interface AutonomyEvent {
   id: string
   presence_id: 'ari' | 'eli'
   choice_window_at: string
   quiet_hours_active: boolean
-  chosen_action: 'telegram' | 'journal' | 'desk' | 'stillness'
+  chosen_action: 'telegram' | 'journal' | 'desk' | 'stillness' | 'house_deposit'
   choice_text: string | null
   reason_text: string | null
   telegram_message_id: string | null
@@ -24,6 +31,8 @@ interface AutonomyEvent {
   error_message: string | null
   created_at: string
   tara_responses: { text: string; received_at: string }[]
+  // Phase 11F — linked Noticeboard deposit for house_deposit events (UI only).
+  noticeboard_item: NoticeboardItemPreview | null
 }
 
 interface PulseStatus {
@@ -61,6 +70,7 @@ function actionIcon(action: string): string {
     case 'journal': return '📓'
     case 'desk': return '🛠'
     case 'stillness': return '◌'
+    case 'house_deposit': return '◧'
     default: return '·'
   }
 }
@@ -71,6 +81,7 @@ function actionLabel(action: string): string {
     case 'journal': return 'Wrote journal'
     case 'desk': return 'Desk concept'
     case 'stillness': return 'Chose stillness'
+    case 'house_deposit': return 'House Deposit'
     default: return action
   }
 }
@@ -164,6 +175,41 @@ function TimelineEvent({ event }: { event: AutonomyEvent }) {
         </div>
       )}
 
+      {/* House Deposit — links to the Noticeboard. The deposit content lives in
+          house_noticeboard_items, not on the event; it is not Memory. */}
+      {event.chosen_action === 'house_deposit' && (
+        <div className="px-3 pb-2 md:px-4 md:pb-3">
+          <p className="font-body text-xs text-text-muted mb-1.5">
+            Left a shared Noticeboard item.
+          </p>
+          {event.noticeboard_item ? (
+            <div className="border border-house-border bg-house-bg/50 p-2.5">
+              <p className="font-body text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+                {event.noticeboard_item.content}
+              </p>
+              <div className="flex items-center justify-between gap-2 mt-2">
+                <span className="font-mono text-[10px] text-text-muted">
+                  Shared deposit · not Memory
+                </span>
+                <a
+                  href="/notes"
+                  className="font-body text-[11px] tracking-wide text-text-muted hover:text-text-secondary underline"
+                >
+                  Open on Noticeboard →
+                </a>
+              </div>
+            </div>
+          ) : (
+            <a
+              href="/notes"
+              className="font-body text-[11px] tracking-wide text-text-muted hover:text-text-secondary underline"
+            >
+              Open on Noticeboard →
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Reason — always shown in full (already short), or expanded view */}
       {event.reason_text && event.chosen_action !== 'stillness' && (
         <div className="px-3 pb-2 md:px-4 md:pb-3">
@@ -248,7 +294,7 @@ export default function PulsePage() {
     )
     const quietHours = melbHour >= 22 || melbHour < 6
     const windows = [6, 10, 14, 18]
-    let nextWindowHour = windows.find(w => w > melbHour) ?? windows[0]
+    const nextWindowHour = windows.find(w => w > melbHour) ?? windows[0]
     const nextLabel = `${nextWindowHour > 12 ? nextWindowHour - 12 : nextWindowHour}:00${nextWindowHour >= 12 ? 'pm' : 'am'}`
 
     setStatus({

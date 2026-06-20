@@ -55,8 +55,8 @@ export const ROOMS: Room[] = [
   },
   {
     slug: 'notes',
-    name: 'Notes',
-    description: 'Shared space. Open loops.',
+    name: 'Noticeboard',
+    description: 'Shared deposits. Not Memory.',
     path: '/notes',
     colorClass: 'text-text-secondary',
     borderClass: 'border-house-muted',
