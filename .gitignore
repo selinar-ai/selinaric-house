@@ -62,3 +62,6 @@ piper-server/Piper_Voices/
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Courtyard draft 3D model binaries are generated assets and must not be committed.
+gaming-assets/drafts/*.glb
