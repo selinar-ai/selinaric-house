@@ -18,7 +18,9 @@ import CourtyardDraftModel from './CourtyardDraftModel'
 import {
   COURTYARD_CHARACTER_IDS,
   COURTYARD_DRAFT_MODELS,
+  courtyardModelFileName,
   type CourtyardCharacterId,
+  type CourtyardVariant,
 } from '@/lib/courtyard/draftModels'
 
 function LoadingDot() {
@@ -65,11 +67,14 @@ class ModelErrorBoundary extends Component<
 
 export default function CourtyardPreviewClient() {
   const [selected, setSelected] = useState<CourtyardCharacterId>('ari')
+  const [variant, setVariant] = useState<CourtyardVariant>('draft')
   const [exposure, setExposure] = useState(1.0)
   const [debugGrey, setDebugGrey] = useState(false)
 
   const model = COURTYARD_DRAFT_MODELS[selected]
-  const resetKey = `${selected}:${debugGrey}`
+  const activeFileName = courtyardModelFileName(selected, variant)
+  const variantLabel = variant === 'fixed' ? 'Blender fixed copy — local draft only' : 'Original draft'
+  const resetKey = `${selected}:${variant}:${debugGrey}`
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -88,6 +93,28 @@ export default function CourtyardPreviewClient() {
               }`}
             >
               {COURTYARD_DRAFT_MODELS[id].displayName}
+            </button>
+          ))}
+        </div>
+
+        {/* Variant selector: original vs Blender-fixed copy (viewer-only) */}
+        <div className="flex items-center gap-1.5">
+          <span className="font-body text-[11px] text-text-muted">Variant</span>
+          {([
+            { v: 'draft', label: 'Original draft' },
+            { v: 'fixed', label: 'Blender fixed copy' },
+          ] as const).map(({ v, label }) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setVariant(v)}
+              className={`font-body text-xs px-3 py-1.5 border transition-all ${
+                variant === v
+                  ? 'border-eli-primary text-eli-primary'
+                  : 'border-house-border text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {label}
             </button>
           ))}
         </div>
@@ -139,7 +166,7 @@ export default function CourtyardPreviewClient() {
           <Suspense fallback={<LoadingDot />}>
             <ModelErrorBoundary resetKey={resetKey} fallback={<FailureNotice />}>
               <group key={resetKey}>
-                <CourtyardDraftModel id={selected} debugGrey={debugGrey} />
+                <CourtyardDraftModel id={selected} variant={variant} debugGrey={debugGrey} />
               </group>
             </ModelErrorBoundary>
           </Suspense>
@@ -151,8 +178,12 @@ export default function CourtyardPreviewClient() {
       {/* Per-selection draft metadata (no approval / save / memory affordances) */}
       <div className="px-4 py-3 border-t border-house-border grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 font-body text-[11px]">
         <div>
-          <span className="text-text-muted">Current draft file: </span>
-          <span className="text-text-secondary">{model.fileName}</span>
+          <span className="text-text-muted">Current file: </span>
+          <span className="text-text-secondary">{activeFileName}</span>
+        </div>
+        <div>
+          <span className="text-text-muted">Variant: </span>
+          <span className="text-text-secondary">{variantLabel}</span>
         </div>
         <div>
           <span className="text-text-muted">Asset status: </span>

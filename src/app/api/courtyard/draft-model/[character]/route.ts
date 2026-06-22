@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFile } from 'fs/promises'
 import { join, normalize } from 'path'
 import { requireHouseApiAuth } from '@/lib/server/houseAuth'
-import { COURTYARD_DRAFT_MODELS, isCourtyardCharacterId } from '@/lib/courtyard/draftModels'
+import { courtyardModelFileName, isCourtyardCharacterId, isCourtyardVariant } from '@/lib/courtyard/draftModels'
 
 const DRAFTS_DIR = join(process.cwd(), 'gaming-assets', 'drafts')
 
@@ -42,8 +42,15 @@ export async function GET(
     return notFound()
   }
 
-  // 3. Resolve to the fixed capitalised filename from the whitelist.
-  const fileName = COURTYARD_DRAFT_MODELS[character].fileName
+  // 2b. Variant: only "draft" (default) or "fixed". Reject anything else.
+  const variantParam = request.nextUrl.searchParams.get('variant')
+  if (variantParam !== null && !isCourtyardVariant(variantParam)) {
+    return notFound()
+  }
+  const variant = variantParam === 'fixed' ? 'fixed' : 'draft'
+
+  // 3. Resolve to the exact capitalised filename from the whitelist.
+  const fileName = courtyardModelFileName(character, variant)
   const filePath = normalize(join(DRAFTS_DIR, fileName))
 
   // 4. Defense-in-depth: the resolved path must stay inside the drafts dir.

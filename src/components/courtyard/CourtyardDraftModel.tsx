@@ -9,16 +9,18 @@
 import { useMemo } from 'react'
 import { Bounds, Center, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { draftModelApiPath, type CourtyardCharacterId } from '@/lib/courtyard/draftModels'
+import { draftModelApiPath, type CourtyardCharacterId, type CourtyardVariant } from '@/lib/courtyard/draftModels'
 
 export default function CourtyardDraftModel({
   id,
+  variant,
   debugGrey,
 }: {
   id: CourtyardCharacterId
+  variant: CourtyardVariant
   debugGrey: boolean
 }) {
-  const { scene } = useGLTF(draftModelApiPath(id))
+  const { scene } = useGLTF(draftModelApiPath(id, variant))
 
   // Viewer-only deep clone. Debug-grey swaps a flat neutral material on the
   // clone to isolate geometry from the texture/colour pipeline — it never
