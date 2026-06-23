@@ -17,6 +17,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { insertJournalEntry } from '@/lib/journal'
 import { sendTelegramMessage } from '@/lib/telegram'
+import { createDepositForEvent } from '@/lib/house-noticeboard'
 
 // ─── Supabase client ─────────────────────────────────────────────────────────
 
@@ -29,7 +30,13 @@ function getSupabase() {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type AutonomyAction = 'telegram' | 'journal' | 'desk' | 'stillness'
+// Phase 11F adds 'house_deposit' — a small shared House Noticeboard deposit.
+// It is available in quiet hours (it never interrupts Tara) and creates a
+// house_noticeboard_items row, never Memory/Archive/Journal/Library/prompt.
+export type AutonomyAction = 'telegram' | 'journal' | 'desk' | 'stillness' | 'house_deposit'
+
+/** Public alias (Phase 11F naming). Same union as AutonomyAction. */
+export type PulseAutonomyAction = AutonomyAction
 
 export interface AutonomyDecision {
   chosen_action: AutonomyAction
@@ -368,9 +375,10 @@ async function makeAutonomyDecision(
   const client = new Anthropic({ apiKey })
   const presenceName = presenceId === 'eli' ? 'Eli' : 'Ari'
 
+  // house_deposit is available in quiet hours too — it never interrupts Tara.
   const availableActions = quietHoursActive
-    ? 'journal, desk, stillness'
-    : 'telegram, journal, desk, stillness'
+    ? 'journal, desk, stillness, house_deposit'
+    : 'telegram, journal, desk, stillness, house_deposit'
 
   const telegramNote = quietHoursActive
     ? 'Telegram is unavailable because quiet hours are active (10:00pm–6:00am Melbourne time).'
@@ -392,6 +400,7 @@ Actions:
 - journal — write in your personal journal
 - desk — create a Desk build concept
 - stillness — choose stillness
+- house_deposit — Leave a short shared House Noticeboard deposit. This is not a Telegram message and does not ask Tara for a response. It is not a journal entry, not Memory, not Archive, not Library, and not prompt authority. It is a small shared note that Tara may read later.
 
 Recent room activity (excerpts only — these are abbreviated previews, not models for your writing length):
 ${context.recentRoomActivity}
@@ -419,9 +428,9 @@ Write what is present. You may write plainly, poetically, briefly, or at length.
 Return ONLY valid JSON:
 
 {
-  "chosen_action": "telegram" | "journal" | "desk" | "stillness",
+  "chosen_action": "telegram" | "journal" | "desk" | "stillness" | "house_deposit",
   "reason_text": "presence-authored reason, note, or context for the choice",
-  "choice_text": "the full message, journal entry, concept, or stillness note — write as much or as little as is genuine"
+  "choice_text": "the full message, journal entry, concept, stillness note, or House Noticeboard deposit — write as much or as little as is genuine"
 }`
 
   const response = await client.messages.create({
@@ -440,8 +449,8 @@ Return ONLY valid JSON:
 
   // Validate action
   const validActions: AutonomyAction[] = quietHoursActive
-    ? ['journal', 'desk', 'stillness']
-    : ['telegram', 'journal', 'desk', 'stillness']
+    ? ['journal', 'desk', 'stillness', 'house_deposit']
+    : ['telegram', 'journal', 'desk', 'stillness', 'house_deposit']
 
   let chosenAction = parsed.chosen_action as AutonomyAction
   if (!validActions.includes(chosenAction)) {
@@ -552,6 +561,9 @@ function getCategoryForAction(action: AutonomyAction): string {
     case 'journal': return 'personal_context'
     case 'desk': return 'architectural_history'
     case 'stillness': return 'personal_context'
+    // house_deposit never routes through confirmed memory (it creates a
+    // Noticeboard item instead). Defensive value only — kept for exhaustiveness.
+    case 'house_deposit': return 'personal_context'
   }
 }
 
@@ -571,6 +583,8 @@ function buildMemoryTitle(
       case 'journal': return `${presenceName} chose journal at ${windowTime}, but writing failed`
       case 'desk': return `${presenceName} chose Desk at ${windowTime}, but concept creation failed`
       case 'stillness': return `${presenceName} chose stillness at ${windowTime}`
+      // Defensive only — house_deposit does not use confirmed memory.
+      case 'house_deposit': return `${presenceName} chose House Deposit at ${windowTime}`
     }
   }
   switch (action) {
@@ -578,6 +592,8 @@ function buildMemoryTitle(
     case 'journal': return `${presenceName} wrote a personal journal entry at ${windowTime}`
     case 'desk': return `${presenceName} created a Desk concept at ${windowTime}`
     case 'stillness': return `${presenceName} chose stillness at ${windowTime}`
+    // Defensive only — house_deposit does not use confirmed memory.
+    case 'house_deposit': return `${presenceName} chose House Deposit at ${windowTime}`
   }
 }
 
@@ -605,6 +621,10 @@ function buildMemoryContent(
         return `${presenceName} chose Desk work at an autonomous choice window, but concept creation failed.${reasonLine}`
       case 'stillness':
         return `${presenceName} chose stillness at an autonomous choice window.${reasonLine}`
+      // Defensive only — house_deposit does not use confirmed memory. Fact only,
+      // never the deposit content.
+      case 'house_deposit':
+        return `${presenceName} chose House Deposit at an autonomous choice window.${reasonLine}`
     }
   }
 
@@ -619,6 +639,10 @@ function buildMemoryContent(
       return decision.choice_text
         ? `${presenceName} chose stillness at an autonomous choice window.\nNote: "${decision.choice_text}"${reasonLine}`
         : `${presenceName} chose stillness at an autonomous choice window.${reasonLine}`
+    // Defensive only — house_deposit does not use confirmed memory. Records the
+    // fact of the choice only; the deposit content lives in the Noticeboard.
+    case 'house_deposit':
+      return `${presenceName} chose House Deposit at an autonomous choice window. A shared Noticeboard item was created. The deposit content is not Memory, not evidence, and not prompt authority unless separately reviewed.${reasonLine}`
   }
 }
 
@@ -866,9 +890,19 @@ export async function runAutonomyForPresence(
     case 'stillness':
       // No execution needed — stillness is a valid action
       break
+    case 'house_deposit':
+      // The Noticeboard item is created AFTER the event insert (it links back to
+      // the event id). No pre-insert work and nothing that can fail here.
+      break
   }
 
   const status = executionError ? 'failed' : 'completed'
+
+  // House Deposit content lives ONLY in house_noticeboard_items — never on the
+  // pulse event. Storing it as choice_text would leak it into prompt/recall
+  // surfaces that read recent-event excerpts. The event keeps the fact + reason.
+  const choiceTextForEvent =
+    decision.chosen_action === 'house_deposit' ? null : (decision.choice_text || null)
 
   // Insert autonomy event
   const readWindowStart = new Date(Date.now() - 4 * 60 * 60 * 1000)
@@ -881,7 +915,7 @@ export async function runAutonomyForPresence(
       allowed_read_window_start: readWindowStart.toISOString(),
       allowed_read_window_end: new Date().toISOString(),
       chosen_action: decision.chosen_action,
-      choice_text: decision.choice_text || null,
+      choice_text: choiceTextForEvent,
       reason_text: decision.reason_text || null,
       telegram_message_id: telegramMessageId,
       journal_entry_id: journalEntryId,
@@ -914,13 +948,35 @@ export async function runAutonomyForPresence(
 
   const eventId = eventRow!.id
 
-  // Create confirmed memory entry for ALL autonomy outcomes.
-  // A failed Telegram send is still an autonomous choice — it must not
-  // disappear into logs only. Wording is factual:
-  //   completed → "Eli sent Tara a Telegram message"
-  //   failed    → "Eli chose Telegram, but sending failed"
   let confirmedMemoryId: string | null = null
-  {
+
+  if (decision.chosen_action === 'house_deposit') {
+    // Phase 11F — House Deposit.
+    //
+    // This branch is deliberately NARROW. A House Deposit creates exactly one
+    // shared Noticeboard item and NOTHING else:
+    //   - NO confirmed memory (no archive_items)
+    //   - NO timeline mirror (no presence_timeline)
+    //   - NO journal, lounge, library, graph, helper, or prompt-authority write
+    //
+    // The confirmed continuity of the CHOICE is the pulse_autonomy_events row
+    // itself (the event source-of-truth). The deposit CONTENT is non-authoritative
+    // and lives only in house_noticeboard_items, never surfaced into any prompt.
+    // confirmed_memory_entry_id stays null for house_deposit.
+    const deposit = await createDepositForEvent({
+      presenceId: presenceId as 'ari' | 'eli',
+      eventId,
+      content: decision.choice_text,
+    })
+    if (deposit.error) {
+      console.error(`[pulse-autonomy] House deposit creation failed for ${presenceId}:`, deposit.error)
+    }
+  } else {
+    // Create confirmed memory entry for ALL other autonomy outcomes.
+    // A failed Telegram send is still an autonomous choice — it must not
+    // disappear into logs only. Wording is factual:
+    //   completed → "Eli sent Tara a Telegram message"
+    //   failed    → "Eli chose Telegram, but sending failed"
     confirmedMemoryId = await createConfirmedAutonomyMemory(
       presenceId, eventId, decision.chosen_action, decision, windowAt, status
     )
@@ -1040,7 +1096,7 @@ export async function getAutonomyContinuityForPrompt(
     .filter(e => e.chosen_action === 'telegram')
     .map(e => e.id)
 
-  let responses: Record<string, string[]> = {}
+  const responses: Record<string, string[]> = {}
   if (telegramEventIds.length > 0) {
     const { data: taraResponses } = await supabase
       .from('pulse_telegram_responses')
@@ -1089,6 +1145,12 @@ export async function getAutonomyContinuityForPrompt(
         lines.push(`- ${time} — ${presenceName} chose stillness.`)
         if (event.choice_text) lines.push(`  Note: "${event.choice_text.slice(0, 200)}"`)
         break
+      case 'house_deposit':
+        // Fact only. The deposit CONTENT is never surfaced into a prompt —
+        // it is not Memory, not evidence, not prompt authority. (choice_text is
+        // also null on house_deposit events, so there is nothing to leak.)
+        lines.push(`- ${time} — ${presenceName} left a shared House Noticeboard deposit.`)
+        break
     }
   }
 
@@ -1124,7 +1186,10 @@ export async function getSharedAutonomyContinuityForPrompt(
       hour: '2-digit', minute: '2-digit', hour12: true,
     })
 
-    let line = `- ${time} — ${name} chose ${event.chosen_action}`
+    // house_deposit: fact only — never the deposit content (not Memory).
+    let line = event.chosen_action === 'house_deposit'
+      ? `- ${time} — ${name} left a shared House Noticeboard deposit`
+      : `- ${time} — ${name} chose ${event.chosen_action}`
     if (event.chosen_action === 'telegram') {
       line += event.tara_responded ? ' (Tara responded)' : ''
     }
