@@ -29,14 +29,14 @@ Animations: None (0 actions)
 Default pose: Neutral standing
 Scale: ~1.8 m height (real-world; good)
 Grounded: Yes — lowest Z = 0.0; centred on X/Y (center ≈ 0,0)
-Blender clinic applied: No (inspect only — no export, no mutation, no .blend saved). Decimation/optimisation still needed (see Technical-fit note).
+Blender clinic applied: Inspect + conservative COLLAPSE decimation to a NEW local copy `Ari-run1-candidate-01-optimised.glb` (540,908 → 199,999 tris; 28.75 MB → 19.17 MB; dims/grounding/scale/material preserved). Original never mutated. No .blend saved.
 Preview result: Previewed by Tara in the Courtyard lab 2026-06-24 via preview-only variant `run1-candidate-01` — PASS. Upright/grounded; face readable; robe-coat silhouette fits Ari; textures readable, not crushed/muddy; orbit/exposure/debug-grey available; no approval/save controls.
 Identity-fit note: Described as a dark-elegant masculine arcane guardian / strategist — long robe-coat silhouette, high collar, charcoal / deep navy / slate palette. Matches the Ari direction on paper; visual confirmation pending preview.
 Technical-fit note: Upright, grounded, centred, neutral static pose = good. BUT over budget: ~28.75 MB (>25 MB) and ~541k triangles (>> the ~30k–150k suggested range) — likely needs decimation before it is carry-forward-viable (decimation NOT performed; requires explicit approval). Texture readability (muddy/dark vs clean) unverified — needs visual preview.
 Review outcome: visual candidate — pending licence confirmation and optimisation (NOT approved, NOT canon, NOT an approved asset)
 Reviewer: Tara
 Review date: 2026-06-24
-Decision notes: Visual review PASSED — upright/grounded, readable face, robe-coat silhouette fits Ari, textures readable (not muddy). Promoted to visual candidate. Two gates remain before carry-forward: (1) Meshy licence/usage rights confirmation by Tara; (2) over size/poly budget (~28.75 MB / ~541k tris) — needs a Blender decimation/optimisation copy (not done; requires approval). Still not approved/canon.
+Decision notes: Visual review PASSED — upright/grounded, readable face, robe-coat silhouette fits Ari, textures readable (not muddy). Promoted to visual candidate. Optimisation pass done 2026-06-24: local `Ari-run1-candidate-01-optimised.glb` created (199,999 tris / 19.17 MB, within budget; structure/scale/material preserved) — **pending Tara's browser comparison** vs the original candidate. Remaining gate: Meshy licence/usage rights confirmation by Tara. Still not approved/canon/approved-asset.
 ```
 
 ## Acceptance rubric (Phase 1C) — post visual review (Tara, 2026-06-24)

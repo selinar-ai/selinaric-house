@@ -81,6 +81,13 @@ Status: **preview mapping live; pending local visual preview** (and licence conf
 
 **Next recommended step:** an **approved Blender decimation pass** to bring tris/size within budget (local `*-decimated`/`*-fixed` copy only, no mutation of the original, no commit of binaries), then re-preview.
 
+### Optimisation pass — ari-run1-candidate-01 (2026-06-24, approved)
+- **Created derived local copy:** `gaming-assets/drafts/Ari-run1-candidate-01-optimised.glb` (git-ignored). **Original untouched.**
+- **Method:** Blender 5.1 headless, conservative COLLAPSE Decimate, ratio 0.370 (target ~200k tris). No `.blend` saved; original never mutated; refuses to overwrite input.
+- **Result:** triangles **540,908 → 199,999**; file size **28.75 MB → 19.17 MB** (under the ~25 MB target). Inspect of output: dims 0.68 × 0.48 × 1.8 (unchanged), grounded at z=0, centred, upright, neutral static, 0 rig/anim, 1 material (same, non-metallic, texture-driven). Structure/scale/material preserved; UVs preserved by collapse (visual confirmation pending).
+- **Preview mapping:** added Ari-only candidate variant `run1-candidate-01-optimised` → `Ari-run1-candidate-01-optimised.glb` (auth-gated; invalid/cross-character → 404; default still `draft`).
+- **Status unchanged:** still `visual candidate — pending licence confirmation and optimisation` — **not approved**. The optimised copy is **pending Tara's browser comparison** (original vs optimised) to confirm silhouette/face/texture readability held after decimation. Licence remains pending Tara confirmation.
+
 ---
 
 ### Candidate handoff — how to add a Round-1 candidate (for the manual sourcing step)

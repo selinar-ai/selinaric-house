@@ -53,6 +53,11 @@ export const COURTYARD_DRAFT_MODELS: Record<CourtyardCharacterId, CourtyardDraft
         label: 'Ari Run 1 Candidate 01 — local preview only',
         fileName: 'Ari-run1-candidate-01.glb',
       },
+      {
+        id: 'run1-candidate-01-optimised',
+        label: 'Ari Run 1 Candidate 01 optimised — local preview only',
+        fileName: 'Ari-run1-candidate-01-optimised.glb',
+      },
     ],
   },
   eli: {

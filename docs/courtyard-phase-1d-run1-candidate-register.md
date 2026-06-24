@@ -13,7 +13,9 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| ari-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-23), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Ari-run1-candidate-01.glb | **previewed by Tara 2026-06-24 — PASS** (variant `run1-candidate-01`) | upright/grounded; face readable; robe-coat silhouette fits Ari; textures readable, not crushed/muddy | ~1.8 m, neutral static; **28.75 MB & ~541k tris — over budget → needs decimation** | **visual candidate — pending licence confirmation and optimisation** |
+| ari-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-23), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Ari-run1-candidate-01.glb | **previewed by Tara 2026-06-24 — PASS** (variant `run1-candidate-01`) | upright/grounded; face readable; robe-coat silhouette fits Ari; textures readable, not crushed/muddy | ~1.8 m, neutral static; original 28.75 MB / ~541k tris; **optimised copy created → 19.17 MB / ~200k tris** (variant `run1-candidate-01-optimised`, pending visual review) | **visual candidate — pending licence confirmation and optimisation** |
+
+> **Optimised derived copy:** `Ari-run1-candidate-01-optimised.glb` (local, git-ignored) — conservative Blender COLLAPSE decimation, 540,908 → 199,999 tris, 28.75 MB → 19.17 MB; dims/grounding/scale/material preserved. Original untouched. **Pending Tara's browser comparison** (original vs optimised). Not approved.
 | ari-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | ari-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
