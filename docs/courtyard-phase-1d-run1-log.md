@@ -2,7 +2,7 @@
 
 ## Phase 1D — Asset Regeneration Run 1 — Run Log
 
-> **Status:** Run 1 intake **active**. **1 candidate:** `ari-run1-candidate-01` (Meshy, manual by Tara) — inspected, provenance recorded, preview mapping added, **Tara-reviewed 2026-06-24 → visual candidate, pending licence confirmation and optimisation**. See "Intake entries" below.
+> **Status:** Run 1 intake **active**. **1 candidate:** `ari-run1-candidate-01` (Meshy, manual by Tara) — original + optimised copy both **Tara-reviewed → visual PASS**; optimised copy is the **preferred carry-forward** preview version. Status: **visual candidate, pending licence confirmation** (not approved). See "Intake entries" below.
 > **Repo:** `selinaric-house` (private House-side work)
 > **Branch:** `courtyard/phase-1d-run1-candidate-intake`, from `main` @ `6a2fd11`
 > **Date:** 2026-06-24
@@ -87,6 +87,16 @@ Status: **preview mapping live; pending local visual preview** (and licence conf
 - **Result:** triangles **540,908 → 199,999**; file size **28.75 MB → 19.17 MB** (under the ~25 MB target). Inspect of output: dims 0.68 × 0.48 × 1.8 (unchanged), grounded at z=0, centred, upright, neutral static, 0 rig/anim, 1 material (same, non-metallic, texture-driven). Structure/scale/material preserved; UVs preserved by collapse (visual confirmation pending).
 - **Preview mapping:** added Ari-only candidate variant `run1-candidate-01-optimised` → `Ari-run1-candidate-01-optimised.glb` (auth-gated; invalid/cross-character → 404; default still `draft`).
 - **Status unchanged:** still `visual candidate — pending licence confirmation and optimisation` — **not approved**. The optimised copy is **pending Tara's browser comparison** (original vs optimised) to confirm silhouette/face/texture readability held after decimation. Licence remains pending Tara confirmation.
+
+### Optimised visual review — ari-run1-candidate-01-optimised (2026-06-24, Tara)
+**Outcome: PASS.** Observed in the lab (variant `run1-candidate-01-optimised`): model loads; face readable; robe-coat silhouette readable; textures readable; **no obvious mesh damage from decimation**; still fits Ari's dark-elegant arcane-guardian direction; orbit/exposure/debug-grey available; no approval/save/memory/status controls.
+
+**Decisions recorded:**
+- Original Ari-01 visually passed but is **too heavy** (28.75 MB / ~541k tris).
+- Optimised Ari-01 visually passed at 19.17 MB / ~200k tris.
+- ✅ **The optimised copy (`Ari-run1-candidate-01-optimised.glb`) is the preferred carry-forward local preview version** over the heavy original.
+- **Status:** `visual candidate — pending licence confirmation`. **Not approved / not canon / not identity authority / not an approved asset.**
+- **Remaining blocker:** Meshy licence / usage-rights confirmation by Tara — until resolved, the candidate stays in local exploration only.
 
 ---
 

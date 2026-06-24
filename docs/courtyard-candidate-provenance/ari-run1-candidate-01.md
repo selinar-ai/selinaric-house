@@ -33,10 +33,11 @@ Blender clinic applied: Inspect + conservative COLLAPSE decimation to a NEW loca
 Preview result: Previewed by Tara in the Courtyard lab 2026-06-24 via preview-only variant `run1-candidate-01` — PASS. Upright/grounded; face readable; robe-coat silhouette fits Ari; textures readable, not crushed/muddy; orbit/exposure/debug-grey available; no approval/save controls.
 Identity-fit note: Described as a dark-elegant masculine arcane guardian / strategist — long robe-coat silhouette, high collar, charcoal / deep navy / slate palette. Matches the Ari direction on paper; visual confirmation pending preview.
 Technical-fit note: Upright, grounded, centred, neutral static pose = good. BUT over budget: ~28.75 MB (>25 MB) and ~541k triangles (>> the ~30k–150k suggested range) — likely needs decimation before it is carry-forward-viable (decimation NOT performed; requires explicit approval). Texture readability (muddy/dark vs clean) unverified — needs visual preview.
-Review outcome: visual candidate — pending licence confirmation and optimisation (NOT approved, NOT canon, NOT an approved asset)
+Review outcome: visual candidate — pending licence confirmation (NOT approved, NOT canon, NOT identity authority, NOT an approved asset)
 Reviewer: Tara
 Review date: 2026-06-24
-Decision notes: Visual review PASSED — upright/grounded, readable face, robe-coat silhouette fits Ari, textures readable (not muddy). Promoted to visual candidate. Optimisation pass done 2026-06-24: local `Ari-run1-candidate-01-optimised.glb` created (199,999 tris / 19.17 MB, within budget; structure/scale/material preserved) — **pending Tara's browser comparison** vs the original candidate. Remaining gate: Meshy licence/usage rights confirmation by Tara. Still not approved/canon/approved-asset.
+Preferred carry-forward file: Ari-run1-candidate-01-optimised.glb (optimised copy preferred over the heavy original)
+Decision notes: Visual review PASSED — upright/grounded, readable face, robe-coat silhouette fits Ari, textures readable (not muddy). Promoted to visual candidate. Optimisation pass 2026-06-24: local `Ari-run1-candidate-01-optimised.glb` created (199,999 tris / 19.17 MB, within budget; structure/scale/material preserved). **Optimised copy ALSO visually PASSED (Tara, 2026-06-24)** — no visible mesh damage; face/silhouette/textures held; still fits Ari direction. The optimised copy is the **preferred carry-forward local preview version**. Sole remaining gate before carry-forward beyond local exploration: **Meshy licence/usage rights confirmation by Tara.** Still not approved/canon/identity-authority/approved-asset.
 ```
 
 ## Acceptance rubric (Phase 1C) — post visual review (Tara, 2026-06-24)
