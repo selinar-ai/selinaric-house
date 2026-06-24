@@ -2,7 +2,7 @@
 
 ## Phase 1D — Asset Regeneration Run 1 — Run Log
 
-> **Status:** Run 1 intake **opened**, **0 candidates sourced this run**. Governance scaffolding established; awaiting manual candidate sourcing.
+> **Status:** Run 1 intake **active**. **1 candidate intaken so far:** `ari-run1-candidate-01` (Meshy, manual by Tara) — inspected, provenance recorded, **pending preview + licence confirmation**. See "Intake entries" below.
 > **Repo:** `selinaric-house` (private House-side work)
 > **Branch:** `courtyard/phase-1d-run1-candidate-intake`, from `main` @ `6a2fd11`
 > **Date:** 2026-06-24
@@ -46,6 +46,24 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 - ✅ Run branch created; run log + candidate register + provenance folder/naming scheme established.
 - ⏳ **0 candidates sourced this run** (manual sourcing pending).
 - ➡️ **Handoff to Tara:** generate/source candidate GLBs outside the repo, then place local copies in `gaming-assets/drafts/` using the naming scheme below and fill a provenance record per candidate. Then the assistant resumes intake → preview → clinic (structural only) → rubric review.
+
+---
+
+---
+
+### Intake entries
+
+**ari-run1-candidate-01** — 2026-06-24
+- **Sourced:** Tara, Meshy.ai (AI-generated 2026-06-23), downloaded locally to `gaming-assets/drafts/Ari-run1-candidate-01.glb` (git-ignored).
+- **Provenance:** recorded at `docs/courtyard-candidate-provenance/ari-run1-candidate-01.md`. **Licence/usage rights pending Tara confirmation** (Meshy subscription terms) — gap to resolve before any advance.
+- **Blender inspect (read-only):** 1 mesh, 0 armatures, 0 animations; 540,908 tris; dims 0.68 × 0.48 × 1.8 m; lowest Z = 0.0 (grounded); centred; upright; neutral static pose; material non-metallic (roughness 0.8), texture-driven base colour.
+- **Assessment:** structurally the cleanest Ari asset so far (already upright/grounded/centred/neutral/~1.8 m — no clinic needed for structure). **Over budget:** 28.75 MB (>25 MB) and ~541k tris (>> ~30–150k suggested) → likely decimation needed later (not done; requires approval). **Texture quality unverified** — needs visual preview.
+- **Status:** `pending preview` (+ licence confirmation). Not previewed: the lab cannot stream this filename without a tightly-scoped preview-only code change (see "Preview path" below). Not marked `visual candidate` — no preview has occurred.
+
+### Preview path (proposal — NOT implemented)
+The current whitelist API maps `ari` → `Ari-draft.glb` (or `Ari-draft-fixed.glb` via `?variant=fixed`). It has **no** mapping for `Ari-run1-candidate-01.glb`, so the lab cannot preview the candidate today **without** either overwriting `Ari-draft.glb` (destructive — disallowed) or a small code change.
+- **Recommended (needs explicit approval):** in a later, tightly-scoped preview-only branch, extend the whitelist/variant mapping to recognise run-1 candidate filenames (e.g. a `candidate` variant or a candidate id), so `Ari-run1-candidate-01.glb` streams by whitelist **without overwriting baselines**. Preview-lab functionality only; no other systems touched.
+- **Not implemented in this intake task** (Step 6: report only).
 
 ---
 
