@@ -9,7 +9,7 @@
 import { useMemo } from 'react'
 import { Bounds, Center, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { draftModelApiPath, type CourtyardCharacterId, type CourtyardVariant } from '@/lib/courtyard/draftModels'
+import { draftModelApiPath, type CourtyardCharacterId } from '@/lib/courtyard/draftModels'
 
 export default function CourtyardDraftModel({
   id,
@@ -17,7 +17,7 @@ export default function CourtyardDraftModel({
   debugGrey,
 }: {
   id: CourtyardCharacterId
-  variant: CourtyardVariant
+  variant: string
   debugGrey: boolean
 }) {
   const { scene } = useGLTF(draftModelApiPath(id, variant))

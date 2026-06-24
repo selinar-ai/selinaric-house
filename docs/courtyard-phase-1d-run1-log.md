@@ -60,10 +60,13 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 - **Assessment:** structurally the cleanest Ari asset so far (already upright/grounded/centred/neutral/~1.8 m — no clinic needed for structure). **Over budget:** 28.75 MB (>25 MB) and ~541k tris (>> ~30–150k suggested) → likely decimation needed later (not done; requires approval). **Texture quality unverified** — needs visual preview.
 - **Status:** `pending preview` (+ licence confirmation). Not previewed: the lab cannot stream this filename without a tightly-scoped preview-only code change (see "Preview path" below). Not marked `visual candidate` — no preview has occurred.
 
-### Preview path (proposal — NOT implemented)
-The current whitelist API maps `ari` → `Ari-draft.glb` (or `Ari-draft-fixed.glb` via `?variant=fixed`). It has **no** mapping for `Ari-run1-candidate-01.glb`, so the lab cannot preview the candidate today **without** either overwriting `Ari-draft.glb` (destructive — disallowed) or a small code change.
-- **Recommended (needs explicit approval):** in a later, tightly-scoped preview-only branch, extend the whitelist/variant mapping to recognise run-1 candidate filenames (e.g. a `candidate` variant or a candidate id), so `Ari-run1-candidate-01.glb` streams by whitelist **without overwriting baselines**. Preview-lab functionality only; no other systems touched.
-- **Not implemented in this intake task** (Step 6: report only).
+### Preview path — IMPLEMENTED (tightly scoped, preview-only)
+A per-character candidate mapping was added (2026-06-24, Tara-approved):
+- `draftModels.ts`: each model may carry optional `candidates[]`; Ari has one — `run1-candidate-01` → `Ari-run1-candidate-01.glb`. Eli/Tara have none.
+- API route: variant resolves via the whitelist to `draft` / `fixed` / a character's own candidate id; **any other variant → 404**. Auth unchanged; no arbitrary filenames/paths; default variant remains `draft`.
+- Viewer: the Variant selector now lists a character's candidates (Ari shows "Ari Run 1 Candidate 01 — local preview only"; Eli/Tara do not). Switching character resets the variant to `draft`.
+
+Status: **preview mapping live; pending local visual preview** (and licence confirmation). Not marked `visual candidate` — that requires Tara's browser review.
 
 ---
 

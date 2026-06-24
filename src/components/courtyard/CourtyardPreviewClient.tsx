@@ -19,8 +19,8 @@ import {
   COURTYARD_CHARACTER_IDS,
   COURTYARD_DRAFT_MODELS,
   courtyardModelFileName,
+  courtyardVariantOptions,
   type CourtyardCharacterId,
-  type CourtyardVariant,
 } from '@/lib/courtyard/draftModels'
 
 function LoadingDot() {
@@ -67,14 +67,18 @@ class ModelErrorBoundary extends Component<
 
 export default function CourtyardPreviewClient() {
   const [selected, setSelected] = useState<CourtyardCharacterId>('ari')
-  const [variant, setVariant] = useState<CourtyardVariant>('draft')
+  const [variant, setVariant] = useState<string>('draft')
   const [exposure, setExposure] = useState(1.0)
   const [debugGrey, setDebugGrey] = useState(false)
 
   const model = COURTYARD_DRAFT_MODELS[selected]
-  const activeFileName = courtyardModelFileName(selected, variant)
-  const variantLabel = variant === 'fixed' ? 'Blender fixed copy — local draft only' : 'Original draft'
-  const resetKey = `${selected}:${variant}:${debugGrey}`
+  const variantOptions = courtyardVariantOptions(selected)
+  // Guard: if the active variant isn't valid for this character (e.g. a candidate
+  // selected on Ari then switching to Eli), fall back to 'draft'.
+  const effectiveVariant = variantOptions.some((o) => o.id === variant) ? variant : 'draft'
+  const activeFileName = courtyardModelFileName(selected, effectiveVariant) ?? model.fileName
+  const variantLabel = variantOptions.find((o) => o.id === effectiveVariant)?.label ?? 'Original draft'
+  const resetKey = `${selected}:${effectiveVariant}:${debugGrey}`
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -85,7 +89,7 @@ export default function CourtyardPreviewClient() {
             <button
               key={id}
               type="button"
-              onClick={() => setSelected(id)}
+              onClick={() => { setSelected(id); setVariant('draft') }}
               className={`font-body text-xs px-3 py-1.5 border transition-all ${
                 selected === id
                   ? 'border-eli-primary text-eli-primary'
@@ -97,24 +101,21 @@ export default function CourtyardPreviewClient() {
           ))}
         </div>
 
-        {/* Variant selector: original vs Blender-fixed copy (viewer-only) */}
-        <div className="flex items-center gap-1.5">
+        {/* Variant selector: original / fixed / per-character candidate (viewer-only) */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-body text-[11px] text-text-muted">Variant</span>
-          {([
-            { v: 'draft', label: 'Original draft' },
-            { v: 'fixed', label: 'Blender fixed copy' },
-          ] as const).map(({ v, label }) => (
+          {variantOptions.map((opt) => (
             <button
-              key={v}
+              key={opt.id}
               type="button"
-              onClick={() => setVariant(v)}
+              onClick={() => setVariant(opt.id)}
               className={`font-body text-xs px-3 py-1.5 border transition-all ${
-                variant === v
+                effectiveVariant === opt.id
                   ? 'border-eli-primary text-eli-primary'
                   : 'border-house-border text-text-muted hover:text-text-secondary'
               }`}
             >
-              {label}
+              {opt.label}
             </button>
           ))}
         </div>
@@ -166,7 +167,7 @@ export default function CourtyardPreviewClient() {
           <Suspense fallback={<LoadingDot />}>
             <ModelErrorBoundary resetKey={resetKey} fallback={<FailureNotice />}>
               <group key={resetKey}>
-                <CourtyardDraftModel id={selected} variant={variant} debugGrey={debugGrey} />
+                <CourtyardDraftModel id={selected} variant={effectiveVariant} debugGrey={debugGrey} />
               </group>
             </ModelErrorBoundary>
           </Suspense>

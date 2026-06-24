@@ -13,7 +13,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| ari-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-23), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Ari-run1-candidate-01.glb | not previewed (needs preview-lab mapping) | matches Ari direction on paper (dark-elegant robe-coat, high collar); texture quality TBD | upright/grounded/centred/neutral ~1.8 m; **28.75 MB & ~541k tris — over budget** | **pending preview** (+ licence confirmation) |
+| ari-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-23), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Ari-run1-candidate-01.glb | **preview mapping added; pending local visual preview** (variant `run1-candidate-01`) | matches Ari direction on paper (dark-elegant robe-coat, high collar); texture quality TBD | upright/grounded/centred/neutral ~1.8 m; **28.75 MB & ~541k tris — over budget** | **pending preview** (+ licence confirmation) |
 | ari-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | ari-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
