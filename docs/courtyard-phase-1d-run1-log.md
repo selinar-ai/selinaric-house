@@ -2,7 +2,7 @@
 
 ## Phase 1D — Asset Regeneration Run 1 — Run Log
 
-> **Status:** Run 1 intake **active**. **1 candidate intaken so far:** `ari-run1-candidate-01` (Meshy, manual by Tara) — inspected, provenance recorded, **pending preview + licence confirmation**. See "Intake entries" below.
+> **Status:** Run 1 intake **active**. **1 candidate:** `ari-run1-candidate-01` (Meshy, manual by Tara) — inspected, provenance recorded, preview mapping added, **Tara-reviewed 2026-06-24 → visual candidate, pending licence confirmation and optimisation**. See "Intake entries" below.
 > **Repo:** `selinaric-house` (private House-side work)
 > **Branch:** `courtyard/phase-1d-run1-candidate-intake`, from `main` @ `6a2fd11`
 > **Date:** 2026-06-24
@@ -67,6 +67,19 @@ A per-character candidate mapping was added (2026-06-24, Tara-approved):
 - Viewer: the Variant selector now lists a character's candidates (Ari shows "Ari Run 1 Candidate 01 — local preview only"; Eli/Tara do not). Switching character resets the variant to `draft`.
 
 Status: **preview mapping live; pending local visual preview** (and licence confirmation). Not marked `visual candidate` — that requires Tara's browser review.
+
+### Visual review — ari-run1-candidate-01 (2026-06-24, Tara)
+**Outcome: PASS as a visual candidate.** Observed in the lab: model loads; current file `Ari-run1-candidate-01.glb`; upright and grounded; face readable; robe-coat silhouette fits Ari; textures readable in the House viewer (not crushed-black/muddy); orbit/exposure/debug-grey available; no approval/save/memory controls.
+
+**New status:** `visual candidate — pending licence confirmation and optimisation`. **Not approved, not canon, not an approved asset.**
+
+**Remaining concerns before carry-forward:**
+- File size: **~28.75 MB**, above the ~25 MB target.
+- Triangle count: **~541k**, too heavy.
+- Needs a **Blender decimation/optimisation copy** before carry-forward use (a `*-fixed`/decimated local copy; originals untouched). **Not performed in this task** — requires explicit approval.
+- **Licence/usage rights remain pending Tara confirmation** (Meshy terms). Candidate must not advance beyond local exploration until confirmed.
+
+**Next recommended step:** an **approved Blender decimation pass** to bring tris/size within budget (local `*-decimated`/`*-fixed` copy only, no mutation of the original, no commit of binaries), then re-preview.
 
 ---
 

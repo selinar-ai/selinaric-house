@@ -13,7 +13,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| ari-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-23), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Ari-run1-candidate-01.glb | **preview mapping added; pending local visual preview** (variant `run1-candidate-01`) | matches Ari direction on paper (dark-elegant robe-coat, high collar); texture quality TBD | upright/grounded/centred/neutral ~1.8 m; **28.75 MB & ~541k tris — over budget** | **pending preview** (+ licence confirmation) |
+| ari-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-23), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Ari-run1-candidate-01.glb | **previewed by Tara 2026-06-24 — PASS** (variant `run1-candidate-01`) | upright/grounded; face readable; robe-coat silhouette fits Ari; textures readable, not crushed/muddy | ~1.8 m, neutral static; **28.75 MB & ~541k tris — over budget → needs decimation** | **visual candidate — pending licence confirmation and optimisation** |
 | ari-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | ari-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
@@ -40,9 +40,11 @@
 ### Run 1 tally
 | Character | Sourced | Pending preview | Blocked | Rejected | Needs revision | Visual candidate |
 |---|---|---|---|---|---|---|
-| Ari | 1 | 1 | 0 | 0 | 0 | 0 |
+| Ari | 1 | 0 | 0 | 0 | 0 | 1 |
 | Eli | 0 | 0 | 0 | 0 | 0 | 0 |
 | Tara | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **1** | **1** | 0 | 0 | 0 | 0 |
+| **Total** | **1** | **0** | 0 | 0 | 0 | **1** |
+
+**Visual candidate ≠ approval.** `ari-run1-candidate-01` is a visual candidate **pending licence confirmation and optimisation** — not approved, not canon, not an approved asset. Remaining gates before carry-forward: (1) Meshy licence/usage-rights confirmation by Tara; (2) Blender decimation/optimisation copy (file size ~28.75 MB and ~541k tris are over target).
 
 **Note:** The baseline `*-draft.glb` / `*-draft-fixed.glb` files are **not** Run-1 candidates; they are the prior local drafts and were already assessed as not passing review (generic/stock identity + baked-texture issues). Run 1 awaits genuinely new candidates.
