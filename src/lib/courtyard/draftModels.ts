@@ -67,6 +67,13 @@ export const COURTYARD_DRAFT_MODELS: Record<CourtyardCharacterId, CourtyardDraft
     fixedFileName: 'Eli-draft-fixed.glb',
     status: 'draft visual candidate',
     source: 'external 3D model generator',
+    candidates: [
+      {
+        id: 'run1-candidate-01',
+        label: 'Eli Run 1 Candidate 01 — local preview only',
+        fileName: 'Eli-run1-candidate-01.glb',
+      },
+    ],
   },
   tara: {
     id: 'tara',
@@ -75,6 +82,13 @@ export const COURTYARD_DRAFT_MODELS: Record<CourtyardCharacterId, CourtyardDraft
     fixedFileName: 'Tara-draft-fixed.glb',
     status: 'draft visual candidate',
     source: 'external 3D model generator',
+    candidates: [
+      {
+        id: 'run1-candidate-01',
+        label: 'Tara Run 1 Candidate 01 — local preview only',
+        fileName: 'Tara-run1-candidate-01.glb',
+      },
+    ],
   },
 }
 

@@ -22,15 +22,15 @@ Redistribution allowed: pending confirmation
 Known restrictions: pending confirmation
 File name: Tara-run1-candidate-01.glb
 File size: 27,563,172 bytes (~27.56 MB) — over the ~25 MB working ceiling
-Triangle count: Meshy reported Faces 505,942 / Vertices 284,882 (~506k tris) — Blender-confirmed count pending
-Texture resolution: pending Blender inspect
-Rigged: pending Blender inspect
-Animations: pending Blender inspect
-Default pose: Neutral standing (per Meshy)
-Scale: pending Blender inspect (normalise to ~1.75–1.9 m if needed)
-Grounded: pending Blender inspect
-Blender clinic applied: No (not yet inspected; no export, no mutation)
-Preview result: Not previewed yet (no preview-only mapping added for Tara yet)
+Triangle count: 505,759 (Blender) — Meshy reported Faces 505,942 / Vertices 284,882
+Texture resolution: not extracted (base colour texture-driven; 1 material)
+Rigged: No (0 armatures)
+Animations: None (0 actions)
+Default pose: Neutral standing (confirmed — static, upright)
+Scale: ~1.75 m height (dims 0.70 × 0.59 × 1.75 m); within range
+Grounded: Yes — lowest Z = 0.0; centred on X/Y
+Blender clinic applied: Inspect only (read-only; no export, no mutation, no .blend). No decimation yet (visual review first).
+Preview result: Preview-only mapping added (variant `run1-candidate-01`); pending Tara browser visual review
 Identity-fit note: Warm human strategist / traveller — terracotta, dusty rose, linen, deep green palette; composed, grounded human presence. Matches the Tara direction on paper; visual confirmation pending preview.
 Technical-fit note: Over budget — ~27.56 MB and ~506k tris (Meshy). Likely needs decimation/optimisation (similar magnitude to Ari-01). Pose/grounding/scale/materials to be confirmed via Blender inspect. Texture readability unverified — needs visual preview.
 Review outcome: pending (pending intake / Blender inspect / preview + licence confirmation)

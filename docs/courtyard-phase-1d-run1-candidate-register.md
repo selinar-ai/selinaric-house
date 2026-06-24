@@ -24,7 +24,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| eli-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Eli-run1-candidate-01.glb | not previewed (no mapping yet) | luminous pale-robe companion, distinct from Ari (per direction); TBD | **~45.25 MB / ~1.13M tris — well over budget**; inspect pending | **pending intake / pending preview** |
+| eli-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Eli-run1-candidate-01.glb | **preview mapping added; pending browser visual review** (variant `run1-candidate-01`) | luminous pale-robe companion, distinct from Ari (per direction); texture TBD | inspect: upright/grounded/centred/neutral, ~1.8 m, 0 rig/anim; **45.25 MB / ~1.13M tris — well over budget** | **pending preview** |
 | eli-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | eli-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
@@ -33,7 +33,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| tara-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Tara-run1-candidate-01.glb | not previewed (no mapping yet) | warm human strategist/traveller, terracotta/rose/linen/green (per direction); TBD | **~27.56 MB / ~506k tris — over budget**; inspect pending | **pending intake / pending preview** |
+| tara-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Tara-run1-candidate-01.glb | **preview mapping added; pending browser visual review** (variant `run1-candidate-01`) | warm human strategist/traveller, terracotta/rose/linen/green (per direction); texture TBD | inspect: upright/grounded/centred/neutral, ~1.75 m, 0 rig/anim; **27.56 MB / ~506k tris — over budget** | **pending preview** |
 | tara-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | tara-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 

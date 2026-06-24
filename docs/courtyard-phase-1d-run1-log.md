@@ -67,14 +67,18 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 **eli-run1-candidate-01** — 2026-06-24
 - **Sourced:** Tara, Meshy.ai (AI-generated 2026-06-24), downloaded to `gaming-assets/drafts/Eli-run1-candidate-01.glb` (git-ignored).
 - **Provenance:** `docs/courtyard-candidate-provenance/eli-run1-candidate-01.md`. **Licence pending Tara confirmation.**
-- **File:** ~45.25 MB; Meshy ~1,131,276 faces / 651,897 verts (~1.13M tris) — **very heavy, well over budget**. Neutral standing (per Meshy). Identity direction: luminous pale-robe companion, distinct from Ari.
-- **Status:** `pending intake / pending preview` — Blender inspect not yet run; no preview mapping yet. Not approved. Expect a sizeable decimation pass.
+- **File:** ~45.25 MB; Meshy ~1,131,276 faces / 651,897 verts. Identity direction: luminous pale-robe companion, distinct from Ari.
+- **Blender inspect (read-only, 2026-06-24):** 1 mesh, 0 armatures, 0 anim, 1 material (non-metallic, roughness 0.8, texture-driven); **1,128,979 tris**; dims 1.06 × 0.75 × 1.8 m; lowest Z 0 (grounded), centred, upright, neutral static. Structure clean; **very heavy / over budget**.
+- **Preview mapping:** added Eli-only candidate variant `run1-candidate-01` → `Eli-run1-candidate-01.glb`.
+- **Status:** `pending preview` — pending Tara browser visual review. Not approved. Will need a sizeable decimation pass (~1.13M tris) — **after** visual review.
 
 **tara-run1-candidate-01** — 2026-06-24
 - **Sourced:** Tara, Meshy.ai (AI-generated 2026-06-24), downloaded to `gaming-assets/drafts/Tara-run1-candidate-01.glb` (git-ignored).
 - **Provenance:** `docs/courtyard-candidate-provenance/tara-run1-candidate-01.md`. **Licence pending Tara confirmation.**
-- **File:** ~27.56 MB; Meshy ~505,942 faces / 284,882 verts (~506k tris) — **over budget**. Neutral standing (per Meshy). Identity direction: warm human strategist/traveller, terracotta/rose/linen/green.
-- **Status:** `pending intake / pending preview` — Blender inspect not yet run; no preview mapping yet. Not approved. Likely a decimation pass needed.
+- **File:** ~27.56 MB; Meshy ~505,942 faces / 284,882 verts. Identity direction: warm human strategist/traveller, terracotta/rose/linen/green.
+- **Blender inspect (read-only, 2026-06-24):** 1 mesh, 0 armatures, 0 anim, 1 material (non-metallic, roughness 0.8, texture-driven); **505,759 tris**; dims 0.70 × 0.59 × 1.75 m; lowest Z 0 (grounded), centred, upright, neutral static. Structure clean; **over budget**.
+- **Preview mapping:** added Tara-only candidate variant `run1-candidate-01` → `Tara-run1-candidate-01.glb`.
+- **Status:** `pending preview` — pending Tara browser visual review. Not approved. Likely a decimation pass needed (~506k tris) — **after** visual review.
 
 ### Preview path — IMPLEMENTED (tightly scoped, preview-only)
 A per-character candidate mapping was added (2026-06-24, Tara-approved):

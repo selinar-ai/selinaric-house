@@ -22,15 +22,15 @@ Redistribution allowed: pending confirmation
 Known restrictions: pending confirmation
 File name: Eli-run1-candidate-01.glb
 File size: 45,246,548 bytes (~45.25 MB) — WELL OVER the ~25 MB working ceiling
-Triangle count: Meshy reported Faces 1,131,276 / Vertices 651,897 (~1.13M tris) — Blender-confirmed count pending
-Texture resolution: pending Blender inspect
-Rigged: pending Blender inspect
-Animations: pending Blender inspect
-Default pose: Neutral standing (per Meshy)
-Scale: pending Blender inspect (normalise to ~1.75–1.9 m if needed)
-Grounded: pending Blender inspect
-Blender clinic applied: No (not yet inspected; no export, no mutation)
-Preview result: Not previewed yet (no preview-only mapping added for Eli yet)
+Triangle count: 1,128,979 (Blender) — Meshy reported Faces 1,131,276 / Vertices 651,897
+Texture resolution: not extracted (base colour texture-driven; 1 material)
+Rigged: No (0 armatures)
+Animations: None (0 actions)
+Default pose: Neutral standing (confirmed — static, upright)
+Scale: ~1.8 m height (dims 1.06 × 0.75 × 1.8 m); within range
+Grounded: Yes — lowest Z = 0.0; centred on X/Y
+Blender clinic applied: Inspect only (read-only; no export, no mutation, no .blend). No decimation yet (visual review first).
+Preview result: Preview-only mapping added (variant `run1-candidate-01`); pending Tara browser visual review
 Identity-fit note: Luminous, refined masculine companion — pale robe/mantle silhouette; ivory / pearl / muted silver / pale teal palette; intended to read as visually distinct from Ari. Matches the Eli direction on paper; visual confirmation pending preview.
 Technical-fit note: VERY heavy — ~45.25 MB and ~1.13M tris (Meshy). Will need significant decimation/optimisation before carry-forward (likely a larger reduction than Ari-01). Pose/grounding/scale/materials to be confirmed via Blender inspect. Texture readability unverified — needs visual preview.
 Review outcome: pending (pending intake / Blender inspect / preview + licence confirmation)
