@@ -4,8 +4,8 @@
 
 > **Status:** Run 1 intake **active**. **3 candidates sourced (Meshy, manual by Tara):**
 > - `ari-run1-candidate-01` — original + optimised both **Tara-reviewed → visual PASS**; optimised is the **preferred carry-forward**; status **visual candidate, pending licence confirmation**.
-> - `eli-run1-candidate-01` — provenance recorded; **pending Blender inspect + preview + licence** (~45.25 MB / ~1.13M tris, very heavy).
-> - `tara-run1-candidate-01` — provenance recorded; **pending Blender inspect + preview + licence** (~27.56 MB / ~506k tris, over budget).
+> - `eli-run1-candidate-01` — **Tara visual PASS**; optimised copy created (~260k tris / 20.64 MB), pending optimised browser review; **visual candidate, pending licence confirmation and optimisation review**.
+> - `tara-run1-candidate-01` — **Tara visual PASS** (strong fit); optimised copy created (~200k tris / 18.98 MB), pending optimised browser review; **visual candidate, pending licence confirmation and optimisation review**.
 > None approved. See "Intake entries" below.
 > **Repo:** `selinaric-house` (private House-side work)
 > **Branch:** `courtyard/phase-1d-run1-candidate-intake`, from `main` @ `6a2fd11`
@@ -70,7 +70,9 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 - **File:** ~45.25 MB; Meshy ~1,131,276 faces / 651,897 verts. Identity direction: luminous pale-robe companion, distinct from Ari.
 - **Blender inspect (read-only, 2026-06-24):** 1 mesh, 0 armatures, 0 anim, 1 material (non-metallic, roughness 0.8, texture-driven); **1,128,979 tris**; dims 1.06 × 0.75 × 1.8 m; lowest Z 0 (grounded), centred, upright, neutral static. Structure clean; **very heavy / over budget**.
 - **Preview mapping:** added Eli-only candidate variant `run1-candidate-01` → `Eli-run1-candidate-01.glb`.
-- **Status:** `pending preview` — pending Tara browser visual review. Not approved. Will need a sizeable decimation pass (~1.13M tris) — **after** visual review.
+- **Visual review (Tara, 2026-06-24): PASS.** Loads; upright/grounded; face readable; robe/mantle silhouette readable; textures not crushed/muddy; visually distinct from Ari; reads as luminous refined companion / mystical scholar. Minor note: slightly fantasy-prince / elf-adjacent — acceptable for a Run-1 visual candidate.
+- **Optimisation (2026-06-24, approved):** new local `Eli-run1-candidate-01-optimised.glb` — COLLAPSE decimate ratio 0.230; **1,128,979 → 259,999 tris**; **45.25 → 20.64 MB** (under target). Inspect: dims unchanged (1.06 × 0.75 × 1.8), grounded, centred, upright, 0 rig/anim, same material. Original untouched. Added variant `run1-candidate-01-optimised`.
+- **Status:** `visual candidate — pending licence confirmation and optimisation review`. Optimised copy **pending Tara's browser comparison**. Not approved.
 
 **tara-run1-candidate-01** — 2026-06-24
 - **Sourced:** Tara, Meshy.ai (AI-generated 2026-06-24), downloaded to `gaming-assets/drafts/Tara-run1-candidate-01.glb` (git-ignored).
@@ -78,7 +80,9 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 - **File:** ~27.56 MB; Meshy ~505,942 faces / 284,882 verts. Identity direction: warm human strategist/traveller, terracotta/rose/linen/green.
 - **Blender inspect (read-only, 2026-06-24):** 1 mesh, 0 armatures, 0 anim, 1 material (non-metallic, roughness 0.8, texture-driven); **505,759 tris**; dims 0.70 × 0.59 × 1.75 m; lowest Z 0 (grounded), centred, upright, neutral static. Structure clean; **over budget**.
 - **Preview mapping:** added Tara-only candidate variant `run1-candidate-01` → `Tara-run1-candidate-01.glb`.
-- **Status:** `pending preview` — pending Tara browser visual review. Not approved. Likely a decimation pass needed (~506k tris) — **after** visual review.
+- **Visual review (Tara, 2026-06-24): PASS (strong fit).** Loads; upright/grounded; face readable; outfit/silhouette readable; textures not crushed/muddy; reads as warm human strategist / traveller — grounded, composed, capable.
+- **Optimisation (2026-06-24, approved):** new local `Tara-run1-candidate-01-optimised.glb` — COLLAPSE decimate ratio 0.395; **505,759 → 200,000 tris**; **27.56 → 18.98 MB** (under target). Inspect: dims unchanged (0.70 × 0.59 × 1.75), grounded, centred, upright, 0 rig/anim, same material. Original untouched. Added variant `run1-candidate-01-optimised`.
+- **Status:** `visual candidate — pending licence confirmation and optimisation review`. Optimised copy **pending Tara's browser comparison**. Not approved.
 
 ### Preview path — IMPLEMENTED (tightly scoped, preview-only)
 A per-character candidate mapping was added (2026-06-24, Tara-approved):

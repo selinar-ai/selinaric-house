@@ -24,7 +24,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| eli-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Eli-run1-candidate-01.glb | **preview mapping added; pending browser visual review** (variant `run1-candidate-01`) | luminous pale-robe companion, distinct from Ari (per direction); texture TBD | inspect: upright/grounded/centred/neutral, ~1.8 m, 0 rig/anim; **45.25 MB / ~1.13M tris — well over budget** | **pending preview** |
+| eli-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Eli-run1-candidate-01.glb | **previewed by Tara 2026-06-24 — PASS** (variant `run1-candidate-01`) | luminous refined companion / mystical scholar; distinct from Ari; readable (minor note: slightly fantasy-prince/elf-adjacent, acceptable for Run 1) | original 45.25 MB / ~1.13M tris; **optimised copy 20.64 MB / ~260k tris — pending visual review** (variant `run1-candidate-01-optimised`) | **visual candidate — pending licence confirmation and optimisation review** |
 | eli-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | eli-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
@@ -33,7 +33,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| tara-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Tara-run1-candidate-01.glb | **preview mapping added; pending browser visual review** (variant `run1-candidate-01`) | warm human strategist/traveller, terracotta/rose/linen/green (per direction); texture TBD | inspect: upright/grounded/centred/neutral, ~1.75 m, 0 rig/anim; **27.56 MB / ~506k tris — over budget** | **pending preview** |
+| tara-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Tara-run1-candidate-01.glb | **previewed by Tara 2026-06-24 — PASS** (variant `run1-candidate-01`) | warm human strategist/traveller; grounded, composed, capable; strong fit for Tara's direction; readable | original 27.56 MB / ~506k tris; **optimised copy 18.98 MB / ~200k tris — pending visual review** (variant `run1-candidate-01-optimised`) | **visual candidate — pending licence confirmation and optimisation review** |
 | tara-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | tara-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
@@ -43,9 +43,11 @@
 | Character | Sourced | Pending preview | Blocked | Rejected | Needs revision | Visual candidate |
 |---|---|---|---|---|---|---|
 | Ari | 1 | 0 | 0 | 0 | 0 | 1 |
-| Eli | 1 | 1 | 0 | 0 | 0 | 0 |
-| Tara | 1 | 1 | 0 | 0 | 0 | 0 |
-| **Total** | **3** | **2** | 0 | 0 | 0 | **1** |
+| Eli | 1 | 0 | 0 | 0 | 0 | 1 |
+| Tara | 1 | 0 | 0 | 0 | 0 | 1 |
+| **Total** | **3** | **0** | 0 | 0 | 0 | **3** |
+
+**All three Run-1 candidates are visual candidates (Tara-reviewed), each with an optimised local copy created. None approved.** Optimised copies (pending Tara's browser comparison) are the intended preferred carry-forward previews: Ari ~200k/19.17 MB (✅ reviewed), Eli ~260k/20.64 MB (pending), Tara ~200k/18.98 MB (pending). Standing gate for all: **Meshy licence/usage-rights confirmation**.
 
 **Visual candidate ≠ approval.** `ari-run1-candidate-01` is a visual candidate **pending licence confirmation and optimisation** — not approved, not canon, not an approved asset. Remaining gates before carry-forward: (1) Meshy licence/usage-rights confirmation by Tara; (2) Blender decimation/optimisation copy (file size ~28.75 MB and ~541k tris are over target).
 

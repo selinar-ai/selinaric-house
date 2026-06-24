@@ -73,6 +73,11 @@ export const COURTYARD_DRAFT_MODELS: Record<CourtyardCharacterId, CourtyardDraft
         label: 'Eli Run 1 Candidate 01 — local preview only',
         fileName: 'Eli-run1-candidate-01.glb',
       },
+      {
+        id: 'run1-candidate-01-optimised',
+        label: 'Eli Run 1 Candidate 01 optimised — local preview only',
+        fileName: 'Eli-run1-candidate-01-optimised.glb',
+      },
     ],
   },
   tara: {
@@ -87,6 +92,11 @@ export const COURTYARD_DRAFT_MODELS: Record<CourtyardCharacterId, CourtyardDraft
         id: 'run1-candidate-01',
         label: 'Tara Run 1 Candidate 01 — local preview only',
         fileName: 'Tara-run1-candidate-01.glb',
+      },
+      {
+        id: 'run1-candidate-01-optimised',
+        label: 'Tara Run 1 Candidate 01 optimised — local preview only',
+        fileName: 'Tara-run1-candidate-01-optimised.glb',
       },
     ],
   },

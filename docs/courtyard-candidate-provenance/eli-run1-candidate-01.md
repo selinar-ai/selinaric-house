@@ -29,14 +29,15 @@ Animations: None (0 actions)
 Default pose: Neutral standing (confirmed — static, upright)
 Scale: ~1.8 m height (dims 1.06 × 0.75 × 1.8 m); within range
 Grounded: Yes — lowest Z = 0.0; centred on X/Y
-Blender clinic applied: Inspect only (read-only; no export, no mutation, no .blend). No decimation yet (visual review first).
-Preview result: Preview-only mapping added (variant `run1-candidate-01`); pending Tara browser visual review
+Blender clinic applied: Inspect + conservative COLLAPSE decimation to NEW local copy `Eli-run1-candidate-01-optimised.glb` (1,128,979 → 259,999 tris; 45.25 → 20.64 MB; dims/grounding/scale/material preserved). Original never mutated. No .blend saved.
+Preview result: Tara visual review 2026-06-24 — PASS (upright/grounded; face + robe/mantle readable; not muddy; distinct from Ari; luminous refined companion / mystical scholar; minor: slightly fantasy-prince/elf-adjacent, acceptable for Run 1). Optimised copy mapping added (variant `run1-candidate-01-optimised`) — pending Tara browser comparison.
 Identity-fit note: Luminous, refined masculine companion — pale robe/mantle silhouette; ivory / pearl / muted silver / pale teal palette; intended to read as visually distinct from Ari. Matches the Eli direction on paper; visual confirmation pending preview.
 Technical-fit note: VERY heavy — ~45.25 MB and ~1.13M tris (Meshy). Will need significant decimation/optimisation before carry-forward (likely a larger reduction than Ari-01). Pose/grounding/scale/materials to be confirmed via Blender inspect. Texture readability unverified — needs visual preview.
-Review outcome: pending (pending intake / Blender inspect / preview + licence confirmation)
-Reviewer: —
-Review date: —
-Decision notes: Initial Eli Run 1 candidate. Not approved. Local file present and git-ignored. Next: Blender inspect (read-only), then a preview-only candidate mapping, then Tara visual review; almost certainly an optimisation/decimation pass given the ~1.13M-tri / ~45 MB size. Licence pending Tara confirmation.
+Review outcome: visual candidate — pending licence confirmation and optimisation review (NOT approved, NOT canon, NOT identity authority, NOT an approved asset)
+Reviewer: Tara
+Review date: 2026-06-24
+Preferred carry-forward file (proposed): Eli-run1-candidate-01-optimised.glb (pending Tara's optimised-copy browser review)
+Decision notes: Visual review PASSED (distinct from Ari; luminous refined companion; readable). Promoted to visual candidate. Optimisation pass 2026-06-24: local `Eli-run1-candidate-01-optimised.glb` (259,999 tris / 20.64 MB) — pending Tara's browser comparison vs the heavy original. Remaining gate: Meshy licence/usage rights confirmation. Still not approved/canon/identity-authority/approved-asset.
 ```
 
 ## Acceptance rubric (Phase 1C) — pre-inspect / pre-preview

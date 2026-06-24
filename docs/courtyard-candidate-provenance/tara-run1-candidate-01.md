@@ -29,14 +29,15 @@ Animations: None (0 actions)
 Default pose: Neutral standing (confirmed — static, upright)
 Scale: ~1.75 m height (dims 0.70 × 0.59 × 1.75 m); within range
 Grounded: Yes — lowest Z = 0.0; centred on X/Y
-Blender clinic applied: Inspect only (read-only; no export, no mutation, no .blend). No decimation yet (visual review first).
-Preview result: Preview-only mapping added (variant `run1-candidate-01`); pending Tara browser visual review
+Blender clinic applied: Inspect + conservative COLLAPSE decimation to NEW local copy `Tara-run1-candidate-01-optimised.glb` (505,759 → 200,000 tris; 27.56 → 18.98 MB; dims/grounding/scale/material preserved). Original never mutated. No .blend saved.
+Preview result: Tara visual review 2026-06-24 — PASS (strong fit; upright/grounded; face + outfit readable; not muddy; warm human strategist/traveller, grounded/composed/capable). Optimised copy mapping added (variant `run1-candidate-01-optimised`) — pending Tara browser comparison.
 Identity-fit note: Warm human strategist / traveller — terracotta, dusty rose, linen, deep green palette; composed, grounded human presence. Matches the Tara direction on paper; visual confirmation pending preview.
 Technical-fit note: Over budget — ~27.56 MB and ~506k tris (Meshy). Likely needs decimation/optimisation (similar magnitude to Ari-01). Pose/grounding/scale/materials to be confirmed via Blender inspect. Texture readability unverified — needs visual preview.
-Review outcome: pending (pending intake / Blender inspect / preview + licence confirmation)
-Reviewer: —
-Review date: —
-Decision notes: Initial Tara Run 1 candidate. Not approved. Local file present and git-ignored. Next: Blender inspect (read-only), then a preview-only candidate mapping, then Tara visual review; likely an optimisation/decimation pass given the ~506k-tri / ~27.56 MB size. Licence pending Tara confirmation.
+Review outcome: visual candidate — pending licence confirmation and optimisation review (NOT approved, NOT canon, NOT identity authority, NOT an approved asset)
+Reviewer: Tara
+Review date: 2026-06-24
+Preferred carry-forward file (proposed): Tara-run1-candidate-01-optimised.glb (pending Tara's optimised-copy browser review)
+Decision notes: Visual review PASSED — strong fit for Tara's direction (warm human strategist/traveller; grounded, composed, capable; readable). Promoted to visual candidate. Optimisation pass 2026-06-24: local `Tara-run1-candidate-01-optimised.glb` (200,000 tris / 18.98 MB) — pending Tara's browser comparison vs the original. Remaining gate: Meshy licence/usage rights confirmation. Still not approved/canon/identity-authority/approved-asset.
 ```
 
 ## Acceptance rubric (Phase 1C) — pre-inspect / pre-preview
