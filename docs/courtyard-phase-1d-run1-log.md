@@ -2,7 +2,11 @@
 
 ## Phase 1D — Asset Regeneration Run 1 — Run Log
 
-> **Status:** Run 1 intake **active**. **1 candidate:** `ari-run1-candidate-01` (Meshy, manual by Tara) — original + optimised copy both **Tara-reviewed → visual PASS**; optimised copy is the **preferred carry-forward** preview version. Status: **visual candidate, pending licence confirmation** (not approved). See "Intake entries" below.
+> **Status:** Run 1 intake **active**. **3 candidates sourced (Meshy, manual by Tara):**
+> - `ari-run1-candidate-01` — original + optimised both **Tara-reviewed → visual PASS**; optimised is the **preferred carry-forward**; status **visual candidate, pending licence confirmation**.
+> - `eli-run1-candidate-01` — provenance recorded; **pending Blender inspect + preview + licence** (~45.25 MB / ~1.13M tris, very heavy).
+> - `tara-run1-candidate-01` — provenance recorded; **pending Blender inspect + preview + licence** (~27.56 MB / ~506k tris, over budget).
+> None approved. See "Intake entries" below.
 > **Repo:** `selinaric-house` (private House-side work)
 > **Branch:** `courtyard/phase-1d-run1-candidate-intake`, from `main` @ `6a2fd11`
 > **Date:** 2026-06-24
@@ -59,6 +63,18 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 - **Blender inspect (read-only):** 1 mesh, 0 armatures, 0 animations; 540,908 tris; dims 0.68 × 0.48 × 1.8 m; lowest Z = 0.0 (grounded); centred; upright; neutral static pose; material non-metallic (roughness 0.8), texture-driven base colour.
 - **Assessment:** structurally the cleanest Ari asset so far (already upright/grounded/centred/neutral/~1.8 m — no clinic needed for structure). **Over budget:** 28.75 MB (>25 MB) and ~541k tris (>> ~30–150k suggested) → likely decimation needed later (not done; requires approval). **Texture quality unverified** — needs visual preview.
 - **Status:** `pending preview` (+ licence confirmation). Not previewed: the lab cannot stream this filename without a tightly-scoped preview-only code change (see "Preview path" below). Not marked `visual candidate` — no preview has occurred.
+
+**eli-run1-candidate-01** — 2026-06-24
+- **Sourced:** Tara, Meshy.ai (AI-generated 2026-06-24), downloaded to `gaming-assets/drafts/Eli-run1-candidate-01.glb` (git-ignored).
+- **Provenance:** `docs/courtyard-candidate-provenance/eli-run1-candidate-01.md`. **Licence pending Tara confirmation.**
+- **File:** ~45.25 MB; Meshy ~1,131,276 faces / 651,897 verts (~1.13M tris) — **very heavy, well over budget**. Neutral standing (per Meshy). Identity direction: luminous pale-robe companion, distinct from Ari.
+- **Status:** `pending intake / pending preview` — Blender inspect not yet run; no preview mapping yet. Not approved. Expect a sizeable decimation pass.
+
+**tara-run1-candidate-01** — 2026-06-24
+- **Sourced:** Tara, Meshy.ai (AI-generated 2026-06-24), downloaded to `gaming-assets/drafts/Tara-run1-candidate-01.glb` (git-ignored).
+- **Provenance:** `docs/courtyard-candidate-provenance/tara-run1-candidate-01.md`. **Licence pending Tara confirmation.**
+- **File:** ~27.56 MB; Meshy ~505,942 faces / 284,882 verts (~506k tris) — **over budget**. Neutral standing (per Meshy). Identity direction: warm human strategist/traveller, terracotta/rose/linen/green.
+- **Status:** `pending intake / pending preview` — Blender inspect not yet run; no preview mapping yet. Not approved. Likely a decimation pass needed.
 
 ### Preview path — IMPLEMENTED (tightly scoped, preview-only)
 A per-character candidate mapping was added (2026-06-24, Tara-approved):

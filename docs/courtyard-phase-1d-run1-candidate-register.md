@@ -1,7 +1,7 @@
 # Courtyard — Phase 1D Run 1 — Candidate Register
 
 > Summary register of Round-1 candidates, grouped by character. Cap: ≤3 per character, ≤9 total.
-> **Status: 1 candidate sourced so far (Ari-01, manually by Tara via Meshy).** Asset generation/downloading is a manual human step the assistant cannot perform — see `courtyard-phase-1d-run1-log.md`.
+> **Status: 3 candidates sourced (Ari-01, Eli-01, Tara-01 — all manually by Tara via Meshy).** Ari-01 visually passed (optimised). Eli-01 & Tara-01: provenance recorded, **pending Blender inspect + preview + licence**. Asset generation/downloading is a manual human step the assistant cannot perform — see `courtyard-phase-1d-run1-log.md`.
 > **Governance:** every entry is a draft visual candidate only. Recording/previewing is **not** approval; only a governed Tara-confirmed review may assign `approved asset`.
 
 **Outcome legend:** `rejected` · `blocked` (rights/provenance unclear or missing) · `needs revision` · `visual candidate` · `— pending` (slot open, no candidate yet).
@@ -24,7 +24,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| eli-run1-candidate-01 | — | — | — | — | not tested | — | — | — pending |
+| eli-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Eli-run1-candidate-01.glb | not previewed (no mapping yet) | luminous pale-robe companion, distinct from Ari (per direction); TBD | **~45.25 MB / ~1.13M tris — well over budget**; inspect pending | **pending intake / pending preview** |
 | eli-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | eli-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
@@ -33,7 +33,7 @@
 
 | Candidate ID | Source platform/tool | Source URL / generation note | Licence / provenance | File name | Preview status | Visual note | Technical note | Outcome |
 |---|---|---|---|---|---|---|---|---|
-| tara-run1-candidate-01 | — | — | — | — | not tested | — | — | — pending |
+| tara-run1-candidate-01 | Meshy.ai | AI-generated in Meshy (2026-06-24), downloaded local; no URL | Meshy subscription — **licence pending Tara confirmation** | Tara-run1-candidate-01.glb | not previewed (no mapping yet) | warm human strategist/traveller, terracotta/rose/linen/green (per direction); TBD | **~27.56 MB / ~506k tris — over budget**; inspect pending | **pending intake / pending preview** |
 | tara-run1-candidate-02 | — | — | — | — | not tested | — | — | — pending |
 | tara-run1-candidate-03 | — | — | — | — | not tested | — | — | — pending |
 
@@ -43,9 +43,9 @@
 | Character | Sourced | Pending preview | Blocked | Rejected | Needs revision | Visual candidate |
 |---|---|---|---|---|---|---|
 | Ari | 1 | 0 | 0 | 0 | 0 | 1 |
-| Eli | 0 | 0 | 0 | 0 | 0 | 0 |
-| Tara | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **1** | **0** | 0 | 0 | 0 | **1** |
+| Eli | 1 | 1 | 0 | 0 | 0 | 0 |
+| Tara | 1 | 1 | 0 | 0 | 0 | 0 |
+| **Total** | **3** | **2** | 0 | 0 | 0 | **1** |
 
 **Visual candidate ≠ approval.** `ari-run1-candidate-01` is a visual candidate **pending licence confirmation and optimisation** — not approved, not canon, not an approved asset. Remaining gates before carry-forward: (1) Meshy licence/usage-rights confirmation by Tara; (2) Blender decimation/optimisation copy (file size ~28.75 MB and ~541k tris are over target).
 
