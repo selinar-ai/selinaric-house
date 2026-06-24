@@ -33,11 +33,11 @@ Blender clinic applied: Inspect + conservative COLLAPSE decimation to NEW local 
 Preview result: Tara visual review 2026-06-24 — PASS (upright/grounded; face + robe/mantle readable; not muddy; distinct from Ari; luminous refined companion / mystical scholar; minor: slightly fantasy-prince/elf-adjacent, acceptable for Run 1). Optimised copy mapping added (variant `run1-candidate-01-optimised`) — pending Tara browser comparison.
 Identity-fit note: Luminous, refined masculine companion — pale robe/mantle silhouette; ivory / pearl / muted silver / pale teal palette; intended to read as visually distinct from Ari. Matches the Eli direction on paper; visual confirmation pending preview.
 Technical-fit note: VERY heavy — ~45.25 MB and ~1.13M tris (Meshy). Will need significant decimation/optimisation before carry-forward (likely a larger reduction than Ari-01). Pose/grounding/scale/materials to be confirmed via Blender inspect. Texture readability unverified — needs visual preview.
-Review outcome: visual candidate — pending licence confirmation and optimisation review (NOT approved, NOT canon, NOT identity authority, NOT an approved asset)
+Review outcome: visual candidate — pending licence confirmation (NOT approved, NOT canon, NOT identity authority, NOT an approved asset)
 Reviewer: Tara
 Review date: 2026-06-24
-Preferred carry-forward file (proposed): Eli-run1-candidate-01-optimised.glb (pending Tara's optimised-copy browser review)
-Decision notes: Visual review PASSED (distinct from Ari; luminous refined companion; readable). Promoted to visual candidate. Optimisation pass 2026-06-24: local `Eli-run1-candidate-01-optimised.glb` (259,999 tris / 20.64 MB) — pending Tara's browser comparison vs the heavy original. Remaining gate: Meshy licence/usage rights confirmation. Still not approved/canon/identity-authority/approved-asset.
+Preferred carry-forward file: Eli-run1-candidate-01-optimised.glb (optimised copy preferred over the heavy original)
+Decision notes: Original AND optimised both visually PASSED (Tara, 2026-06-24). Original passed but too heavy (~1.13M tris / 45.25 MB). Optimised copy `Eli-run1-candidate-01-optimised.glb` (259,999 tris / 20.64 MB) ALSO passed — no obvious decimation damage; face/robe-mantle/textures held; distinct from Ari (slight fantasy-prince quality remains, acceptable for Run 1). Optimised copy is the preferred carry-forward local preview version. Sole remaining gate: Meshy licence/usage rights confirmation by Tara. Still not approved/canon/identity-authority/approved-asset.
 ```
 
 ## Acceptance rubric (Phase 1C) — pre-inspect / pre-preview

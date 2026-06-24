@@ -4,9 +4,9 @@
 
 > **Status:** Run 1 intake **active**. **3 candidates sourced (Meshy, manual by Tara):**
 > - `ari-run1-candidate-01` — original + optimised both **Tara-reviewed → visual PASS**; optimised is the **preferred carry-forward**; status **visual candidate, pending licence confirmation**.
-> - `eli-run1-candidate-01` — **Tara visual PASS**; optimised copy created (~260k tris / 20.64 MB), pending optimised browser review; **visual candidate, pending licence confirmation and optimisation review**.
-> - `tara-run1-candidate-01` — **Tara visual PASS** (strong fit); optimised copy created (~200k tris / 18.98 MB), pending optimised browser review; **visual candidate, pending licence confirmation and optimisation review**.
-> None approved. See "Intake entries" below.
+> - `eli-run1-candidate-01` — original + optimised both **Tara visual PASS**; optimised (~260k / 20.64 MB) is the **preferred carry-forward**; **visual candidate, pending licence confirmation**.
+> - `tara-run1-candidate-01` — original + optimised both **Tara visual PASS** (strong fit); optimised (~200k / 18.98 MB) is the **preferred carry-forward**; **visual candidate, pending licence confirmation**.
+> None approved. **All 3 characters now have a reviewed optimised carry-forward; sole remaining gate is the Meshy licence.** See "Intake entries" below.
 > **Repo:** `selinaric-house` (private House-side work)
 > **Branch:** `courtyard/phase-1d-run1-candidate-intake`, from `main` @ `6a2fd11`
 > **Date:** 2026-06-24
@@ -83,6 +83,11 @@ None on new candidates (there were none). The existing `/courtyard/3d-preview` l
 - **Visual review (Tara, 2026-06-24): PASS (strong fit).** Loads; upright/grounded; face readable; outfit/silhouette readable; textures not crushed/muddy; reads as warm human strategist / traveller — grounded, composed, capable.
 - **Optimisation (2026-06-24, approved):** new local `Tara-run1-candidate-01-optimised.glb` — COLLAPSE decimate ratio 0.395; **505,759 → 200,000 tris**; **27.56 → 18.98 MB** (under target). Inspect: dims unchanged (0.70 × 0.59 × 1.75), grounded, centred, upright, 0 rig/anim, same material. Original untouched. Added variant `run1-candidate-01-optimised`.
 - **Status:** `visual candidate — pending licence confirmation and optimisation review`. Optimised copy **pending Tara's browser comparison**. Not approved.
+
+### Optimised visual review — Eli & Tara (2026-06-24, Tara)
+- **eli-run1-candidate-01-optimised — PASS.** Face readable; robe/mantle silhouette readable; textures clean/not muddy; distinct from Ari; luminous refined companion / mystical scholar; slight fantasy-prince quality remains (acceptable for Run 1); **no obvious decimation damage.** → **`visual candidate — pending licence confirmation`**; optimised copy is the **preferred carry-forward** over the heavy original (original passed but too heavy).
+- **tara-run1-candidate-01-optimised — PASS.** Face readable; outfit/silhouette readable; textures clean/not muddy; warm human strategist/traveller, grounded/composed/capable; strong fit; **no obvious decimation damage.** → **`visual candidate — pending licence confirmation`**; optimised copy is the **preferred carry-forward** over the original (original passed but over budget).
+- Both: **not approved / not canon / not identity authority / not approved asset.** Sole remaining gate: **Meshy licence/usage-rights confirmation.**
 
 ### Preview path — IMPLEMENTED (tightly scoped, preview-only)
 A per-character candidate mapping was added (2026-06-24, Tara-approved):
