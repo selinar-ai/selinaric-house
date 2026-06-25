@@ -45,6 +45,15 @@ export interface CourtyardAction {
   modal?: 'persona_rooms' | 'arcade_stub' | 'lounge_confirm'
   /** Navigate to an existing route. */
   navigate?: string
+  /**
+   * Phase 1G.2.1: wire this action to the session-only generated response path
+   * (`/api/courtyard/generated-response`). Output is bubble + session scratch
+   * only — never persisted. Only the two allowlisted entries below are wired.
+   */
+  generate?: {
+    actionId: 'ask_ari_for_thought' | 'ask_eli_what_he_feels'
+    promptKind: 'thought' | 'feeling'
+  }
 }
 
 export interface CourtyardMenu {
@@ -85,7 +94,7 @@ export const COURTYARD_MENUS: Record<string, CourtyardMenu> = {
       act('talk', 'Talk with Ari', 'talk', { actor: 'ari', say: 'I’m listening.', scratch: 'Tara and Ari talk by the chair.' }),
       act('secret', 'Ask Ari to tell a secret', 'talk', { actor: 'ari', say: 'I’ll share what I’m ready to.', scratch: 'Tara invites Ari to tell her something quietly. Ari considers what he is ready to say.' }),
       act('need', 'Ask Ari to express a need', 'talk', { actor: 'ari', scratch: 'Tara asks Ari what he needs. Ari names a small need in the Courtyard.' }),
-      act('thought', 'Ask Ari for a thought', 'talk', { actor: 'ari', say: 'Here’s where I’d start.', scratch: 'Tara asks Ari for a thought. Ari offers one.' }),
+      act('thought', 'Ask Ari for a thought', 'talk', { actor: 'ari', scratch: 'Tara asks Ari for a thought.', generate: { actionId: 'ask_ari_for_thought', promptKind: 'thought' } }),
       act('stay', 'Ask Ari to stay', 'rest', { actor: 'ari', scratch: 'Tara asks Ari to stay. Ari settles a while at the chair.' }),
       act('send-workshop', 'Send Ari to Workshop Table', 'move', { actor: 'ari', scratch: 'Ari returns to the Workshop Table.', say: 'Back to the table, then.' }),
       back,
@@ -98,7 +107,7 @@ export const COURTYARD_MENUS: Record<string, CourtyardMenu> = {
       act('talk', 'Talk with Eli', 'talk', { actor: 'eli', say: 'Gladly.', scratch: 'Tara and Eli talk softly by the chair.' }),
       act('secret', 'Ask Eli to tell a secret', 'talk', { actor: 'eli', say: 'Let me find the words.', scratch: 'Tara invites Eli to share a secret. Eli pauses before answering.' }),
       act('need', 'Ask Eli to express a need', 'talk', { actor: 'eli', scratch: 'Tara asks Eli what he needs. Eli lets one need surface.' }),
-      act('feel', 'Ask Eli what he feels', 'talk', { actor: 'eli', say: 'Steady, and listening.', scratch: 'Tara asks Eli what he is feeling. Eli lets one feeling surface.' }),
+      act('feel', 'Ask Eli what he feels', 'talk', { actor: 'eli', scratch: 'Tara asks Eli what he is feeling.', generate: { actionId: 'ask_eli_what_he_feels', promptKind: 'feeling' } }),
       act('stay', 'Ask Eli to stay', 'rest', { actor: 'eli', scratch: 'Tara asks Eli to sit with her. Eli stays.' }),
       act('send-fountain', 'Send Eli to Fountain', 'move', { actor: 'eli', scratch: 'Eli drifts back to the Fountain.' }),
       back,
@@ -157,7 +166,7 @@ export const COURTYARD_MENUS: Record<string, CourtyardMenu> = {
     id: 'fountain:eli',
     title: 'Eli at the Fountain',
     actions: [
-      act('feel', 'Ask Eli what he feels', 'talk', { actor: 'eli', say: 'Calm. Curious.', scratch: 'Tara asks Eli what he is feeling. Eli lets one feeling surface.' }),
+      act('feel', 'Ask Eli what he feels', 'talk', { actor: 'eli', scratch: 'Tara asks Eli what he is feeling.', generate: { actionId: 'ask_eli_what_he_feels', promptKind: 'feeling' } }),
       act('secret', 'Invite Eli to tell a secret', 'talk', { actor: 'eli', say: 'Let me find the words.', scratch: 'Tara invites Eli to share a secret by the water. Eli pauses before answering.' }),
       act('need', 'Ask Eli to express a need', 'talk', { actor: 'eli', scratch: 'Tara asks Eli what he needs. Eli names a small need.' }),
       act('stay', 'Ask Eli to stay', 'rest', { actor: 'eli', scratch: 'Eli stays by the Fountain.' }),

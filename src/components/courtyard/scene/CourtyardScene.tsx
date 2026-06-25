@@ -76,6 +76,7 @@ export default function CourtyardScene() {
   const [hovered, setHovered] = useState<string | null>(null)
   const [stepCount, setStepCount] = useState(0)
   const [now, setNow] = useState(0)
+  const [generatingId, setGeneratingId] = useState<CourtyardPresenceId | null>(null)
 
   const positionsRef = useRef(positions)
   useEffect(() => { positionsRef.current = positions }, [positions])
@@ -83,6 +84,7 @@ export default function CourtyardScene() {
   useEffect(() => { startedRef.current = started }, [started])
   const selectedRef = useRef(selected)
   useEffect(() => { selectedRef.current = selected }, [selected])
+  const generatingRef = useRef(false)
 
   function logScratch(line: string) {
     setScratch((prev) => [line, ...prev].slice(0, 18))
@@ -137,6 +139,48 @@ export default function CourtyardScene() {
     }
   }
 
+  // Phase 1G.2.1: session-only generated response — bubble + session scratch,
+  // then gone. Output is never persisted. Only ever called by a manual click on
+  // a wired action (Ask Ari for a thought / Ask Eli what he feels) — never by
+  // drift/autoplay. On any failure, a soft fallback keeps the Courtyard usable.
+  async function runGenerated(
+    gen: NonNullable<CourtyardAction['generate']>,
+    actorId: CourtyardPresenceId,
+    placeId: string,
+  ) {
+    if (generatingRef.current) return
+    generatingRef.current = true
+    setGeneratingId(actorId)
+    bubbleOnly(actorId, '…')
+    try {
+      const res = await fetch('/api/courtyard/generated-response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionId: gen.actionId, actorId, placeId, promptKind: gen.promptKind }),
+      })
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      const data: unknown = await res.json()
+      const text =
+        data && typeof (data as { text?: unknown }).text === 'string'
+          ? (data as { text: string }).text.trim()
+          : ''
+      if (!text) throw new Error('empty response')
+      bubbleOnly(actorId, text)
+      logScratch(`${COURTYARD_CAST[actorId].name} says: “${text}”`)
+    } catch {
+      if (actorId === 'ari') {
+        bubbleOnly('ari', 'A thought does not arrive yet.')
+        logScratch('Ari pauses, but the thought does not arrive yet.')
+      } else {
+        bubbleOnly(actorId, 'The feeling stays quiet for now.')
+        logScratch('Eli listens, but the feeling stays quiet for now.')
+      }
+    } finally {
+      generatingRef.current = false
+      setGeneratingId(null)
+    }
+  }
+
   // ── Action execution ──────────────────────────────────────────────────
   function runAction(action: CourtyardAction, placeId: string) {
     if (action.id === 'return') { setMenu(null); return }
@@ -156,6 +200,11 @@ export default function CourtyardScene() {
     if (action.scratch) logScratch(action.scratch)
     if (action.say) bubbleOnly(action.sayBy ?? actor, action.say)
 
+    if (action.generate) {
+      setMenu(null)
+      void runGenerated(action.generate, action.sayBy ?? actor, placeId)
+      return
+    }
     if (action.modal) { setModal({ kind: action.modal }); setMenu(null); return }
     if (action.navigate) { safeNavigate(action.navigate, action.label); return }
     if (action.next) { setMenu({ menuId: action.next, placeId }); return }
@@ -327,7 +376,7 @@ export default function CourtyardScene() {
                     </div>
                   )}
                   <button type="button" onClick={(e) => { e.stopPropagation(); onTokenClick(id) }}
-                    className="flex flex-col items-center gap-0.5 focus:outline-none" title={`${char.name} — at the ${zone.name}`}>
+                    className={`flex flex-col items-center gap-0.5 focus:outline-none${generatingId === id ? ' animate-pulse' : ''}`} title={`${char.name} — at the ${zone.name}`}>
                     <span className="block rounded-full overflow-hidden" style={{
                       width: 50, height: 50, border: `2px solid ${isSelected ? '#f3e6d2' : char.accent}`,
                       boxShadow: `0 0 0 ${isSelected ? 4 : 2}px ${char.glow}, 0 5px 12px rgba(0,0,0,0.55)`,
