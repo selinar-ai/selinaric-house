@@ -1,11 +1,12 @@
-// Courtyard — Gaming Wing · Phase 1E (2D token prototype)
-// The three presences as 2D tokens. Token art is streamed from the auth'd
-// /api/courtyard/token-image/<id> route (local source PNGs, not committed).
-// Speech lines are mock session-scratch — NOT real presence voice, not canon.
+// Courtyard — Gaming Wing · Phase 1F (visual Courtyard surface)
+// The three presences as small 2D tokens on the Courtyard stage. Token art is
+// streamed from the auth'd /api/courtyard/token-image/<id> route (local source
+// PNGs, not committed). Speech lines are mock session-scratch — NOT real
+// presence voice, not canon.
 
-import type { DollhouseCharacter, DollhouseCharacterId } from './types'
+import type { CourtyardPresence, CourtyardPresenceId } from './types'
 
-export const DOLLHOUSE_CAST: Record<DollhouseCharacterId, DollhouseCharacter> = {
+export const COURTYARD_CAST: Record<CourtyardPresenceId, CourtyardPresence> = {
   tara: {
     id: 'tara',
     name: 'Tara',
@@ -13,7 +14,6 @@ export const DOLLHOUSE_CAST: Record<DollhouseCharacterId, DollhouseCharacter> = 
     accent: '#d79a73',
     glow: 'rgba(215,154,115,0.35)',
     homeZoneId: 'tara-chair',
-    // Tara stays mostly central and grounded; she drifts gently, rarely.
     affinityZoneIds: ['tara-chair', 'tara-chair', 'tara-chair', 'fountain', 'garden', 'noticeboard'],
     drift: 0.25,
     lines: [
@@ -31,7 +31,6 @@ export const DOLLHOUSE_CAST: Record<DollhouseCharacterId, DollhouseCharacter> = 
     accent: '#7fb0ad',
     glow: 'rgba(127,176,173,0.30)',
     homeZoneId: 'workshop',
-    // Ari gravitates to making, tending, and reading.
     affinityZoneIds: ['workshop', 'workshop', 'garden', 'noticeboard', 'library'],
     drift: 0.65,
     lines: [
@@ -50,7 +49,6 @@ export const DOLLHOUSE_CAST: Record<DollhouseCharacterId, DollhouseCharacter> = 
     accent: '#9ec7e0',
     glow: 'rgba(158,199,224,0.32)',
     homeZoneId: 'fountain',
-    // Eli drifts toward stillness, reading, and companionship.
     affinityZoneIds: ['fountain', 'fountain', 'library', 'tara-chair', 'bench'],
     drift: 0.6,
     lines: [
@@ -64,9 +62,14 @@ export const DOLLHOUSE_CAST: Record<DollhouseCharacterId, DollhouseCharacter> = 
   },
 }
 
-export const DOLLHOUSE_CHARACTER_IDS: DollhouseCharacterId[] = ['tara', 'ari', 'eli']
+export const COURTYARD_PRESENCE_IDS: CourtyardPresenceId[] = ['tara', 'ari', 'eli']
 
-/** Same-origin auth'd path that streams a character's token image. */
-export function tokenImagePath(id: DollhouseCharacterId): string {
+/** Same-origin auth'd path that streams a presence's token image. */
+export function tokenImagePath(id: CourtyardPresenceId): string {
   return `/api/courtyard/token-image/${id}`
+}
+
+/** Same-origin auth'd path that streams a Courtyard stage background image. */
+export function sceneImagePath(name = 'courtyard'): string {
+  return `/api/courtyard/scene-image/${name}`
 }
