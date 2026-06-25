@@ -61,5 +61,15 @@ The **behavioural spine** (drift weighting by affinity, `chance`/`pick` helpers,
 - Decide Tara's level of presence; consider folding the richer want/scoring spine behind this surface.
 - Decide whether `/courtyard` becomes the canonical entry (and whether to add a Sidebar link).
 
+## Phase 1F.1 — Object action menus (added)
+Clicking a Courtyard place now opens a **Sims-style floating action menu** (dark plum chips, gold border, hover glow) anchored near the hotspot, instead of a direct move:
+- **First-level + follow-up menus** per place — actions can move a token, show a bubble, write a session-scratch line, open a follow-up menu (`›`), open a modal, or navigate.
+- **Definitions live in** `src/lib/courtyard/scene/actions.ts` (`COURTYARD_MENUS` registry, `CourtyardAction`/`CourtyardMenu` types, `PLACE_DEFAULT_ACTOR`, `AUTOPLAY_BEATS`).
+- **Actor resolution:** explicit `actor`/`target` on the action → else the selected presence → else the place's default actor. "Gather everyone" moves all three; "Settle the room" settles.
+- **Manual flow:** click place → menu opens (no auto-move); choosing an action applies it and may open a follow-up. Selecting a presence first influences the default actor. Click-away / Escape closes the menu; first action auto-wakes the room.
+- **Autoplay** now picks **character-weighted beats** (`AUTOPLAY_BEATS`) by affinity place + flavour line (+ occasional bubble) rather than a generic drift.
+- **Doors/Persona:** Arcade → "coming soon" modal stub; Lounge → confirm modal that can navigate to the real `/lounge`; Persona Rooms → existing modal + follow-up menus linking `/room/ari`, `/room/eli`.
+- **Still session-play only:** no real Noticeboard/DB records, no Library/RAG, no model calls. "Pin a thought" / "Leave a note" / "Save as session scratch" are scratch lines only.
+
 ## Governance / boundaries honoured
 Prototype + client-only. No GLBs touched/committed; no images/binaries committed; `.gitignore` untouched; no DB/migration/API-write; no LLM/model calls; no Memory/Library/Archive/approval/asset-authority; no background scheduler (timers stop with the page). Not approved, not canon, not identity authority.
