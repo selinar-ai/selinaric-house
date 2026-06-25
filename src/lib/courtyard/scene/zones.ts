@@ -12,10 +12,10 @@ export const COURTYARD_ZONES: CourtyardZone[] = [
   { id: 'persona-rooms', name: 'Persona Rooms', x: 88, y: 39, blurb: 'Doorways into each presence’s own room.', kind: 'rooms' },
   { id: 'fountain', name: 'Fountain', x: 52, y: 44, blurb: 'Where Eli tends to pause before speaking.', kind: 'place' },
   { id: 'garden', name: 'Garden patch', x: 24, y: 53, blurb: 'A soft green corner to tend.', kind: 'place' },
-  { id: 'bench', name: 'Bench', x: 18, y: 81, blurb: 'A place to sit quietly and let the room settle.', kind: 'place' },
-  { id: 'noticeboard', name: 'Noticeboard / Deposit Table', x: 44, y: 75, blurb: 'A holding layer. Leave a thought; nothing self-crowns.', kind: 'place' },
-  { id: 'arcade-door', name: 'Arcade Door', x: 60, y: 77, blurb: 'A glowing archway toward the games.', kind: 'door' },
-  { id: 'lounge-door', name: 'Lounge Door', x: 75, y: 72, blurb: 'A warm archway toward the lounge.', kind: 'door' },
+  { id: 'bench', name: 'Bench', x: 32, y: 82, blurb: 'A place to sit quietly and let the room settle.', kind: 'place' },
+  { id: 'noticeboard', name: 'Noticeboard / Deposit Table', x: 50, y: 74, blurb: 'A holding layer. Leave a thought; nothing self-crowns.', kind: 'place' },
+  { id: 'arcade-door', name: 'Arcade Door', x: 67, y: 74, blurb: 'A glowing archway toward the games.', kind: 'door' },
+  { id: 'lounge-door', name: 'Lounge Door', x: 80, y: 70, blurb: 'A warm archway toward the lounge.', kind: 'door' },
 ]
 
 export function getZone(id: string): CourtyardZone | undefined {
