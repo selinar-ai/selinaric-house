@@ -50,6 +50,9 @@ export async function GET(
   try {
     data = await readFile(filePath)
   } catch {
+    // Clear server-side signal if a whitelisted runtime asset is missing on the
+    // deployment (e.g. not committed or not bundled). The path, not the bytes.
+    console.error('[courtyard/token-image] runtime asset missing:', filePath)
     return notFound()
   }
 

@@ -2,7 +2,21 @@ import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The Courtyard image routes read these PNGs from gaming-assets/ at runtime via
+  // a dynamic readFile(join(process.cwd(), ...)). Next.js output-file-tracing does
+  // not detect dynamically-built paths, so without this the files are not bundled
+  // into the Vercel serverless functions and the routes 404 in production. List
+  // ONLY the exact committed runtime assets each route needs.
+  outputFileTracingIncludes: {
+    '/api/courtyard/scene-image/**': [
+      './gaming-assets/docs/courtyard-visual-references/courtyard-reference-01.png',
+    ],
+    '/api/courtyard/token-image/**': [
+      './gaming-assets/docs/courtyard-2d-tokenssource-images/Ari-2d-source-run1-01.png',
+      './gaming-assets/docs/courtyard-2d-tokenssource-images/eli-2d-source-run1-01.png',
+      './gaming-assets/docs/courtyard-2d-tokenssource-images/tara-2d-source-run1-01.png',
+    ],
+  },
 };
 
 export default withSentryConfig(nextConfig, {
