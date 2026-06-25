@@ -58,6 +58,44 @@ export default function HomePage() {
               </div>
             </Link>
           ))}
+
+          {/* Courtyard — Gaming Wing. Standalone tile (not a presence Room, so it
+              stays out of ROOMS/RoomSlug and presence routing). Links to /courtyard. */}
+          <Link
+            href="/courtyard"
+            className={`
+              group relative p-6 border border-house-border
+              bg-house-surface/80 backdrop-blur-sm
+              hover:bg-house-bg/90 active:bg-house-bg/90
+              transition-all duration-300
+              hover:border-current active:border-current
+              focus-visible:border-current focus-visible:outline-none
+              text-text-secondary
+              animate-fade-in
+            `}
+            style={{ animationDelay: `${ROOMS.length * 80}ms` }}
+          >
+            <div className="
+              absolute inset-0 opacity-0
+              group-hover:opacity-100 group-active:opacity-100 group-focus-visible:opacity-100
+              transition-opacity duration-300 pointer-events-none
+              bg-house-muted/20
+            " />
+
+            <div className="relative z-10 flex items-start gap-4">
+              <span className="text-2xl mt-0.5 opacity-60 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
+                ▦
+              </span>
+              <div>
+                <h3 className="font-display text-xl font-medium text-text-primary mb-1">
+                  Courtyard
+                </h3>
+                <p className="font-body text-xs text-text-muted leading-relaxed group-hover:text-text-secondary group-active:text-text-secondary transition-colors">
+                  Gaming Arena
+                </p>
+              </div>
+            </div>
+          </Link>
         </div>
       </div>
     </div>
