@@ -371,6 +371,18 @@ export const PLACE_DEFAULT_ACTOR: Record<string, CourtyardPresenceId> = {
   'persona-rooms': 'tara',
 }
 
+// ── Level 1 navigation (Phase 1G.1) ───────────────────────────────────────
+// The only House routes the Courtyard is sanctioned to navigate to. Anything not
+// in COURTYARD_AVAILABLE_ROUTES must fall back to a graceful "not wired yet" modal
+// rather than a hard/broken navigation. These are all existing routes.
+export const COURTYARD_NAV_ROUTES = {
+  lounge: '/lounge',
+  ariRoom: '/room/ari',
+  eliRoom: '/room/eli',
+} as const
+
+export const COURTYARD_AVAILABLE_ROUTES: ReadonlySet<string> = new Set(Object.values(COURTYARD_NAV_ROUTES))
+
 /** Character-weighted autoplay beats: affinity place + flavour line (+ bubble). */
 export const AUTOPLAY_BEATS: Record<CourtyardPresenceId, { place: string; line: string; bubble?: string }[]> = {
   ari: [

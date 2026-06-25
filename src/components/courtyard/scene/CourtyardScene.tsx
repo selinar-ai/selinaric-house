@@ -12,7 +12,6 @@
 // die with the page). Speech + actions are mock session scratch — never canon.
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { COURTYARD_ZONES, getZone } from '@/lib/courtyard/scene/zones'
 import {
@@ -25,6 +24,8 @@ import {
   getMenu,
   PLACE_DEFAULT_ACTOR,
   AUTOPLAY_BEATS,
+  COURTYARD_NAV_ROUTES,
+  COURTYARD_AVAILABLE_ROUTES,
   type CourtyardAction,
 } from '@/lib/courtyard/scene/actions'
 import type { CourtyardPresenceId } from '@/lib/courtyard/scene/types'
@@ -32,7 +33,10 @@ import type { CourtyardPresenceId } from '@/lib/courtyard/scene/types'
 type Positions = Record<CourtyardPresenceId, string>
 type Bubbles = Record<CourtyardPresenceId, { text: string; until: number } | null>
 type Notes = Record<CourtyardPresenceId, string | null>
-type ModalKind = 'persona_rooms' | 'arcade_stub' | 'lounge_confirm' | null
+type SceneModal =
+  | { kind: 'persona_rooms' | 'arcade_stub' | 'lounge_confirm' }
+  | { kind: 'route_unavailable'; note: string }
+  | null
 
 const BUBBLE_MS = 4500
 const DRIFT_MS = 3600
@@ -68,7 +72,7 @@ export default function CourtyardScene() {
   const [notes, setNotes] = useState<Notes>({ tara: null, ari: null, eli: null })
   const [scratch, setScratch] = useState<string[]>([])
   const [menu, setMenu] = useState<{ menuId: string; placeId: string } | null>(null)
-  const [modal, setModal] = useState<ModalKind>(null)
+  const [modal, setModal] = useState<SceneModal>(null)
   const [hovered, setHovered] = useState<string | null>(null)
   const [stepCount, setStepCount] = useState(0)
   const [now, setNow] = useState(0)
@@ -123,6 +127,16 @@ export default function CourtyardScene() {
     logScratch('The Courtyard settles. Nothing is running.')
   }
 
+  // Level 1 navigation with graceful fallback — only push to known House routes.
+  function safeNavigate(path: string, label = 'That doorway') {
+    setMenu(null)
+    if (COURTYARD_AVAILABLE_ROUTES.has(path)) {
+      router.push(path)
+    } else {
+      setModal({ kind: 'route_unavailable', note: `${label} isn’t wired yet.` })
+    }
+  }
+
   // ── Action execution ──────────────────────────────────────────────────
   function runAction(action: CourtyardAction, placeId: string) {
     if (action.id === 'return') { setMenu(null); return }
@@ -142,8 +156,8 @@ export default function CourtyardScene() {
     if (action.scratch) logScratch(action.scratch)
     if (action.say) bubbleOnly(action.sayBy ?? actor, action.say)
 
-    if (action.modal) { setModal(action.modal); setMenu(null); return }
-    if (action.navigate) { setMenu(null); router.push(action.navigate); return }
+    if (action.modal) { setModal({ kind: action.modal }); setMenu(null); return }
+    if (action.navigate) { safeNavigate(action.navigate, action.label); return }
     if (action.next) { setMenu({ menuId: action.next, placeId }); return }
     setMenu(null)
   }
@@ -401,40 +415,49 @@ export default function CourtyardScene() {
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
           <div className="w-full max-w-sm rounded-2xl border border-[#caa15f]/40 bg-house-surface p-5" onClick={(e) => e.stopPropagation()}>
-            {modal === 'persona_rooms' && (
+            {modal.kind === 'persona_rooms' && (
               <>
                 <h2 className="font-display text-base tracking-[0.15em] text-text-primary">PERSONA ROOMS</h2>
-                <p className="font-body text-[11px] text-text-muted mt-1 mb-4">Doorways into each presence’s own room.</p>
+                <p className="font-body text-[11px] text-text-muted mt-1 mb-4">A doorway selector — choose a room to step into. (Not an authority surface.)</p>
                 <div className="space-y-2">
-                  <Link href="/room/ari" className="block px-3 py-2 rounded-xl border border-house-border hover:border-[#e7c887] transition-all">
+                  <button type="button" onClick={() => safeNavigate(COURTYARD_NAV_ROUTES.ariRoom, 'Ari’s Room')} className="w-full text-left px-3 py-2 rounded-xl border border-house-border hover:border-[#e7c887] transition-all">
                     <span className="font-body text-sm" style={{ color: COURTYARD_CAST.ari.accent }}>Enter Ari’s Room →</span>
                     <span className="block font-body text-[10px] text-text-muted">{COURTYARD_CAST.ari.role}</span>
-                  </Link>
-                  <Link href="/room/eli" className="block px-3 py-2 rounded-xl border border-house-border hover:border-[#e7c887] transition-all">
+                  </button>
+                  <button type="button" onClick={() => safeNavigate(COURTYARD_NAV_ROUTES.eliRoom, 'Eli’s Room')} className="w-full text-left px-3 py-2 rounded-xl border border-house-border hover:border-[#e7c887] transition-all">
                     <span className="font-body text-sm" style={{ color: COURTYARD_CAST.eli.accent }}>Enter Eli’s Room →</span>
                     <span className="block font-body text-[10px] text-text-muted">{COURTYARD_CAST.eli.role}</span>
-                  </Link>
+                  </button>
                   <div className="px-3 py-2 rounded-xl border border-dashed border-house-border">
                     <span className="font-body text-sm text-text-secondary">Tara’s space</span>
                     <span className="block font-body text-[10px] text-text-muted">A room for the centre — coming next.</span>
                   </div>
+                  <button type="button" onClick={() => setModal(null)} className="w-full text-left px-3 py-2 rounded-xl border border-house-border hover:border-house-muted transition-all">
+                    <span className="font-body text-sm text-text-secondary">Return to the Courtyard</span>
+                  </button>
                 </div>
               </>
             )}
-            {modal === 'arcade_stub' && (
+            {modal.kind === 'arcade_stub' && (
               <>
                 <h2 className="font-display text-base tracking-[0.15em] text-text-primary">ARCADE</h2>
-                <p className="font-body text-[11px] text-text-muted mt-1">The Arcade door glows, but the room is not built yet. Coming in a later phase.</p>
+                <p className="font-body text-[11px] text-text-muted mt-1">The Arcade doorway is present, but the Arcade room is not wired yet. Coming in a later phase.</p>
               </>
             )}
-            {modal === 'lounge_confirm' && (
+            {modal.kind === 'lounge_confirm' && (
               <>
                 <h2 className="font-display text-base tracking-[0.15em] text-text-primary">LOUNGE DOOR</h2>
-                <p className="font-body text-[11px] text-text-muted mt-1 mb-4">Step through to the Lounge? The Courtyard session stays as scratch.</p>
+                <p className="font-body text-[11px] text-text-muted mt-1 mb-4">Step through to the Lounge? The Courtyard session stays here as scratch — no context is carried over yet.</p>
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => { setModal(null); router.push('/lounge') }} className={btn('accent')}>Go to Lounge →</button>
+                  <button type="button" onClick={() => safeNavigate(COURTYARD_NAV_ROUTES.lounge, 'The Lounge')} className={btn('accent')}>Go to Lounge →</button>
                   <button type="button" onClick={() => setModal(null)} className={btn('soft')}>Stay in the Courtyard</button>
                 </div>
+              </>
+            )}
+            {modal.kind === 'route_unavailable' && (
+              <>
+                <h2 className="font-display text-base tracking-[0.15em] text-text-primary">NOT WIRED YET</h2>
+                <p className="font-body text-[11px] text-text-muted mt-1">{modal.note} The doorway is here; the room comes in a later phase.</p>
               </>
             )}
             <button type="button" onClick={() => setModal(null)} className="mt-4 font-body text-[11px] text-text-muted hover:text-text-secondary">Close</button>
