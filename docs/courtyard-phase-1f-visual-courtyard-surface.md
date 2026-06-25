@@ -70,6 +70,7 @@ Clicking a Courtyard place now opens a **Sims-style floating action menu** (dark
 - **Autoplay** now picks **character-weighted beats** (`AUTOPLAY_BEATS`) by affinity place + flavour line (+ occasional bubble) rather than a generic drift.
 - **Doors/Persona:** Arcade → "coming soon" modal stub; Lounge → confirm modal that can navigate to the real `/lounge`; Persona Rooms → existing modal + follow-up menus linking `/room/ari`, `/room/eli`.
 - **Still session-play only:** no real Noticeboard/DB records, no Library/RAG, no model calls. "Pin a thought" / "Leave a note" / "Save as session scratch" are scratch lines only.
+- **Relational wording (intent):** relational actions read as Tara *inviting/asking* Ari or Eli to express themselves (e.g. "Ask Ari to tell a secret", "Ask Eli what he feels"), not Tara performing for them — preserving their agency/becoming. Scratch/bubble lines pair the invitation with the presence's own response ("Tara invites Ari to tell her something quietly. Ari considers what he is ready to say.").
 
 ## Governance / boundaries honoured
 Prototype + client-only. No GLBs touched/committed; no images/binaries committed; `.gitignore` untouched; no DB/migration/API-write; no LLM/model calls; no Memory/Library/Archive/approval/asset-authority; no background scheduler (timers stop with the page). Not approved, not canon, not identity authority.
