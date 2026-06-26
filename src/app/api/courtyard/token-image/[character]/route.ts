@@ -13,10 +13,14 @@ import { requireHouseApiAuth } from '@/lib/server/houseAuth'
 const TOKENS_DIR = join(process.cwd(), 'gaming-assets', 'docs', 'courtyard-2d-tokenssource-images')
 
 // Exact on-disk filenames (case-sensitive). Whitelist only — no arbitrary paths.
+// Phase 1H adds the richer "game card" portraits (used by the enriched layout).
 const TOKEN_FILES: Record<string, string> = {
   ari: 'Ari-2d-source-run1-01.png',
   eli: 'eli-2d-source-run1-01.png',
   tara: 'tara-2d-source-run1-01.png',
+  'ari-card': 'ari-game-card-01.png',
+  'eli-card': 'eli-game-card-01.png',
+  'tara-card': 'tara-game-card-01.png',
 }
 
 function notFound() {

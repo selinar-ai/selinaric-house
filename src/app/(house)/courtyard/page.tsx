@@ -8,7 +8,7 @@ import CourtyardScene from '@/components/courtyard/scene/CourtyardScene'
 
 export default function CourtyardPage() {
   return (
-    <div className="h-full min-h-0">
+    <div className="min-h-full">
       <CourtyardScene />
     </div>
   )

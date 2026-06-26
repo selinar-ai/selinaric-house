@@ -18,6 +18,7 @@ import {
   COURTYARD_CAST,
   COURTYARD_PRESENCE_IDS,
   tokenImagePath,
+  cardImagePath,
   sceneImagePath,
 } from '@/lib/courtyard/scene/cast'
 import {
@@ -271,7 +272,7 @@ export default function CourtyardScene() {
   const openMenuZone = menu ? getZone(menu.placeId) : undefined
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-3 p-4">
+    <div className="flex flex-col min-h-full gap-3 p-4">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <div className="min-w-0">
@@ -304,12 +305,12 @@ export default function CourtyardScene() {
         <span className="font-body text-[10.5px] text-text-muted/80 ml-1">Tip: click a place for its actions.</span>
       </div>
 
-      {/* ── Body: stage + side panel ───────────────────────────────────── */}
-      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+      {/* ── Body: stage (hero) + richer presence profiles ──────────────── */}
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* Stage (hero) */}
         <div className="flex-1 min-w-0">
-          <div className="relative w-full overflow-hidden rounded-2xl border border-house-border"
-            style={{ aspectRatio: '4 / 3', background: 'radial-gradient(120% 90% at 50% 20%, #3a2b46, #221829)' }}>
+          <div className="relative w-full mx-auto overflow-hidden rounded-2xl border border-house-border"
+            style={{ aspectRatio: '4 / 3', maxWidth: 900, background: 'radial-gradient(120% 90% at 50% 20%, #3a2b46, #221829)' }}>
             {/* approved Courtyard stage image, used as-is */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={sceneImagePath('courtyard')} alt="The Courtyard" className="absolute inset-0 w-full h-full"
@@ -420,44 +421,92 @@ export default function CourtyardScene() {
           </div>
         </div>
 
-        {/* Side panel */}
-        <aside className="w-full lg:w-72 shrink-0 flex flex-col gap-3 min-h-0">
-          <div className="space-y-2">
-            {COURTYARD_PRESENCE_IDS.map((id) => {
-              const char = COURTYARD_CAST[id]
-              const zone = getZone(positions[id])
-              const drawnTo = getZone(char.affinityZoneIds[0])
-              return (
-                <button key={id} type="button" onClick={() => setSelected((p) => (p === id ? null : id))}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border text-left transition-all ${
-                    selected === id ? 'border-[#e7c887] bg-[#3a2b46]/50' : 'border-house-border hover:border-house-muted'
-                  }`}>
-                  <span className="block rounded-full overflow-hidden shrink-0" style={{ width: 34, height: 34, border: `1.5px solid ${char.accent}` }}>
+        {/* Right: richer Ari + Eli presence profiles */}
+        <aside className="w-full lg:w-80 shrink-0 flex flex-col gap-3">
+          {(['ari', 'eli'] as CourtyardPresenceId[]).map((id) => {
+            const char = COURTYARD_CAST[id]
+            const zone = getZone(positions[id])
+            const drawnTo = getZone(char.affinityZoneIds[0])
+            const isSel = selected === id
+            const wander = Math.round(char.drift * 100)
+            return (
+              <div key={id} className={`rounded-2xl border overflow-hidden transition-all ${isSel ? 'border-[#e7c887]' : 'border-house-border'}`}
+                style={{ background: 'linear-gradient(180deg, rgba(40,29,52,0.6), rgba(28,18,36,0.55))' }}>
+                <button type="button" onClick={() => setSelected((p) => (p === id ? null : id))} className="w-full text-left flex gap-3 p-3 focus:outline-none">
+                  <span className="block rounded-xl overflow-hidden shrink-0" style={{ width: 86, height: 116, border: `1.5px solid ${char.accent}`, boxShadow: `0 0 0 1px ${char.glow}` }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={tokenImagePath(id)} alt={char.name} width={34} height={34} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }} draggable={false} />
+                    <img src={cardImagePath(id)} alt={char.name} width={86} height={116} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }} draggable={false} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="font-body text-xs" style={{ color: char.accent }}>{char.name}</span>
-                    <span className="block font-body text-[10px] text-text-muted truncate">{started ? `at the ${zone?.name ?? '—'}` : 'resting'}</span>
-                    <span className="block font-body text-[9.5px] text-text-secondary/80 italic truncate">{notes[id] ?? (started ? `drawn to the ${drawnTo?.name ?? '—'}` : char.role)}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-display text-base tracking-wide" style={{ color: char.accent }}>{char.name}</span>
+                      {isSel && <span className="font-body text-[8px] px-1.5 py-0.5 rounded-full border border-[#e7c887]/50 text-[#e7c887]">selected</span>}
+                    </span>
+                    <span className="block font-body text-[10px] text-text-muted leading-snug mt-0.5">{char.role}</span>
+                    <span className="block font-body text-[10.5px] text-text-secondary mt-1.5">
+                      <span className="text-text-muted">Location · </span>{started ? (zone?.name ?? '—') : 'resting'}
+                    </span>
+                    <span className="block font-body text-[10px] text-text-secondary/90 italic leading-snug mt-0.5">
+                      {notes[id] ?? (started ? `drawn to the ${drawnTo?.name ?? '—'}` : 'waiting for the room to wake')}
+                    </span>
                   </span>
                 </button>
-              )
-            })}
-          </div>
-
-          <div className="rounded-xl border border-house-border p-3 flex-1 min-h-0 flex flex-col">
-            <h2 className="font-body text-[11px] tracking-widest text-text-muted uppercase mb-2">Session scratch</h2>
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
-              {scratch.length === 0 ? (
-                <p className="font-body text-[11px] text-text-muted italic">Quiet for now. Wake the Courtyard, or click a place to begin.</p>
-              ) : (
-                scratch.map((line, i) => (<p key={`${i}-${line}`} className="font-body text-[11px] text-text-secondary leading-snug">{line}</p>))
-              )}
-            </div>
-            <p className="font-body text-[9.5px] text-text-muted/70 italic mt-2 pt-2 border-t border-house-border">Prototype dialogue · session scratch only · not memory, not canon.</p>
-          </div>
+                {/* honest, real-state cue — wander tendency (drift), session-only */}
+                <div className="px-3 pb-3">
+                  <div className="flex items-center justify-between font-body text-[9px] text-text-muted/80 mb-1">
+                    <span>wander</span><span>{wander}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${wander}%`, background: char.accent, opacity: 0.7 }} />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          <p className="font-body text-[9px] text-text-muted/60 italic px-1">Presence snapshots reflect this session only — not memory, not canon.</p>
         </aside>
+      </div>
+
+      {/* ── Lower strip: character cards + conversation panel ───────────── */}
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Character cards */}
+        <div className="shrink-0 flex gap-2.5">
+          {COURTYARD_PRESENCE_IDS.map((id) => {
+            const char = COURTYARD_CAST[id]
+            const zone = getZone(positions[id])
+            const isSel = selected === id
+            return (
+              <button key={id} type="button" onClick={() => { ensureStarted(); setSelected((p) => (p === id ? null : id)) }}
+                className={`group relative rounded-xl overflow-hidden border transition-all ${isSel ? 'border-[#e7c887]' : 'border-house-border hover:border-house-muted'}`}
+                style={{ width: 104 }} title={`${char.name}${started ? ` — at the ${zone?.name ?? '—'}` : ''}`}>
+                <span className="block overflow-hidden" style={{ aspectRatio: '3 / 4' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={cardImagePath(id)} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', filter: isSel ? 'none' : 'saturate(0.92)' }} draggable={false} />
+                </span>
+                <span className="absolute inset-x-0 bottom-0 px-2 py-1" style={{ background: 'linear-gradient(180deg, transparent, rgba(20,12,26,0.92))' }}>
+                  <span className="block font-display text-[11px] tracking-wide" style={{ color: char.accent }}>{char.name}</span>
+                  <span className="block font-body text-[8px] text-text-muted/90 truncate">{started ? (zone?.name ?? '—') : 'resting'}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Conversation / session scratch panel */}
+        <div className="flex-1 min-w-0 rounded-2xl border border-house-border p-3 flex flex-col" style={{ background: 'rgba(28,18,36,0.45)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-body text-[11px] tracking-widest text-text-muted uppercase">Conversation · session scratch</h2>
+            <span className="font-body text-[9px] text-text-muted/70">{scratch.length} {scratch.length === 1 ? 'line' : 'lines'}</span>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1" style={{ maxHeight: 220 }}>
+            {scratch.length === 0 ? (
+              <p className="font-body text-[11px] text-text-muted italic">Quiet for now. Wake the Courtyard, or click a place to begin.</p>
+            ) : (
+              scratch.map((line, i) => (<p key={`${i}-${line}`} className="font-body text-[11px] text-text-secondary leading-snug">{line}</p>))
+            )}
+          </div>
+          <p className="font-body text-[9.5px] text-text-muted/70 italic mt-2 pt-2 border-t border-house-border">Prototype dialogue · session scratch only · not memory, not canon.</p>
+        </div>
       </div>
 
       {/* ── Modals ─────────────────────────────────────────────────────── */}

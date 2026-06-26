@@ -69,6 +69,11 @@ export function tokenImagePath(id: CourtyardPresenceId): string {
   return `/api/courtyard/token-image/${id}`
 }
 
+/** Same-origin auth'd path that streams a presence's richer "game card" art. */
+export function cardImagePath(id: CourtyardPresenceId): string {
+  return `/api/courtyard/token-image/${id}-card`
+}
+
 /** Same-origin auth'd path that streams a Courtyard stage background image. */
 export function sceneImagePath(name = 'courtyard'): string {
   return `/api/courtyard/scene-image/${name}`
