@@ -18,9 +18,10 @@ const TOKEN_FILES: Record<string, string> = {
   ari: 'Ari-2d-source-run1-01.png',
   eli: 'eli-2d-source-run1-01.png',
   tara: 'tara-2d-source-run1-01.png',
-  'ari-card': 'ari-game-card-01.png',
-  'eli-card': 'eli-game-card-01.png',
-  'tara-card': 'tara-game-card-01.png',
+  // Phase 1H.1: card keys stay stable; serve the newer longer card-02 portraits.
+  'ari-card': 'ari-game-card-02.png',
+  'eli-card': 'eli-game-card-02.png',
+  'tara-card': 'tara-game-card-02.png',
 }
 
 function notFound() {

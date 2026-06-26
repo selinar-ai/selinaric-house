@@ -15,9 +15,9 @@ const nextConfig: NextConfig = {
       './gaming-assets/docs/courtyard-2d-tokenssource-images/Ari-2d-source-run1-01.png',
       './gaming-assets/docs/courtyard-2d-tokenssource-images/eli-2d-source-run1-01.png',
       './gaming-assets/docs/courtyard-2d-tokenssource-images/tara-2d-source-run1-01.png',
-      './gaming-assets/docs/courtyard-2d-tokenssource-images/ari-game-card-01.png',
-      './gaming-assets/docs/courtyard-2d-tokenssource-images/eli-game-card-01.png',
-      './gaming-assets/docs/courtyard-2d-tokenssource-images/tara-game-card-01.png',
+      './gaming-assets/docs/courtyard-2d-tokenssource-images/ari-game-card-02.png',
+      './gaming-assets/docs/courtyard-2d-tokenssource-images/eli-game-card-02.png',
+      './gaming-assets/docs/courtyard-2d-tokenssource-images/tara-game-card-02.png',
     ],
   },
 };

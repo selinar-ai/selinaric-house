@@ -452,7 +452,7 @@ export default function CourtyardScene() {
                   </span>
                 </button>
                 {/* honest, real-state cue — wander tendency (drift), session-only */}
-                <div className="px-3 pb-3">
+                <div className="px-3 pb-2">
                   <div className="flex items-center justify-between font-body text-[9px] text-text-muted/80 mb-1">
                     <span>wander</span><span>{wander}%</span>
                   </div>
@@ -460,9 +460,38 @@ export default function CourtyardScene() {
                     <div className="h-full rounded-full" style={{ width: `${wander}%`, background: char.accent, opacity: 0.7 }} />
                   </div>
                 </div>
+                {/* Interior entry — Level 1 navigation into the presence's own room */}
+                <div className="px-3 pb-3">
+                  <button type="button"
+                    onClick={() => safeNavigate(id === 'ari' ? COURTYARD_NAV_ROUTES.ariRoom : COURTYARD_NAV_ROUTES.eliRoom, `${char.name}’s Interior`)}
+                    className="w-full text-center font-body text-[11px] px-3 py-1.5 rounded-lg border transition-all hover:brightness-125"
+                    style={{ borderColor: `${char.accent}66`, color: char.accent, background: 'rgba(20,12,26,0.35)' }}>
+                    Enter {char.name}’s Interior →
+                  </button>
+                </div>
               </div>
             )
           })}
+
+          {/* Tara — graceful stub (no Tara route yet; not created this phase) */}
+          <div className="rounded-2xl border border-house-border overflow-hidden" style={{ background: 'linear-gradient(180deg, rgba(40,29,52,0.5), rgba(28,18,36,0.5))' }}>
+            <div className="flex items-center gap-3 p-3">
+              <span className="block rounded-xl overflow-hidden shrink-0" style={{ width: 54, height: 72, border: `1.5px solid ${COURTYARD_CAST.tara.accent}` }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cardImagePath('tara')} alt="Tara" width={54} height={72} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }} draggable={false} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="font-display text-base tracking-wide" style={{ color: COURTYARD_CAST.tara.accent }}>Tara</span>
+                <span className="block font-body text-[10px] text-text-muted leading-snug">{COURTYARD_CAST.tara.role}</span>
+              </span>
+            </div>
+            <div className="px-3 pb-3">
+              <span className="block w-full text-center font-body text-[11px] px-3 py-1.5 rounded-lg border border-house-border text-text-muted/70 cursor-default select-none" aria-disabled="true">
+                Tara’s Space — coming later
+              </span>
+            </div>
+          </div>
+
           <p className="font-body text-[9px] text-text-muted/60 italic px-1">Presence snapshots reflect this session only — not memory, not canon.</p>
         </aside>
       </div>
@@ -478,8 +507,8 @@ export default function CourtyardScene() {
             return (
               <button key={id} type="button" onClick={() => { ensureStarted(); setSelected((p) => (p === id ? null : id)) }}
                 className={`group relative rounded-xl overflow-hidden border transition-all ${isSel ? 'border-[#e7c887]' : 'border-house-border hover:border-house-muted'}`}
-                style={{ width: 104 }} title={`${char.name}${started ? ` — at the ${zone?.name ?? '—'}` : ''}`}>
-                <span className="block overflow-hidden" style={{ aspectRatio: '3 / 4' }}>
+                style={{ width: 116 }} title={`${char.name}${started ? ` — at the ${zone?.name ?? '—'}` : ''}`}>
+                <span className="block overflow-hidden" style={{ aspectRatio: '2 / 3' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={cardImagePath(id)} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', filter: isSel ? 'none' : 'saturate(0.92)' }} draggable={false} />
                 </span>
