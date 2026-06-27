@@ -37,8 +37,9 @@ import {
   // validation / queueing
   validateHelperOutputDraft,
   canQueueHelperOutputForReview,
-  // v1 library contract
+  // v1 library contracts
   LIBRARY_METADATA_HELPER_CONTRACT,
+  LIBRARY_DOCUMENTATION_HELPER_CONTRACT,
 } from '../helperContract'
 
 // ─── Harness ───────────────────────────────────────────────────────────────
@@ -314,6 +315,36 @@ section('L. v1 Library Metadata Helper contract')
   assert((LIBRARY_METADATA_HELPER_CONTRACT.forbidden as readonly string[]).includes('embeddings'), 'contract forbids embeddings')
   assert((LIBRARY_METADATA_HELPER_CONTRACT.forbidden as readonly string[]).includes('chat_retrieval_path_changes'), 'contract forbids chat retrieval path changes')
   assert((LIBRARY_METADATA_HELPER_CONTRACT.forbidden as readonly string[]).includes('prompt_injection'), 'contract forbids prompt injection')
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// M. v1 Library Documentation Helper registration (Phase 41.17.1)
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('M. Library Documentation Helper registration (41.17.1)')
+{
+  assert(isHelperTypeAllowedInV1('library_documentation_helper'), 'library_documentation_helper is v1 allowed')
+  assert(classifyHelperAvailability('library_documentation_helper') === 'v1_allowed', 'classified v1_allowed')
+  assert(ALL_HELPER_TYPES.includes('library_documentation_helper'), 'registered in ALL_HELPER_TYPES')
+  assert(canHelperReadSource('library_documentation_helper', 'library_item'), 'can read library_item')
+  assert(canHelperReadSource('library_documentation_helper', 'library_item_file'), 'can read library_item_file')
+  assert(!canHelperReadSource('library_documentation_helper', 'helper_output'), 'cannot read helper_output (C1)')
+  assert(!canHelperReadSource('library_documentation_helper', 'archive_item_metadata'), 'cannot read archive metadata (not on allow-list)')
+
+  // A valid documentation draft passes the 41.1 contract.
+  const docDraft = makeDraft({ helper_type: 'library_documentation_helper', suggested_action: 'prepare_review_note' })
+  assert(validateHelperOutputDraft(docDraft).valid, 'a library_documentation_helper draft passes the contract')
+
+  // Contract declaration is consistent and inert.
+  assert(LIBRARY_DOCUMENTATION_HELPER_CONTRACT.helper_type === 'library_documentation_helper', 'contract helper_type correct')
+  assert(LIBRARY_DOCUMENTATION_HELPER_CONTRACT.availability === 'v1_allowed', 'contract availability v1_allowed')
+  assert(LIBRARY_DOCUMENTATION_HELPER_CONTRACT.readable_source_surfaces.length === 2, 'contract reads exactly two surfaces')
+  assert(LIBRARY_DOCUMENTATION_HELPER_CONTRACT.issue_codes.length === 2, 'contract declares exactly two issue codes')
+
+  // It claims none of the metadata helper's issue codes (clean separation).
+  const metadataCodes = ['item_title_weak', 'item_summary_missing', 'item_tags_missing', 'file_extraction_not_run', 'file_extracted_but_empty', 'file_extraction_no_text']
+  const overlap = (LIBRARY_DOCUMENTATION_HELPER_CONTRACT.issue_codes as readonly string[]).filter((c) => metadataCodes.includes(c))
+  assert(overlap.length === 0, 'documentation issue codes do not overlap metadata-helper codes')
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

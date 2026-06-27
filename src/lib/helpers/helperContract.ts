@@ -62,6 +62,7 @@ export const HELPER_NORTH_STAR =
 
 export type HelperType =
   | 'library_metadata_helper'
+  | 'library_documentation_helper'
   | 'retrieval_gap_helper'
   | 'source_comparison_helper'
   | 'ontology_proposal_helper'
@@ -74,6 +75,7 @@ export type HelperType =
 
 export const ALL_HELPER_TYPES: readonly HelperType[] = [
   'library_metadata_helper',
+  'library_documentation_helper',
   'retrieval_gap_helper',
   'source_comparison_helper',
   'ontology_proposal_helper',
@@ -94,7 +96,8 @@ export type HelperAvailability = 'v1_allowed' | 'deferred' | 'excluded'
 /**
  * The single source of truth for which helper types may run in v1.
  *
- *   v1_allowed : may be executed by a v1 guard (only library_metadata_helper).
+ *   v1_allowed : may be executed by a v1 guard (library_metadata_helper and
+ *                library_documentation_helper).
  *   deferred   : approved in principle but NOT executable in v1.
  *   excluded   : forbidden — must never be executed or queued in v1.
  *
@@ -105,6 +108,7 @@ export type HelperAvailability = 'v1_allowed' | 'deferred' | 'excluded'
  */
 export const HELPER_AVAILABILITY: Record<HelperType, HelperAvailability> = {
   library_metadata_helper: 'v1_allowed',
+  library_documentation_helper: 'v1_allowed',
 
   retrieval_gap_helper: 'deferred',
   source_comparison_helper: 'deferred',
@@ -122,7 +126,8 @@ export function classifyHelperAvailability(helperType: HelperType): HelperAvaila
   return HELPER_AVAILABILITY[helperType]
 }
 
-/** TRUE only for `library_metadata_helper`. The one v1-executable helper. */
+/** TRUE for the v1-executable helpers (`library_metadata_helper`,
+ * `library_documentation_helper`). */
 export function isHelperTypeAllowedInV1(helperType: HelperType): boolean {
   return HELPER_AVAILABILITY[helperType] === 'v1_allowed'
 }
@@ -286,12 +291,14 @@ export function isReadableSourceSurface(
 }
 
 /**
- * Per-helper readable-surface allow-list for v1. Only `library_metadata_helper`
- * has any entries; every other helper maps to `[]` because no other helper is
- * executable in v1. This is the data behind `canHelperReadSource()`.
+ * Per-helper readable-surface allow-list for v1. The two v1-executable helpers
+ * (`library_metadata_helper`, `library_documentation_helper`) read the same two
+ * Library surfaces; every other (deferred/excluded) helper maps to `[]` because
+ * it is not executable in v1. This is the data behind `canHelperReadSource()`.
  */
 const V1_HELPER_READABLE_SURFACES: Record<HelperType, readonly HelperReadableSourceSurface[]> = {
   library_metadata_helper: ['library_item', 'library_item_file'],
+  library_documentation_helper: ['library_item', 'library_item_file'],
 
   retrieval_gap_helper: [],
   source_comparison_helper: [],
@@ -638,3 +645,39 @@ export function isLibraryMetadataHelperAction(action: HelperSuggestedAction): bo
     action,
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V1 LIBRARY DOCUMENTATION HELPER CONTRACT (Phase 41.17.1 — declaration only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The second v1 helper (`library_documentation_helper`, Phase 41.17.1). It is a
+ * sibling of the metadata helper, NOT an extension of it: it checks documentation
+ * *structure* (does a development-documentation item carry phase metadata? does an
+ * item have any source material at all?), never metadata *quality* (title /
+ * summary / tags / extraction — those remain the metadata helper's territory, so
+ * the two helpers' findings never overlap or double-count review burden).
+ *
+ * Same cage as the metadata helper: deterministic, deposit-only, reads only the
+ * two Library surfaces, emits inert review-only helper_outputs rows. It has NO
+ * apply path (the retry-extraction apply control is hard-scoped to the metadata
+ * helper) and introduces no new authority.
+ */
+export const LIBRARY_DOCUMENTATION_HELPER_CONTRACT = {
+  helper_type: 'library_documentation_helper' as const,
+  availability: 'v1_allowed' as const,
+  readable_source_surfaces: ['library_item', 'library_item_file'] as const,
+  allowed_suggested_actions: ['prepare_review_note', 'no_action'] as const,
+  // The only two findings approved for v1 (Phase 41.17.1, Ari).
+  issue_codes: ['phase_doc_missing_phase_metadata', 'item_no_source_material'] as const,
+  forbidden: [
+    'library_metadata_quality_checks', // title/summary/tags/extraction belong to library_metadata_helper
+    'library_writes',
+    'memory_mutation',
+    'archive_mutation',
+    'graph_mutation',
+    'prompt_injection',
+    'apply_actions',
+    'production_data_mutation_outside_governed_helper_draft_or_trace_rows',
+  ] as const,
+} as const
