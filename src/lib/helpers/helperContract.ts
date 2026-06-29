@@ -63,6 +63,9 @@ export const HELPER_NORTH_STAR =
 export type HelperType =
   | 'library_metadata_helper'
   | 'library_documentation_helper'
+  | 'library_content_health_helper'
+  | 'source_reference_integrity_helper'
+  | 'documentation_completeness_helper'
   | 'retrieval_gap_helper'
   | 'source_comparison_helper'
   | 'ontology_proposal_helper'
@@ -76,6 +79,9 @@ export type HelperType =
 export const ALL_HELPER_TYPES: readonly HelperType[] = [
   'library_metadata_helper',
   'library_documentation_helper',
+  'library_content_health_helper',
+  'source_reference_integrity_helper',
+  'documentation_completeness_helper',
   'retrieval_gap_helper',
   'source_comparison_helper',
   'ontology_proposal_helper',
@@ -96,8 +102,7 @@ export type HelperAvailability = 'v1_allowed' | 'deferred' | 'excluded'
 /**
  * The single source of truth for which helper types may run in v1.
  *
- *   v1_allowed : may be executed by a v1 guard (library_metadata_helper and
- *                library_documentation_helper).
+ *   v1_allowed : may be executed by a v1 guard (the Library helper roster).
  *   deferred   : approved in principle but NOT executable in v1.
  *   excluded   : forbidden — must never be executed or queued in v1.
  *
@@ -109,6 +114,9 @@ export type HelperAvailability = 'v1_allowed' | 'deferred' | 'excluded'
 export const HELPER_AVAILABILITY: Record<HelperType, HelperAvailability> = {
   library_metadata_helper: 'v1_allowed',
   library_documentation_helper: 'v1_allowed',
+  library_content_health_helper: 'v1_allowed',
+  source_reference_integrity_helper: 'v1_allowed',
+  documentation_completeness_helper: 'v1_allowed',
 
   retrieval_gap_helper: 'deferred',
   source_comparison_helper: 'deferred',
@@ -126,8 +134,7 @@ export function classifyHelperAvailability(helperType: HelperType): HelperAvaila
   return HELPER_AVAILABILITY[helperType]
 }
 
-/** TRUE for the v1-executable helpers (`library_metadata_helper`,
- * `library_documentation_helper`). */
+/** TRUE for the v1-executable helpers (the Library helper roster). */
 export function isHelperTypeAllowedInV1(helperType: HelperType): boolean {
   return HELPER_AVAILABILITY[helperType] === 'v1_allowed'
 }
@@ -291,14 +298,18 @@ export function isReadableSourceSurface(
 }
 
 /**
- * Per-helper readable-surface allow-list for v1. The two v1-executable helpers
- * (`library_metadata_helper`, `library_documentation_helper`) read the same two
- * Library surfaces; every other (deferred/excluded) helper maps to `[]` because
- * it is not executable in v1. This is the data behind `canHelperReadSource()`.
+ * Per-helper readable-surface allow-list for v1. The v1-executable Library helper
+ * roster reads only `library_item` / `library_item_file` (and only the subset each
+ * helper strictly needs — documentation_completeness reads `library_item` alone);
+ * every other (deferred/excluded) helper maps to `[]` because it is not executable
+ * in v1. This is the data behind `canHelperReadSource()`.
  */
 const V1_HELPER_READABLE_SURFACES: Record<HelperType, readonly HelperReadableSourceSurface[]> = {
   library_metadata_helper: ['library_item', 'library_item_file'],
   library_documentation_helper: ['library_item', 'library_item_file'],
+  library_content_health_helper: ['library_item', 'library_item_file'],
+  source_reference_integrity_helper: ['library_item', 'library_item_file'],
+  documentation_completeness_helper: ['library_item'],
 
   retrieval_gap_helper: [],
   source_comparison_helper: [],
@@ -672,6 +683,105 @@ export const LIBRARY_DOCUMENTATION_HELPER_CONTRACT = {
   issue_codes: ['phase_doc_missing_phase_metadata', 'item_no_source_material'] as const,
   forbidden: [
     'library_metadata_quality_checks', // title/summary/tags/extraction belong to library_metadata_helper
+    'library_writes',
+    'memory_mutation',
+    'archive_mutation',
+    'graph_mutation',
+    'prompt_injection',
+    'apply_actions',
+    'production_data_mutation_outside_governed_helper_draft_or_trace_rows',
+  ] as const,
+} as const
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 41.17.2 — DETERMINISTIC HELPER ROSTER PACK (declarations only)
+// ─────────────────────────────────────────────────────────────────────────────
+// Three further deposit-only, single-item, deterministic helpers. Each is a
+// sibling — NOT an extension — of the existing helpers; their issue-code spaces
+// are disjoint from every other helper so a single item is never double-flagged
+// and per-helper-type dedupe stays clean. None has an apply path (the retry-
+// extraction control is hard-scoped to library_metadata_helper).
+
+/**
+ * Content/extraction usability problems that the metadata helper does NOT cover
+ * (it owns "no text" cases). This helper reads file *metadata only* (never the
+ * extracted text) and flags completeness/health signals: truncated extraction,
+ * files explicitly flagged needs_review. No extraction retry (that remains the
+ * one governed Phase 42.2.1 path on the metadata helper).
+ */
+export const LIBRARY_CONTENT_HEALTH_HELPER_CONTRACT = {
+  helper_type: 'library_content_health_helper' as const,
+  availability: 'v1_allowed' as const,
+  readable_source_surfaces: ['library_item', 'library_item_file'] as const,
+  allowed_suggested_actions: ['prepare_review_note', 'no_action'] as const,
+  issue_codes: ['file_content_truncated', 'file_flagged_needs_review'] as const,
+  forbidden: [
+    'extraction_retry_outside_phase_42_2_1',
+    'reading_extracted_text_content', // metadata fields only
+    'library_writes',
+    'memory_mutation',
+    'archive_mutation',
+    'graph_mutation',
+    'prompt_injection',
+    'apply_actions',
+    'production_data_mutation_outside_governed_helper_draft_or_trace_rows',
+  ] as const,
+} as const
+
+/**
+ * Broken source references that are deterministically checkable from Library
+ * metadata: malformed source_url, a file_path claimed on the item with no file
+ * record, a file row with a broken storage pointer. Detect-only: never rewrites,
+ * relinks, deletes, or moves authority. ("Stale" / reachability is NOT checked —
+ * it would require a network call, which is forbidden.)
+ */
+export const SOURCE_REFERENCE_INTEGRITY_HELPER_CONTRACT = {
+  helper_type: 'source_reference_integrity_helper' as const,
+  availability: 'v1_allowed' as const,
+  readable_source_surfaces: ['library_item', 'library_item_file'] as const,
+  allowed_suggested_actions: ['prepare_review_note', 'no_action'] as const,
+  issue_codes: [
+    'source_url_malformed',
+    'item_file_path_without_file_record',
+    'file_storage_reference_broken',
+  ] as const,
+  forbidden: [
+    'source_rewrite',
+    'relinking',
+    'delete',
+    'authority_movement',
+    'network_reachability_checks',
+    'library_writes',
+    'memory_mutation',
+    'archive_mutation',
+    'graph_mutation',
+    'prompt_injection',
+    'apply_actions',
+    'production_data_mutation_outside_governed_helper_draft_or_trace_rows',
+  ] as const,
+} as const
+
+/**
+ * Documentation completeness gaps checkable from ONE item's own columns: phase
+ * documentation with PARTIAL phase metadata (complements the documentation
+ * helper's all-null check), and a superseded item with no archive link. Reads
+ * `library_item` only. No history rewriting, no automatic closure records as
+ * authority, no multi-phase inferred truth (cross-item inference is deferred and,
+ * if ever built, must be a read-only caveated report — not in this pass).
+ */
+export const DOCUMENTATION_COMPLETENESS_HELPER_CONTRACT = {
+  helper_type: 'documentation_completeness_helper' as const,
+  availability: 'v1_allowed' as const,
+  readable_source_surfaces: ['library_item'] as const,
+  allowed_suggested_actions: ['prepare_review_note', 'no_action'] as const,
+  issue_codes: [
+    'phase_doc_incomplete_phase_metadata',
+    'superseded_item_missing_archive_link',
+  ] as const,
+  forbidden: [
+    'rewriting_history',
+    'automatic_closure_records_as_authority',
+    'multi_phase_inferred_truth',
     'library_writes',
     'memory_mutation',
     'archive_mutation',

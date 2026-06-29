@@ -40,6 +40,9 @@ import {
   // v1 library contracts
   LIBRARY_METADATA_HELPER_CONTRACT,
   LIBRARY_DOCUMENTATION_HELPER_CONTRACT,
+  LIBRARY_CONTENT_HEALTH_HELPER_CONTRACT,
+  SOURCE_REFERENCE_INTEGRITY_HELPER_CONTRACT,
+  DOCUMENTATION_COMPLETENESS_HELPER_CONTRACT,
 } from '../helperContract'
 
 // ─── Harness ───────────────────────────────────────────────────────────────
@@ -345,6 +348,49 @@ section('M. Library Documentation Helper registration (41.17.1)')
   const metadataCodes = ['item_title_weak', 'item_summary_missing', 'item_tags_missing', 'file_extraction_not_run', 'file_extracted_but_empty', 'file_extraction_no_text']
   const overlap = (LIBRARY_DOCUMENTATION_HELPER_CONTRACT.issue_codes as readonly string[]).filter((c) => metadataCodes.includes(c))
   assert(overlap.length === 0, 'documentation issue codes do not overlap metadata-helper codes')
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// N. Phase 41.17.2 — Deterministic Helper Roster Pack registration
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('N. Helper Roster Pack registration (41.17.2)')
+{
+  const rosterTypes: HelperType[] = [
+    'library_content_health_helper',
+    'source_reference_integrity_helper',
+    'documentation_completeness_helper',
+  ]
+  for (const h of rosterTypes) {
+    assert(isHelperTypeAllowedInV1(h), `${h} is v1 allowed`)
+    assert(classifyHelperAvailability(h) === 'v1_allowed', `${h} classified v1_allowed`)
+    assert(ALL_HELPER_TYPES.includes(h), `${h} registered in ALL_HELPER_TYPES`)
+    assert(canHelperReadSource(h, 'library_item'), `${h} can read library_item`)
+    assert(!canHelperReadSource(h, 'helper_output'), `${h} cannot read helper_output (C1)`)
+    assert(validateHelperOutputDraft(makeDraft({ helper_type: h, suggested_action: 'prepare_review_note' })).valid, `${h} draft passes the contract`)
+  }
+
+  // Surface minimality: content-health + integrity read files; completeness does NOT.
+  assert(canHelperReadSource('library_content_health_helper', 'library_item_file'), 'content-health reads library_item_file')
+  assert(canHelperReadSource('source_reference_integrity_helper', 'library_item_file'), 'integrity reads library_item_file')
+  assert(!canHelperReadSource('documentation_completeness_helper', 'library_item_file'), 'completeness does NOT read library_item_file (minimal surface)')
+  assert(!validateHelperOutputDraft(makeDraft({ helper_type: 'documentation_completeness_helper', suggested_action: 'prepare_review_note', source_refs: [{ source_surface: 'library_item_file', source_id: 'f-1' }] })).valid, 'completeness cannot cite a library_item_file as provenance')
+
+  // Contract declarations consistent.
+  assert(LIBRARY_CONTENT_HEALTH_HELPER_CONTRACT.helper_type === 'library_content_health_helper', 'content-health contract type')
+  assert(SOURCE_REFERENCE_INTEGRITY_HELPER_CONTRACT.helper_type === 'source_reference_integrity_helper', 'integrity contract type')
+  assert(DOCUMENTATION_COMPLETENESS_HELPER_CONTRACT.helper_type === 'documentation_completeness_helper', 'completeness contract type')
+  assert(DOCUMENTATION_COMPLETENESS_HELPER_CONTRACT.readable_source_surfaces.length === 1, 'completeness declares exactly one readable surface')
+
+  // Issue-code spaces are disjoint across every helper (no double-flagging).
+  const existingCodes = ['item_title_weak', 'item_summary_missing', 'item_tags_missing', 'file_extraction_not_run', 'file_extracted_but_empty', 'file_extraction_no_text', 'phase_doc_missing_phase_metadata', 'item_no_source_material']
+  const rosterCodes = [
+    ...LIBRARY_CONTENT_HEALTH_HELPER_CONTRACT.issue_codes,
+    ...SOURCE_REFERENCE_INTEGRITY_HELPER_CONTRACT.issue_codes,
+    ...DOCUMENTATION_COMPLETENESS_HELPER_CONTRACT.issue_codes,
+  ]
+  assert(new Set(rosterCodes).size === rosterCodes.length, 'roster issue codes are mutually unique')
+  assert(rosterCodes.every((c) => !existingCodes.includes(c)), 'roster issue codes do not overlap existing helper codes')
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

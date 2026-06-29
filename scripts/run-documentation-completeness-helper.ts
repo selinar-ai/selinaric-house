@@ -1,0 +1,195 @@
+/**
+ * Phase 41.17.2 — Manual Helper Runner for the Documentation Completeness Agent (CLI, MANUAL ONLY)
+ *
+ * Runs the deterministic v1 `documentation_completeness_helper` against ONE named
+ * Library item and deposits inert `helper_outputs` rows into the closed Workshop.
+ * The helper and the safe writer are reused UNCHANGED; this is only the manual
+ * trigger + a runner-side duplicate guard.
+ *
+ *   Dry run (preview only — writes NOTHING):
+ *     npx tsx scripts/run-documentation-completeness-helper.ts --confirm-helper-run --library-item-id <id> --dry-run
+ *
+ *   Test-owned run (default — safe, cleanable):
+ *     npx tsx scripts/run-documentation-completeness-helper.ts --confirm-helper-run --library-item-id <id>
+ *
+ *   Real deposit (separate approval required — writes non-test rows that persist):
+ *     npx tsx scripts/run-documentation-completeness-helper.ts --confirm-helper-run --library-item-id <id> --deposit-real
+ *
+ * Boundaries: one named item per run (no "all"); refuses without an explicit
+ * confirmation flag; reads only `library_items` (the item's own columns — NO
+ * files); INSERT only (never updates/deletes/upserts); never sets review/
+ * authority/deleted fields (the writer forbids them); never reads candidate /
+ * Memory / Graph surfaces; no route, no migration, no schema change. Never wired
+ * to cron, chat, prompts, or the UI — manual invocation only.
+ */
+
+import { readFileSync, existsSync } from 'fs'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
+import { randomUUID } from 'crypto'
+
+import {
+  inspectDocumentationCompleteness,
+  type DocCompletenessItemSnapshot,
+} from '../src/lib/helpers/documentationCompletenessHelper'
+import {
+  insertHelperOutputs,
+  type HelperOutputDbClient,
+  type HelperOutputInsertResult,
+} from '../src/lib/helpers/helperOutputStore'
+import {
+  parseRunnerArgs,
+  dedupeKeyForDraft,
+  stampRunnerMetadata,
+  stampedDedupeKey,
+  planDeposit,
+  DOCUMENTATION_COMPLETENESS_HELPER_VERSION,
+} from '../src/lib/helpers/documentationCompletenessRunner'
+import type { HelperPresenceScope } from '../src/lib/helpers/helperContract'
+
+// ─── arg validation (delegated to the pure runner) ───────────────────────────
+
+const parsed = parseRunnerArgs(process.argv.slice(2))
+function refuse(message: string): never {
+  console.error(`\n[run-documentation-completeness-helper] REFUSED: ${message}\n`)
+  console.error('Usage:')
+  console.error('  Dry run:    --confirm-helper-run --library-item-id <id> --dry-run')
+  console.error('  Test-owned: --confirm-helper-run --library-item-id <id>')
+  console.error('  Real:       --confirm-helper-run --library-item-id <id> --deposit-real\n')
+  process.exit(1)
+}
+if (!parsed.ok) refuse(parsed.reason)
+const { libraryItemId, dryRun, depositReal, runMode } = parsed
+
+// ─── env + PostgREST client (fetch-based; matches the house's other scripts) ─
+
+type Rest = { url: string; headers: Record<string, string> }
+
+function loadEnvAndRest(): Rest {
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const envPath = resolve(__dirname, '..', '.env.local')
+  if (existsSync(envPath)) {
+    for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+      const t = line.trim()
+      if (!t || t.startsWith('#')) continue
+      const eq = t.indexOf('=')
+      if (eq === -1) continue
+      const k = t.slice(0, eq).trim()
+      let v = t.slice(eq + 1).trim()
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
+      if (!process.env[k]) process.env[k] = v
+    }
+  }
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) refuse('Missing NEXT_PUBLIC_SUPABASE_URL or a Supabase key in .env.local')
+  return { url: url.replace(/\/$/, ''), headers: { apikey: key, Authorization: `Bearer ${key}` } }
+}
+
+/** INSERT-only client backed by PostgREST. The validated writer does the rest. */
+function restHelperOutputClient(rest: Rest): HelperOutputDbClient {
+  return {
+    from(table) {
+      return {
+        insert(rows) {
+          return {
+            async select(_columns): Promise<HelperOutputInsertResult> {
+              const res = await fetch(`${rest.url}/rest/v1/${table}`, {
+                method: 'POST',
+                headers: { ...rest.headers, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+                body: JSON.stringify(rows),
+              })
+              if (!res.ok) return { data: null, error: { message: `${res.status} ${await res.text()}` } }
+              return { data: (await res.json()) as HelperOutputInsertResult['data'], error: null }
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+async function restGet<T>(rest: Rest, pathAndQuery: string): Promise<T[]> {
+  const res = await fetch(`${rest.url}/rest/v1/${pathAndQuery}`, { headers: rest.headers })
+  if (!res.ok) refuse(`read failed: ${res.status} ${await res.text()}`)
+  return (await res.json()) as T[]
+}
+
+// ─── run ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const rest = loadEnvAndRest()
+  const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}_${randomUUID().slice(0, 8)}`
+
+  // Read ONE library item (the item's own columns only — NO files). Read-only; never a scan.
+  const itemRows = await restGet<{
+    id: string; presence_scope: string | null; collection: string | null
+    phase_code: string | null; phase_number: number | null; phase_label: string | null
+    authority_status: string | null; archive_item_id: string | null
+  }>(rest, `library_items?id=eq.${encodeURIComponent(libraryItemId)}&select=id,presence_scope,collection,phase_code,phase_number,phase_label,authority_status,archive_item_id`)
+  const itemRow = itemRows[0]
+  if (!itemRow) refuse(`Library item not found: ${libraryItemId}`)
+
+  const item: DocCompletenessItemSnapshot = {
+    id: itemRow.id,
+    presence_scope: (itemRow.presence_scope ?? 'house') as HelperPresenceScope,
+    collection: itemRow.collection ?? '',
+    phase_code: itemRow.phase_code ?? null,
+    phase_number: itemRow.phase_number ?? null,
+    phase_label: itemRow.phase_label ?? null,
+    authority_status: itemRow.authority_status ?? '',
+    archive_item_id: itemRow.archive_item_id ?? null,
+  }
+
+  console.log(`[run-documentation-completeness-helper] item ${libraryItemId} · mode=${runMode} · helper v${DOCUMENTATION_COMPLETENESS_HELPER_VERSION}`)
+
+  // Deterministic inspection (clean item → nothing). Then stamp each draft.
+  const drafts = inspectDocumentationCompleteness(item)
+  if (drafts.length === 0) {
+    console.log('[run-documentation-completeness-helper] No documentation-completeness gaps found — nothing to deposit.')
+    process.exit(0)
+  }
+  const stamped = drafts.map((d) =>
+    stampRunnerMetadata(d, { helperVersion: DOCUMENTATION_COMPLETENESS_HELPER_VERSION, dedupeKey: dedupeKeyForDraft(d), runId, runMode }),
+  )
+
+  // Dry run: preview the candidates and write NOTHING (no dedupe query, no insert).
+  if (dryRun) {
+    console.log(`\n[run-documentation-completeness-helper] DRY RUN — ${stamped.length} candidate(s), nothing written:`)
+    for (const s of stamped) {
+      const p = s.suggestion_payload as Record<string, unknown>
+      console.log(`  - ${String(p.issue_code)}  (${s.suggested_action})  dedupe=${stampedDedupeKey(s)}`)
+    }
+    process.exit(0)
+  }
+
+  // Dedupe: which keys already exist among ACTIVE (deleted_at is null) rows?
+  // No review-state filter — blocks across unreviewed/viewed/needs_action/
+  // needs_decision/dismissed. Soft-deleted rows do not block.
+  const existing = new Set<string>()
+  for (const key of stamped.map(stampedDedupeKey)) {
+    if (!key) continue
+    const hits = await restGet<{ id: string }>(
+      rest,
+      `helper_outputs?deleted_at=is.null&suggestion_payload->>_dedupe_key=eq.${encodeURIComponent(key)}&select=id&limit=1`,
+    )
+    if (hits.length > 0) existing.add(key)
+  }
+
+  const plan = planDeposit(stamped, existing)
+  if (plan.toInsert.length === 0) {
+    console.log(`[run-documentation-completeness-helper] All ${stamped.length} candidate(s) already active (dedupe) — nothing new deposited.`)
+    process.exit(0)
+  }
+
+  const inserted = await insertHelperOutputs(restHelperOutputClient(rest), plan.toInsert, { testOwned: !depositReal })
+
+  console.log(`\n[run-documentation-completeness-helper] Deposited ${inserted.length} row(s) · skipped ${plan.skipped.length} (dedupe) · run_id=${runId} · test_owned=${!depositReal}`)
+  for (const r of inserted) console.log(`  - ${r.id}  (${r.helper_type} · ${r.output_status})`)
+  if (!depositReal) {
+    console.log('\nTest-owned cleanup (soft-delete by run_id):')
+    console.log(`  PATCH helper_outputs?test_owned=eq.true&deleted_at=is.null&suggestion_payload->>run_id=eq.${runId}  { "deleted_at": "<now>" }`)
+  }
+}
+
+main().catch((e) => { console.error(`\n[run-documentation-completeness-helper] ERROR: ${e?.message ?? e}\n`); process.exit(1) })
