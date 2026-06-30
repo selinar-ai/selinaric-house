@@ -1,4 +1,4 @@
-export type RoomSlug = 'ari' | 'eli' | 'lounge' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections' | 'archives' | 'recall' | 'library' | 'continuity' | 'ontology-lab' | 'relational-map' | 'helpers'
+export type RoomSlug = 'ari' | 'eli' | 'lounge' | 'notes' | 'watchtower' | 'pulse' | 'workshop' | 'reflections' | 'archives' | 'recall' | 'library' | 'continuity' | 'ontology-lab' | 'relational-map' | 'helpers' | 'agents'
 
 export interface Room {
   slug: RoomSlug
@@ -196,6 +196,18 @@ export const ROOMS: Room[] = [
     textClass: 'text-text-primary',
     bgClass: 'bg-house-muted',
     icon: '⊞',
+  },
+  {
+    slug: 'agents',
+    name: 'Maintenance',
+    description: 'Governed findings. Review & triage.',
+    path: '/agents',
+    colorClass: 'text-text-secondary',
+    borderClass: 'border-house-muted',
+    glowClass: '',
+    textClass: 'text-text-primary',
+    bgClass: 'bg-house-muted',
+    icon: '◰',
   },
 ]
 
