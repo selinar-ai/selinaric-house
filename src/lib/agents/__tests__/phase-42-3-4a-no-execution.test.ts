@@ -56,11 +56,12 @@ assert(!/export async function (POST|PUT|PATCH|DELETE)/.test(route), 'read-only 
 section('UI exposes NO approval/apply controls (comment-stripped scan)')
 const page = read('src/app/(house)/agents/page.tsx')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-for (const forbiddenLabel of ['Approve', 'Apply', 'Execute', 'Authorise', 'Rollback', 'Remedy now', 'Queue']) {
+// 'Approve' moved to sanctioned (Phase 42.3.4b authority decision). EXECUTION controls stay banned.
+for (const forbiddenLabel of ['Apply', 'Execute', 'Authorise', 'Rollback', 'Remedy now', 'Queue']) {
   assert(!page.includes(forbiddenLabel), `UI has no "${forbiddenLabel}" control`)
 }
-assert(page.includes('Acknowledge') && page.includes('Dismiss') && page.includes('Reopen'), 'only Acknowledge/Dismiss/Reopen remain')
-assert(page.includes('Proposed remedy (read-only)'), 'remedy plan shown read-only')
+assert(page.includes('Acknowledge') && page.includes('Dismiss') && page.includes('Reopen'), 'Acknowledge/Dismiss/Reopen present')
+assert(page.includes('Proposed remedy'), 'remedy plan shown')
 
 console.log(`\n  Passed: ${passed}  Failed: ${failed}`)
 if (failed > 0) { for (const x of failures) console.log(`  - ${x}`); process.exit(1) }

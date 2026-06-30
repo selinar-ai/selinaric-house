@@ -41,7 +41,18 @@ type Run = {
   created_at: string
 }
 
-// Phase 42.3.4a — a proposed remedy plan, shown read-only under its finding. Never actionable.
+// Phase 42.3.4b — an approval authority event (append-only), shown read-only as history.
+type ApprovalEventRow = {
+  event_sequence: number
+  decision: string
+  decided_by: string
+  decision_reason: string | null
+  created_at: string
+}
+
+// Phase 42.3.4a — a proposed remedy plan, shown under its finding. 42.3.4b adds the derived
+// approval status + append-only event history. Approve/Reject/Revoke are authority decisions,
+// NOT execution — nothing is ever applied here.
 type PlanRow = {
   id: string
   finding_id: string
@@ -52,6 +63,8 @@ type PlanRow = {
   proposed_value: string
   deterministic_reason: string
   plan_state: string
+  approval_status: string
+  approval_events: ApprovalEventRow[]
 }
 
 const DOMAINS = ['all', 'library', 'archive_graph'] as const
@@ -124,6 +137,25 @@ export default function MaintenanceRoomPage() {
       await loadData()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'review update failed')
+    } finally {
+      setBusyId(null)
+    }
+  }, [loadData])
+
+  // Phase 42.3.4b — record an approval authority decision (approved/rejected/revoked).
+  // This authorises a future apply; it does NOT apply, queue, or run anything.
+  const doApproval = useCallback(async (planId: string, decision: string) => {
+    setBusyId(planId)
+    try {
+      const res = await fetch(`/api/agents/remedy-plans/${planId}/approval`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision }),
+      })
+      if (!res.ok) throw new Error(`approval ${res.status}`)
+      await loadData()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'approval decision failed')
     } finally {
       setBusyId(null)
     }
@@ -206,10 +238,27 @@ export default function MaintenanceRoomPage() {
                         </pre>
                         {(plansByFinding.get(f.id) ?? []).map((p) => (
                           <div key={p.id} className="mt-2 rounded border border-dashed border-[var(--house-border,#1e1e2e)] p-2 text-xs">
-                            <div className="opacity-60 mb-1">Proposed remedy (read-only)</div>
+                            <div className="opacity-60 mb-1">Proposed remedy</div>
                             <div><span className="opacity-50">Current value:</span> <code className="opacity-90">{JSON.stringify(p.current_value)}</code></div>
                             <div><span className="opacity-50">Proposed value:</span> <code className="opacity-90">{JSON.stringify(p.proposed_value)}</code></div>
                             <div className="opacity-60 mt-1">Deterministic reason: {p.deterministic_reason}</div>
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <span className="opacity-50">Approval status: <span className="opacity-90">{p.approval_status}</span></span>
+                              <div className="flex gap-1 shrink-0">
+                                <ReviewButton label="Approve" disabled={busyId === p.id} onClick={() => doApproval(p.id, 'approved')} />
+                                <ReviewButton label="Reject" disabled={busyId === p.id} onClick={() => doApproval(p.id, 'rejected')} />
+                                {p.approval_status === 'approved' ? (
+                                  <ReviewButton label="Revoke" disabled={busyId === p.id} onClick={() => doApproval(p.id, 'revoked')} />
+                                ) : null}
+                              </div>
+                            </div>
+                            {p.approval_events.length > 0 ? (
+                              <ul className="mt-1 opacity-50">
+                                {p.approval_events.map((ev) => (
+                                  <li key={ev.event_sequence}>#{ev.event_sequence} {ev.decision} by {ev.decided_by}{ev.decision_reason ? ` — ${ev.decision_reason}` : ''}</li>
+                                ))}
+                              </ul>
+                            ) : null}
                           </div>
                         ))}
                       </>

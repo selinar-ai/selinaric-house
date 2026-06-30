@@ -25,6 +25,26 @@ export const REMEDY_PLANS_LIST_RPC = 'agent_remedy_plans_list'
 export const REMEDY_PLAN_RECORD_RPC = 'agent_remedy_plan_record'
 export const REMEDY_PLANS_CLEANUP_RPC = 'agent_remedy_plans_cleanup_test'
 
+// Phase 42.3.4b — approval AUTHORITY events (append-only; record + list + test cleanup only; NO apply).
+export const APPROVALS_LIST_RPC = 'agent_remedy_approvals_list'
+export const APPROVAL_RECORD_RPC = 'agent_remedy_approval_record'
+export const APPROVAL_CLEANUP_RPC = 'agent_remedy_approval_events_cleanup_test'
+
+export const APPROVAL_DECISIONS = ['approved', 'rejected', 'revoked'] as const
+export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number]
+export function isValidDecision(x: unknown): x is ApprovalDecision {
+  return typeof x === 'string' && (APPROVAL_DECISIONS as readonly string[]).includes(x)
+}
+
+/** Derived approval status = decision of the latest event by `event_sequence` (deterministic). */
+export type ApprovalEvent = { event_sequence: number; decision: string }
+export function deriveApprovalStatus(events: ApprovalEvent[]): 'none' | string {
+  if (!events || events.length === 0) return 'none'
+  let latest = events[0]
+  for (const e of events) if (e.event_sequence > latest.event_sequence) latest = e
+  return latest.decision
+}
+
 export type FindingsFilter = {
   domain: string | null
   review_state: string | null

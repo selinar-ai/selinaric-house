@@ -21,7 +21,9 @@ console.log('\n── review/triage actions present ──')
 for (const label of ['Acknowledge', 'Dismiss', 'Reopen']) assert(src.includes(label), `has ${label} action`)
 
 console.log('\n── no hands / action-implying controls ──')
-for (const forbidden of ['Apply', 'Approve', 'Remedy', 'Re-run', 'Generate', 'LLM', 'Fix']) {
+// 'Approve' is NOT forbidden here as of Phase 42.3.4b: approval is a sanctioned authority
+// decision (Approve/Reject/Revoke), not execution. Every EXECUTION-implying control stays banned.
+for (const forbidden of ['Apply', 'Remedy', 'Re-run', 'Generate', 'LLM', 'Fix']) {
   assert(!src.includes(forbidden), `no "${forbidden}" control`)
 }
 
