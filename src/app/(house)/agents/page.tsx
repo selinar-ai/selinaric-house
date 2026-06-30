@@ -41,6 +41,19 @@ type Run = {
   created_at: string
 }
 
+// Phase 42.3.4a — a proposed remedy plan, shown read-only under its finding. Never actionable.
+type PlanRow = {
+  id: string
+  finding_id: string
+  action_type: string
+  target_table: string
+  target_field: string
+  current_value: string
+  proposed_value: string
+  deterministic_reason: string
+  plan_state: string
+}
+
 const DOMAINS = ['all', 'library', 'archive_graph'] as const
 const REVIEW_FILTERS = ['all', 'open', 'acknowledged', 'dismissed'] as const
 const DETECTION_FILTERS = ['all', 'active', 'not_redetected'] as const
@@ -51,6 +64,7 @@ export default function MaintenanceRoomPage() {
   const [detectionFilter, setDetectionFilter] = useState<string>('all')
   const [findings, setFindings] = useState<Finding[]>([])
   const [runs, setRuns] = useState<Run[]>([])
+  const [plansByFinding, setPlansByFinding] = useState<Map<string, PlanRow[]>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -64,15 +78,24 @@ export default function MaintenanceRoomPage() {
       if (domain !== 'all') q.set('domain', domain)
       if (reviewFilter !== 'all') q.set('review_state', reviewFilter)
       if (detectionFilter !== 'all') q.set('detection_status', detectionFilter)
-      const [fRes, rRes] = await Promise.all([
+      const [fRes, rRes, pRes] = await Promise.all([
         fetch(`/api/agents/findings?${q.toString()}`),
         fetch(`/api/agents/runs${domain !== 'all' ? `?domain=${domain}` : ''}`),
+        fetch('/api/agents/remedy-plans'),
       ])
       if (!fRes.ok) throw new Error(`findings ${fRes.status}`)
       const fJson = (await fRes.json()) as { findings?: Finding[] }
       const rJson = rRes.ok ? ((await rRes.json()) as { runs?: Run[] }) : { runs: [] }
+      const pJson = pRes.ok ? ((await pRes.json()) as { remedy_plans?: PlanRow[] }) : { remedy_plans: [] }
+      const byFinding = new Map<string, PlanRow[]>()
+      for (const p of pJson.remedy_plans ?? []) {
+        const list = byFinding.get(p.finding_id) ?? []
+        list.push(p)
+        byFinding.set(p.finding_id, list)
+      }
       setFindings(fJson.findings ?? [])
       setRuns(rJson.runs ?? [])
+      setPlansByFinding(byFinding)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load')
     } finally {
@@ -177,9 +200,19 @@ export default function MaintenanceRoomPage() {
                       </div>
                     </div>
                     {selected === f.id ? (
-                      <pre className="mt-2 text-xs opacity-70 whitespace-pre-wrap break-words">
-                        {JSON.stringify({ capability_id: f.capability_id, target: `${f.target_table}:${f.target_id}`, payload: f.payload, reviewed_by: f.reviewed_by, reviewed_at: f.reviewed_at }, null, 2)}
-                      </pre>
+                      <>
+                        <pre className="mt-2 text-xs opacity-70 whitespace-pre-wrap break-words">
+                          {JSON.stringify({ capability_id: f.capability_id, target: `${f.target_table}:${f.target_id}`, payload: f.payload, reviewed_by: f.reviewed_by, reviewed_at: f.reviewed_at }, null, 2)}
+                        </pre>
+                        {(plansByFinding.get(f.id) ?? []).map((p) => (
+                          <div key={p.id} className="mt-2 rounded border border-dashed border-[var(--house-border,#1e1e2e)] p-2 text-xs">
+                            <div className="opacity-60 mb-1">Proposed remedy (read-only)</div>
+                            <div><span className="opacity-50">Current value:</span> <code className="opacity-90">{JSON.stringify(p.current_value)}</code></div>
+                            <div><span className="opacity-50">Proposed value:</span> <code className="opacity-90">{JSON.stringify(p.proposed_value)}</code></div>
+                            <div className="opacity-60 mt-1">Deterministic reason: {p.deterministic_reason}</div>
+                          </div>
+                        ))}
+                      </>
                     ) : null}
                   </li>
                 ))}

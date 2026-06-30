@@ -62,6 +62,7 @@ import {
   type LibraryItemRecord,
   type LibraryScopeInput,
 } from './payloads'
+import { trimSurroundingSpaces } from './remedy'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mapping helpers
@@ -92,6 +93,7 @@ const SEVERITY_BY_ISSUE: Record<string, IssueSeverity> = {
   phase_doc_missing_phase_metadata: 'low',
   phase_doc_incomplete_phase_metadata: 'low',
   superseded_item_missing_archive_link: 'low',
+  item_title_untrimmed: 'low',
   item_title_weak: 'low',
   item_summary_missing: 'low',
   file_extraction_not_run: 'low',
@@ -156,6 +158,33 @@ function toFinding(
 
 function presenceScope(item: LibraryItemRecord): HelperPresenceScope {
   return item.presence_scope as HelperPresenceScope
+}
+
+/**
+ * Phase 42.3.4a — pure detector for the first-hand remedy. Fires only when an item's
+ * title carries surrounding ASCII spaces (U+0020) AND the space-trimmed form is non-empty.
+ * Uses the shared `trimSurroundingSpaces` helper — byte-exact with SQL `btrim(x, ' ')` —
+ * NOT JavaScript `.trim()`, so tab/newline-surrounded titles do NOT fire in v1. Booleans
+ * only in observed_state — the raw title is never echoed (the remedy plan, built
+ * separately, captures the exact value). No inference, no write, no authority field.
+ */
+function detectUntrimmedTitle(item: LibraryItemRecord): RawDetectedIssue | null {
+  const title = item.title
+  if (title == null) return null
+  const trimmed = trimSurroundingSpaces(title)
+  if (trimmed.length === 0) return null
+  if (title === trimmed) return null
+  return {
+    issue_code: 'item_title_untrimmed',
+    issue_label: 'Library item title has surrounding ASCII spaces',
+    observed_state: { title_present: true, has_surrounding_space: true, trimmed_nonempty: true },
+    suggested_next_step:
+      'A deterministic remedy can remove the surrounding ASCII spaces from this title (review-only until approved).',
+    deterministic_reason:
+      'title is non-blank, differs from its surrounding-ASCII-space-trimmed form, and the trimmed title is non-empty.',
+    checked_fields: ['title'],
+    source_refs: [{ source_surface: 'library_item', source_id: item.id }],
+  }
 }
 
 function filesFor(item: LibraryItemRecord, files: LibraryFileRecord[]): LibraryFileRecord[] {
@@ -345,6 +374,24 @@ const docCompletenessInspector: Inspector<LibraryScopeInput, LibraryFindingPaylo
   },
 }
 
+/** library.title_trim — first-hand remedy detector: title carries surrounding whitespace. */
+const titleTrimInspector: Inspector<LibraryScopeInput, LibraryFindingPayload> = {
+  id: 'library.title_trim',
+  domain: LIBRARY_DOMAIN,
+  issue_codes: ['item_title_untrimmed'],
+  level: 'L1',
+  tables_read: ['library_items'],
+  run(input) {
+    const titleOf = titleLookup(input.items)
+    const out: AgentFinding<LibraryFindingPayload>[] = []
+    for (const item of input.items) {
+      const issue = detectUntrimmedTitle(item)
+      if (issue) out.push(toFinding(issue, 'library_metadata_helper', titleOf))
+    }
+    return out.filter((f) => !isSentinel(f.issue_code))
+  },
+}
+
 /** The full Library inspector set, in stable order. */
 export const libraryInspectors: Inspector<LibraryScopeInput, LibraryFindingPayload>[] = [
   metadataInspector,
@@ -352,4 +399,5 @@ export const libraryInspectors: Inspector<LibraryScopeInput, LibraryFindingPaylo
   contentHealthInspector,
   sourceIntegrityInspector,
   docCompletenessInspector,
+  titleTrimInspector,
 ]
