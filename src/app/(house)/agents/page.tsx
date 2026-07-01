@@ -67,6 +67,18 @@ type PlanRow = {
   approval_events: ApprovalEventRow[]
 }
 
+// Phase 42.4.1 — a deterministic graph-structure proposal (suggest-only; triage, never truth).
+type GraphProposalRow = {
+  id: string
+  target_graph: string
+  edge_type: string
+  from_node_id: string
+  to_node_id: string
+  source_item_ids: string[]
+  rationale: string
+  review_state: string
+}
+
 const DOMAINS = ['all', 'library', 'archive_graph'] as const
 const REVIEW_FILTERS = ['all', 'open', 'acknowledged', 'dismissed'] as const
 const DETECTION_FILTERS = ['all', 'active', 'not_redetected'] as const
@@ -78,6 +90,7 @@ export default function MaintenanceRoomPage() {
   const [findings, setFindings] = useState<Finding[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [plansByFinding, setPlansByFinding] = useState<Map<string, PlanRow[]>>(new Map())
+  const [graphProposals, setGraphProposals] = useState<GraphProposalRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -91,15 +104,17 @@ export default function MaintenanceRoomPage() {
       if (domain !== 'all') q.set('domain', domain)
       if (reviewFilter !== 'all') q.set('review_state', reviewFilter)
       if (detectionFilter !== 'all') q.set('detection_status', detectionFilter)
-      const [fRes, rRes, pRes] = await Promise.all([
+      const [fRes, rRes, pRes, gRes] = await Promise.all([
         fetch(`/api/agents/findings?${q.toString()}`),
         fetch(`/api/agents/runs${domain !== 'all' ? `?domain=${domain}` : ''}`),
         fetch('/api/agents/remedy-plans'),
+        fetch('/api/agents/graph-proposals'),
       ])
       if (!fRes.ok) throw new Error(`findings ${fRes.status}`)
       const fJson = (await fRes.json()) as { findings?: Finding[] }
       const rJson = rRes.ok ? ((await rRes.json()) as { runs?: Run[] }) : { runs: [] }
       const pJson = pRes.ok ? ((await pRes.json()) as { remedy_plans?: PlanRow[] }) : { remedy_plans: [] }
+      const gJson = gRes.ok ? ((await gRes.json()) as { graph_proposals?: GraphProposalRow[] }) : { graph_proposals: [] }
       const byFinding = new Map<string, PlanRow[]>()
       for (const p of pJson.remedy_plans ?? []) {
         const list = byFinding.get(p.finding_id) ?? []
@@ -109,6 +124,7 @@ export default function MaintenanceRoomPage() {
       setFindings(fJson.findings ?? [])
       setRuns(rJson.runs ?? [])
       setPlansByFinding(byFinding)
+      setGraphProposals(gJson.graph_proposals ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load')
     } finally {
@@ -156,6 +172,24 @@ export default function MaintenanceRoomPage() {
       await loadData()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'approval decision failed')
+    } finally {
+      setBusyId(null)
+    }
+  }, [loadData])
+
+  // Phase 42.4.1 — triage a graph proposal (open/acknowledged/dismissed). Never touches graph truth.
+  const reviewProposal = useCallback(async (id: string, review_state: string) => {
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/agents/graph-proposals/${id}/review-state`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ review_state }),
+      })
+      if (!res.ok) throw new Error(`graph review ${res.status}`)
+      await loadData()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'graph review failed')
     } finally {
       setBusyId(null)
     }
@@ -280,6 +314,34 @@ export default function MaintenanceRoomPage() {
             {runs.map((r) => (
               <li key={r.id}>
                 {r.created_at} · {r.domain} · {r.scope_type}{r.scope_ref ? ` (${r.scope_ref})` : ''} · {r.finding_count} findings{r.capped ? ' · capped' : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-lg font-medium mb-1">Graph proposals</h2>
+        <p className="text-xs opacity-50 mb-2">Suggest-only. Deterministic structure candidates for review — not graph truth, not Memory. Triage only.</p>
+        {graphProposals.length === 0 ? (
+          <p className="text-sm opacity-50">No graph proposals to review.</p>
+        ) : (
+          <ul className="space-y-1">
+            {graphProposals.map((g) => (
+              <li key={g.id} className="rounded border border-[var(--house-border,#1e1e2e)] bg-[var(--house-surface,#12121a)] px-3 py-2 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="opacity-80">
+                    <code className="opacity-90">{g.edge_type}</code> · {g.from_node_id.slice(0, 8)} ↔ {g.to_node_id.slice(0, 8)}
+                    <span className="ml-2 opacity-50">[{g.review_state}]</span>
+                  </span>
+                  <div className="flex gap-1 shrink-0">
+                    <ReviewButton label="Acknowledge" disabled={busyId === g.id} onClick={() => reviewProposal(g.id, 'acknowledged')} />
+                    <ReviewButton label="Dismiss" disabled={busyId === g.id} onClick={() => reviewProposal(g.id, 'dismissed')} />
+                    <ReviewButton label="Reopen" disabled={busyId === g.id} onClick={() => reviewProposal(g.id, 'open')} />
+                  </div>
+                </div>
+                <div className="opacity-60 mt-1">{g.rationale}</div>
+                <div className="opacity-50 mt-1">shared sources: {g.source_item_ids.length}</div>
               </li>
             ))}
           </ul>
