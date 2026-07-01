@@ -273,6 +273,7 @@ const PATTERNS = [
 const SKIP_DIRS = new Set([
   'node_modules', '.next', 'dist', 'coverage', '.git',
   '.vercel', '.venv-whisper', 'piper-server',
+  '.claude', // gitignored, untracked session tooling (may contain session-injected symlinks)
 ])
 
 // Files to exclude from scanning (self-references, historical artifacts)
