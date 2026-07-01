@@ -30,6 +30,23 @@ export const APPROVALS_LIST_RPC = 'agent_remedy_approvals_list'
 export const APPROVAL_RECORD_RPC = 'agent_remedy_approval_record'
 export const APPROVAL_CLEANUP_RPC = 'agent_remedy_approval_events_cleanup_test'
 
+// Phase 42.3.4c — the hand: apply / rollback (House-write) + read-only validate + events list.
+export const APPLY_RPC = 'agent_remedy_apply'
+export const ROLLBACK_RPC = 'agent_remedy_rollback'
+export const APPLY_VALIDATE_RPC = 'agent_remedy_apply_validate'
+export const APPLY_EVENTS_LIST_RPC = 'agent_remedy_apply_events_list'
+
+export const APPLY_OUTCOMES = ['applied', 'rolled_back'] as const
+
+/** Derived apply status = outcome of the latest apply event by `event_sequence` (deterministic). */
+export type ApplyEvent = { event_sequence: number; outcome: string }
+export function deriveApplyStatus(events: ApplyEvent[]): 'none' | string {
+  if (!events || events.length === 0) return 'none'
+  let latest = events[0]
+  for (const e of events) if (e.event_sequence > latest.event_sequence) latest = e
+  return latest.outcome
+}
+
 export const APPROVAL_DECISIONS = ['approved', 'rejected', 'revoked'] as const
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number]
 export function isValidDecision(x: unknown): x is ApprovalDecision {
