@@ -1041,7 +1041,7 @@ export async function searchLibraryForPresence(params: LibrarySearchParams): Pro
   }
 
   // ─── 2. Fetch files for candidate items ────────────────────────────
-  let filesByItemId: Record<string, Record<string, unknown>[]> = {}
+  const filesByItemId: Record<string, Record<string, unknown>[]> = {}
 
   if (itemIds.length > 0) {
     const { data: files } = await supabase

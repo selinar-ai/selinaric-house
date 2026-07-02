@@ -83,7 +83,7 @@ async function getInteriorCount(): Promise<number> {
 // ─── Test fixtures ──────────────────────────────────────────────────────────
 
 let testEventId: string | null = null
-let testMessageIds: string[] = []
+const testMessageIds: string[] = []
 let testThreadId: string | null = null
 
 async function createTestFixtures() {

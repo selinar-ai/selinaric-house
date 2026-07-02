@@ -96,11 +96,11 @@ let testEventId: string | null = null
 let testImpactId: string | null = null
 let testCandidateId: string | null = null
 let testInteriorCandidateId: string | null = null
-let testMessageIds: string[] = []
-let extraEventIds: string[] = []
+const testMessageIds: string[] = []
+const extraEventIds: string[] = []
 let testThreadId: string | null = null
-let extraCandidateIds: string[] = []
-let testCarryforwardIds: string[] = []
+const extraCandidateIds: string[] = []
+const testCarryforwardIds: string[] = []
 
 async function createTestFixtures() {
   console.log('─── Creating test fixtures ───')

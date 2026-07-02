@@ -86,7 +86,7 @@ interface ImpactSnapshot {
 // ─── JSON Safety ────────────────────────────────────────────────────────────
 
 function safeParseModelJson<T>(raw: string): T | null {
-  let cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
+  const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
 
   try {
     return JSON.parse(cleaned) as T

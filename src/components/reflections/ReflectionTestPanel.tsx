@@ -32,9 +32,6 @@ interface Props {
 type Status = { kind: 'idle' } | { kind: 'ok'; message: string } | { kind: 'err'; message: string }
 
 export default function ReflectionTestPanel({ presence, onJobProcessed }: Props) {
-  // Only render in dev
-  if (process.env.NODE_ENV !== 'development') return null
-
   const [open, setOpen] = useState(false)
   const [triggerType, setTriggerType] = useState<ReflectionTriggerType>('concept_approved')
   const [sourceId, setSourceId] = useState('')
@@ -97,6 +94,10 @@ export default function ReflectionTestPanel({ presence, onJobProcessed }: Props)
       setProcessing(false)
     }
   }
+
+  // Only render in dev. Checked after the hooks so hook order is identical on
+  // every render (react-hooks/rules-of-hooks); NODE_ENV is constant at runtime.
+  if (process.env.NODE_ENV !== 'development') return null
 
   return (
     <div className="border-b border-house-border bg-house-bg/60">

@@ -27,7 +27,7 @@ function getSupabase() {
 
 function safeParseModelJson<T>(raw: string): T | null {
   // Strip code fences
-  let cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
+  const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
 
   try {
     return JSON.parse(cleaned) as T

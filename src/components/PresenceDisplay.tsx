@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import type { IdentityKernel } from '@/lib/types/presence'
 import { useInteriorWant } from '@/hooks/useInteriorWant'
 
@@ -47,6 +48,14 @@ const ELI_MOOD_READ =
 
 export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Props) {
   const { static_identity: si, live_state: ls } = kernel
+
+  // Hours since the live state last updated. Wall-clock reads are impure in
+  // render, so this is computed after mount (also avoids a server/client
+  // hydration mismatch on the decay hint).
+  const [hoursSince, setHoursSince] = useState<number | null>(null)
+  useEffect(() => {
+    setHoursSince((Date.now() - new Date(ls.last_updated).getTime()) / (1000 * 60 * 60))
+  }, [ls.last_updated])
 
   const isAri = si.presence_name.toLowerCase() === 'ari'
   const isEli = si.presence_name.toLowerCase() === 'eli'
@@ -197,24 +206,16 @@ export default function PresenceDisplay({ kernel, accentClass, iconSymbol }: Pro
               timeZone: 'Australia/Melbourne'
             })}
           </p>
-          {(() => {
-            const hoursSince = (Date.now() - new Date(ls.last_updated).getTime()) / (1000 * 60 * 60)
-            if (hoursSince > 12) {
-              return (
-                <p className="font-body text-xs text-text-muted italic">
-                  Resting — state softened to baseline
-                </p>
-              )
-            }
-            if (hoursSince > 6) {
-              return (
-                <p className="font-body text-xs text-text-muted italic">
-                  Quiet — decay begins in {Math.round(12 - hoursSince)}h
-                </p>
-              )
-            }
-            return null
-          })()}
+          {hoursSince !== null && hoursSince > 12 && (
+            <p className="font-body text-xs text-text-muted italic">
+              Resting — state softened to baseline
+            </p>
+          )}
+          {hoursSince !== null && hoursSince > 6 && hoursSince <= 12 && (
+            <p className="font-body text-xs text-text-muted italic">
+              Quiet — decay begins in {Math.round(12 - hoursSince)}h
+            </p>
+          )}
         </div>
       </div>
 

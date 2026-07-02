@@ -486,7 +486,7 @@ export async function POST(request: NextRequest) {
 
   // ─── 2. Fetch files for all candidate items ──────────────────────────
 
-  let filesByItemId: Record<string, Record<string, unknown>[]> = {}
+  const filesByItemId: Record<string, Record<string, unknown>[]> = {}
 
   if (includeAttachments && itemIds.length > 0) {
     let fileQuery = supabase

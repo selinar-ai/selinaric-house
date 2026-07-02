@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'status is required' }, { status: 400 })
   }
 
-  if (!GRAPH_REVIEW_STATUSES.includes(status as any)) {
+  if (!(GRAPH_REVIEW_STATUSES as readonly string[]).includes(status)) {
     return NextResponse.json(
       { error: `Invalid status: "${status}". Allowed: ${GRAPH_REVIEW_STATUSES.join(', ')}` },
       { status: 400 }

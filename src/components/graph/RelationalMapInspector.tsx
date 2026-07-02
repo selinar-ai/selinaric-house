@@ -198,8 +198,8 @@ export default function RelationalMapInspector({
   const promptEligible = isNode ? selection.node.promptEligible : selection.edge.promptEligible
 
   // Node-specific: connected entities
-  let connectedCount = 0
-  let topRelationTypes: Record<string, number> = {}
+  const connectedCount = 0
+  const topRelationTypes: Record<string, number> = {}
   if (isNode) {
     // Count from allNodes perspective — not perfect without edges, but we can use
     // the parent page's data

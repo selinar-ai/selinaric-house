@@ -788,9 +788,13 @@ export default function HelperReviewPage() {
   const delegateInFlightRef = useRef(false)
   // Latest filters, readable from the (stable) review-action callback without
   // making it depend on filter state — used to re-read the trace post-action
-  // with the user's current filters/toggles preserved.
+  // with the user's current filters/toggles preserved. Synced in an effect so
+  // render never writes the ref; callbacks only fire post-commit, so they
+  // always see the synced value.
   const filtersRef = useRef(filters)
-  filtersRef.current = filters
+  useEffect(() => {
+    filtersRef.current = filters
+  }, [filters])
 
   // Phase 41.15 — spatial Workshop view state. View preference is SESSION-only
   // (never persisted to the database). Workshop is the default room Tara stands

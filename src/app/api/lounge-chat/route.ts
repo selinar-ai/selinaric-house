@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
       roomContactStatus?: RoomContactStatus
       roomContactReferences?: RoomCarryInReference[]
     }[] = []
-    let runningHistory = [...history]
+    const runningHistory = [...history]
 
     // Phase 36F.1: Temporal context — current datetime for session awareness
     const currentDatetime = new Date().toLocaleString('en-AU', {
@@ -329,7 +329,7 @@ export async function POST(request: NextRequest) {
     let attachmentContextBlock = ''
     let attachmentReferences: AttachmentReference[] = []
     let attachmentImageUrls: string[] = []
-    let attachmentStatus: AttachmentStatus = {
+    const attachmentStatus: AttachmentStatus = {
       attempted: false,
       source: 'attachments',
       attachmentCount: 0,

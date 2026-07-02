@@ -148,7 +148,7 @@ export async function PATCH(
     }
 
     // Apply field edits for edit_approve
-    let updatedDraft = { ...draft }
+    const updatedDraft = { ...draft }
     if (action === 'edit_approve') {
       if (typeof body.proposed_title === 'string' && body.proposed_title.trim()) {
         updatedDraft.proposed_title = body.proposed_title.trim()

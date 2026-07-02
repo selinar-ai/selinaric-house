@@ -478,10 +478,13 @@ export default function InsideView({ presenceId, accentClass }: Props) {
         <p className="font-body text-xs text-text-muted uppercase tracking-widest">Inside</p>
         <div className="flex items-center justify-between mt-2">
           <div className="flex gap-1.5">
-            <SectionTab id="journal" label="Journal" />
-            <SectionTab id="truths" label="Truths" />
-            <SectionTab id="notes" label="Notes" />
-            <SectionTab id="kernel" label="Kernel" />
+            {/* Called as plain functions (not JSX): SectionTab is re-created
+                each render, and rendering it as an element would remount the
+                buttons every time (react-hooks/static-components). */}
+            {SectionTab({ id: 'journal', label: 'Journal' })}
+            {SectionTab({ id: 'truths', label: 'Truths' })}
+            {SectionTab({ id: 'notes', label: 'Notes' })}
+            {SectionTab({ id: 'kernel', label: 'Kernel' })}
           </div>
         </div>
       </div>

@@ -34,10 +34,6 @@ export default function WatchtowerPage() {
   const [contextActive, setContextActive] = useState(false)
   const [continuityPacketIds, setContinuityPacketIds] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    loadHistory()
-  }, [])
-
   async function loadHistory() {
     const response = await fetch('/api/watchtower-search')
     if (response.ok) {
@@ -46,6 +42,10 @@ export default function WatchtowerPage() {
     }
     setLoadingHistory(false)
   }
+
+  useEffect(() => {
+    loadHistory()
+  }, [])
 
   async function handleSearch() {
     if (!query.trim() || loading) return

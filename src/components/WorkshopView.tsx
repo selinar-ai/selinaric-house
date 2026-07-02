@@ -707,10 +707,14 @@ export default function WorkshopView() {
           )}
         </div>
 
-        {/* Review panel — key forces remount when selection changes, preventing stale render */}
+        {/* Review panel — key forces remount when selection changes, preventing
+            stale render. ReviewPanel is re-created each render, so it is called
+            as a plain function rather than a JSX element to avoid remounting on
+            every render (react-hooks/static-components); the keyed wrapper still
+            remounts on selection change. */}
         {selectedBuild && (
           <div key={selectedBuildId ?? 'none'} className="flex-1 min-w-0 min-h-0 overflow-hidden">
-            <ReviewPanel build={selectedBuild} />
+            {ReviewPanel({ build: selectedBuild })}
           </div>
         )}
       </div>

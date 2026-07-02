@@ -285,7 +285,7 @@ export async function hybridLibrarySearch(
 
   let keywordResultCount = 0
   let semanticResultCount = 0
-  let rejectedBelowThreshold = 0
+  const rejectedBelowThreshold = 0
   let rejectedByUsefulnessGate = 0
   let semanticError: string | undefined
 
@@ -306,7 +306,7 @@ export async function hybridLibrarySearch(
     const allItems = items ?? []
     const itemIds = allItems.map(i => i.id as string)
 
-    let filesByItemId: Record<string, Record<string, unknown>[]> = {}
+    const filesByItemId: Record<string, Record<string, unknown>[]> = {}
     if (input.includeAttachments !== false && itemIds.length > 0) {
       const { data: files } = await supabase
         .from('library_item_files')

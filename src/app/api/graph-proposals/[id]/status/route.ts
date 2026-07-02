@@ -35,7 +35,7 @@ export async function PATCH(
   }
 
   // Validate against known review statuses
-  if (!GRAPH_REVIEW_STATUSES.includes(status as any)) {
+  if (!(GRAPH_REVIEW_STATUSES as readonly string[]).includes(status)) {
     return NextResponse.json(
       { error: `Invalid status: "${status}". Allowed: ${GRAPH_REVIEW_STATUSES.join(', ')}` },
       { status: 400 }

@@ -184,7 +184,10 @@ export default function GraphProposalInspector({
   // Build edge display label
   const edgeLabel = proposal.proposal_type === 'edge'
     ? (() => {
-        const payload = proposal.proposed_payload as Record<string, any>
+        const payload = proposal.proposed_payload as {
+          from?: { label?: string }
+          to?: { label?: string }
+        }
         const from = payload?.from?.label ?? '?'
         const to = payload?.to?.label ?? '?'
         return `${from} — ${proposal.edge_type} → ${to}`

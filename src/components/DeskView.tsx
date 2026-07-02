@@ -1054,7 +1054,7 @@ export default function DeskView({ presenceId, accentClass }: Props) {
           {showConsultForm && (
             <div className="border border-house-border bg-house-surface p-3 space-y-2">
               <p className="font-body text-[10px] text-text-muted uppercase tracking-widest">
-                Request input from {otherName}'s Desk
+                Request input from {otherName}&apos;s Desk
               </p>
               <textarea
                 value={fConsultQuestion}
@@ -1462,17 +1462,20 @@ export default function DeskView({ presenceId, accentClass }: Props) {
         </div>
       )}
 
-      {/* Mode: form (create or edit) */}
+      {/* Mode: form (create or edit) — BuildForm/BuildDetail are re-created
+          each render, so they are called as plain functions rather than JSX
+          elements to avoid remounting the subtree on every render
+          (react-hooks/static-components). */}
       {mode === 'form' && (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <BuildForm isEditing={!!selectedBuild && mode === 'form'} />
+          {BuildForm({ isEditing: !!selectedBuild && mode === 'form' })}
         </div>
       )}
 
       {/* Mode: detail */}
       {mode === 'detail' && selectedBuild && (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <BuildDetail build={selectedBuild} />
+          {BuildDetail({ build: selectedBuild })}
         </div>
       )}
 

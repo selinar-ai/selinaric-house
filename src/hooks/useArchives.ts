@@ -80,7 +80,9 @@ export function useArchives(tab: ArchiveTab, filters?: ArchiveQueryParams) {
 
   useEffect(() => { load() }, [load])
 
-  const hasMore = offsetRef.current < total
+  // offsetRef always mirrors items.length after load/loadMore — derive from
+  // state so render never reads the ref (react-hooks/refs).
+  const hasMore = items.length < total
 
   return { items, total, loading, loadingMore, error, refresh: load, loadMore, hasMore }
 }

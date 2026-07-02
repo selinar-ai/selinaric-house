@@ -320,7 +320,7 @@ export default function RecallEventDetail({ eventId }: Props) {
         )}
         {compareEntries === null && !compareLoading && (
           <p className="font-body text-[10px] text-text-muted italic">
-            Compare this query's keyword results against vector similarity.
+            Compare this query&apos;s keyword results against vector similarity.
           </p>
         )}
       </div>

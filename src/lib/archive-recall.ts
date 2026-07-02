@@ -596,7 +596,7 @@ export async function getRecallableArchiveEntries(
     return []
   }
 
-  let inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
+  const inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
 
   const tokens = stripStopwords(query)
   if (tokens.length === 0) return []

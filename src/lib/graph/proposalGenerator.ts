@@ -165,7 +165,7 @@ Return only the JSON. No markdown fences. No explanation.`
 // ─── JSON parsing ───────────────────────────────────────────────────────────
 
 function parseGenerationResponse(raw: string): RawGeneratedProposal[] | null {
-  let cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
+  const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
 
   function tryParse(text: string): RawGeneratedProposal[] | null {
     try {

@@ -88,7 +88,7 @@ interface ExtractedEntry {
 }
 
 function parseExtractedEntries(raw: string): ExtractedEntry[] | null {
-  let cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
+  const cleaned = raw.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim()
   try {
     const parsed = JSON.parse(cleaned)
     if (Array.isArray(parsed)) return parsed as ExtractedEntry[]
