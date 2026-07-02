@@ -21,10 +21,12 @@ const slice = [
   'src/app/api/agents/graph-proposals/[id]/review-state/route.ts',
 ]
 
-section('NO LLM anywhere in the slice')
+section('NO LLM provider/call anywhere in the slice')
+// ('llm' alone excluded — the shared contract.ts legitimately names 42.4.2a LLM CONSTANTS
+//  (llm_edge_v1, GRAPH_LLM_PROPOSAL_RECORD_RPC); 42.4.1 still makes no provider/LLM CALL.)
 for (const rel of slice) {
   const s = readCode(rel).toLowerCase()
-  for (const tok of ['anthropic', 'openai', 'gpt-', 'llm', 'completion', 'embedding']) assert(!s.includes(tok), `${rel}: no "${tok}"`)
+  for (const tok of ['anthropic', 'openai', 'gpt-', 'chat.completions', 'embedding', 'api.openai.com', 'api.anthropic.com']) assert(!s.includes(tok), `${rel}: no "${tok}"`)
 }
 
 section('no graph-truth / Memory / House-proposal write in the slice')

@@ -18,6 +18,17 @@ export const GRAPH_PROPOSALS_LIST_RPC = 'agent_graph_proposals_list'
 export const GRAPH_PROPOSAL_SET_REVIEW_RPC = 'agent_graph_proposal_set_review_state'
 export const GRAPH_PROPOSALS_CLEANUP_RPC = 'agent_graph_proposals_cleanup_test'
 
+// Phase 42.4.2a — LLM-class proposals (fixture-only in 42.4.2a; live deferred to 42.4.2b).
+export const GRAPH_LLM_PROPOSAL_RECORD_RPC = 'agent_graph_llm_proposal_record'
+export const LLM_RULE_ID = 'llm_edge_v1' as const
+/** v1 LLM edge whitelist — narrow, low-authority, reviewable; NO truthy/canonical relations. */
+export const LLM_EDGE_WHITELIST = ['contrasts_with', 'precedes', 'extends'] as const
+export const LLM_MIN_CONFIDENCE = 0.7
+export const GENERATION_MODES = ['fixture', 'live'] as const
+// Fixture provenance — clearly marks 42.4.2a rows as fixture/test, never live.
+export const FIXTURE_MODEL_ID = 'fixture-llm-output' as const
+export const FIXTURE_PROMPT_VERSION = 'fixture-postgate-v1' as const
+
 // Triage-only review vocab (reused from the Maintenance Room). NO approve/promote/crown.
 export const GRAPH_REVIEW_STATES = ['open', 'acknowledged', 'dismissed'] as const
 export function isValidGraphReviewState(x: unknown): x is (typeof GRAPH_REVIEW_STATES)[number] {
