@@ -229,6 +229,12 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  // Gate A-R hardening (Ari-required before merge): an archive mutation path may not
+  // ship unauthenticated beside the hardened PATCH. House auth FIRST — before params,
+  // validation, or any DB access. Existing soft-delete behaviour otherwise unchanged.
+  const auth = requireHouseApiAuth(request)
+  if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status })
+
   const supabase = getSupabase()
   const { id } = await context.params
 

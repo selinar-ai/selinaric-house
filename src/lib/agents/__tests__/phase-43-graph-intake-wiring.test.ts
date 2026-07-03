@@ -80,6 +80,21 @@ section('legacy PATCH hardened: auth BEFORE params/body/DB; single-item eligibil
   assert(s.includes('patch.eligible_for_graph = false'), 'single-item demotion still clears the flag')
 }
 
+section('legacy DELETE hardened: auth FIRST, before params/validation/DB (Ari pre-merge requirement)')
+{
+  const s = read(PATCH)
+  const delIdx = s.indexOf('export async function DELETE')
+  const del = s.slice(delIdx)
+  const authIdx = del.indexOf('requireHouseApiAuth(request)')
+  const paramsIdx = del.indexOf('await context.params')
+  const dbIdx = del.indexOf(".from('archive_items')")
+  assert(delIdx >= 0 && authIdx >= 0, 'DELETE handler calls requireHouseApiAuth')
+  assert(authIdx < paramsIdx && authIdx < dbIdx, 'DELETE auth precedes params parsing and any DB access')
+  assert(del.includes('!auth.ok') && del.includes('auth.status'), 'DELETE returns the auth status first')
+  assert(del.includes('deleted_at: new Date().toISOString()') && del.includes(".is('deleted_at', null)"), 'DELETE remains soft-delete-only with already-deleted guard (behaviour unchanged)')
+  assert(!del.includes('.delete('), 'DELETE performs no hard delete')
+}
+
 section('bulk demote clears eligibility flags exactly like the single PATCH')
 {
   const s = read(BULK)
