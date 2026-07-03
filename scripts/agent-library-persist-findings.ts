@@ -1,9 +1,14 @@
 /**
- * Phase 42.3.3a — Library persistence runner (TEST-OWNED ONLY)
+ * Phase 42.3.3a — Library persistence runner (+ Phase 43.A persist-real gate)
  *
- * Run (after Tara applies migration 083; from repo root, env loaded):
- *   npx tsx scripts/agent-library-persist-findings.ts --scope collection --collection development_documentation
- *   npx tsx scripts/agent-library-persist-findings.ts --cleanup <run_id>
+ * Run (from repo root, env loaded):
+ *   Test-owned (default):
+ *     npx tsx scripts/agent-library-persist-findings.ts --scope collection --collection development_documentation
+ *   Real (Phase 43.A+; per-run Tara authorisation; never unbounded):
+ *     npx tsx scripts/agent-library-persist-findings.ts --scope collection --collection development_documentation \
+ *       --persist-real --confirm-persist-real --max-findings <n>
+ *   Cleanup (test-owned runs only — the cleanup RPC is structurally test-only):
+ *     npx tsx scripts/agent-library-persist-findings.ts --cleanup <run_id>
  *
  * Reads Library source read-only (via the existing pack), builds the ephemeral
  * report, and records it into the durable store through the governed ingest RPC.
@@ -11,8 +16,10 @@
  * ── Boundaries (hard) ────────────────────────────────────────────────────────
  *   * Writes ONLY through `agent_record_findings` / `agent_findings_cleanup_test_run`
  *     RPCs (service-role execute). No direct table DML. No House-surface writes.
- *   * test_owned = true ALWAYS in 42.3.3a. Real-finding persistence is a separate,
- *     later, explicitly-approved phase — there is intentionally no real-persist flag.
+ *   * Default remains test-owned. A REAL run requires BOTH --persist-real and
+ *     --confirm-persist-real, must declare --max-findings, and is stamped
+ *     requested_by='tara'. The report is built BEFORE persisting; if the finding
+ *     count exceeds the cap, NOTHING is persisted.
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -21,6 +28,7 @@ import { buildLibraryHealthReport } from '../src/lib/agents/packs/library/index'
 import { fetchLibraryScope, type ReadOnlyDb } from '../src/lib/agents/packs/library/readonly-data'
 import type { LibraryScopeDescriptor } from '../src/lib/agents/packs/library/payloads'
 import { buildPersistInputs, persistReport, cleanupTestRun, type RpcClient } from '../src/lib/agents/persistence/ingest'
+import { resolvePersistGate, findingCapRefusal } from '../src/lib/agents/persistence/gate'
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`)
@@ -56,13 +64,20 @@ async function main() {
     return
   }
 
+  const gate = resolvePersistGate(process.argv.slice(2))
+  if (!gate.ok) { console.error(`REFUSED: ${gate.reason}`); process.exit(1); return }
+
   const descriptor = resolveDescriptor()
   const { input, scope } = await fetchLibraryScope(sb as unknown as ReadOnlyDb, descriptor)
   const report = buildLibraryHealthReport({ input, scope, generatedAt: new Date().toISOString() })
 
+  // Report is built BEFORE persisting — a capped run refuses without writing anything.
+  const capRefusal = findingCapRefusal(report.findings.length, gate)
+  if (capRefusal) { console.error(capRefusal); process.exit(1); return }
+
   const inputs = buildPersistInputs(report, {
-    requestedBy: 'system',
-    testOwned: true, // 42.3.3a: test-owned only
+    requestedBy: gate.requestedBy,
+    testOwned: !gate.real,
     scope: {
       scope_type: scope.type,
       scope_ref: scope.ref ?? null,
@@ -71,11 +86,12 @@ async function main() {
   })
 
   const result = await persistReport(sb as unknown as RpcClient, inputs)
-  console.log('\n── Library findings persisted (TEST-OWNED) ──')
+  console.log(`\n── Library findings persisted (${gate.real ? 'REAL' : 'TEST-OWNED'}) ──`)
   console.log(`run_id:        ${result.run_id}`)
   console.log(`findings:      ${result.finding_count}`)
   console.log(`reconciled:    ${result.reconciled}`)
-  console.log(`(cleanup with: --cleanup ${result.run_id})`)
+  if (gate.real) console.log('(REAL rows are the product — no bulk-delete path exists; un-wanting a finding = triage dismissal)')
+  else console.log(`(cleanup with: --cleanup ${result.run_id})`)
 }
 
 main().catch((err) => {
