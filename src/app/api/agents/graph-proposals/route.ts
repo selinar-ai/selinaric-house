@@ -29,5 +29,20 @@ export async function GET(request: NextRequest) {
     p_include_test: false,
   })
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true, graph_proposals: data ?? [] })
+  const proposals = (data ?? []) as { from_node_id: string; to_node_id: string }[]
+
+  // Phase 43 legibility enrichment — READ-ONLY: resolve node labels so a human can see
+  // WHAT a proposal connects, not just row ids. Missing labels fail SOFT (row still renders,
+  // UI falls back to the short id); a label-read error never blocks the listing.
+  let labels: Record<string, string> = {}
+  try {
+    const ids = [...new Set(proposals.flatMap((p) => [p.from_node_id, p.to_node_id]))]
+    if (ids.length > 0) {
+      const { data: nodes } = await sb.from('archive_graph_nodes').select('id, label').in('id', ids)
+      for (const n of nodes ?? []) if (typeof n.label === 'string' && n.label.trim() !== '') labels[n.id] = n.label
+    }
+  } catch {
+    labels = {} // fail soft — legibility is best-effort, listing is not
+  }
+  return NextResponse.json({ ok: true, graph_proposals: proposals, node_labels: labels })
 }

@@ -36,8 +36,11 @@ for (const rel of slice) {
   //  requires .from('table').update(), and direct table access is caught by the checks below.)
   for (const tok of ['.insert(', '.delete(', '.upsert(']) assert(!s.includes(tok), `${rel}: no ${tok}`)
   for (const t of ["'archive_graph_edges'", "'archive_graph_nodes'", "'graph_proposals'", "'memory_nodes'", "'memory_edges'"]) {
-    // reads of archive_graph_nodes/edges are allowed only in the runner (read-only .select()).
-    if (rel !== 'scripts/agent-graph-propose.ts') assert(!s.includes(t), `${rel}: does not reference House graph/memory table ${t}`)
+    // reads of archive_graph_nodes/edges are allowed only in the runner (read-only .select())
+    // and — Phase 43 legibility, Ari-authorised — the list route's read-only label lookup
+    // ('archive_graph_nodes' only; write-verb absence is asserted separately above).
+    const sanctionedLabelRead = rel === 'src/app/api/agents/graph-proposals/route.ts' && t === "'archive_graph_nodes'"
+    if (rel !== 'scripts/agent-graph-propose.ts' && !sanctionedLabelRead) assert(!s.includes(t), `${rel}: does not reference House graph/memory table ${t}`)
   }
 }
 

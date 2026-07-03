@@ -91,6 +91,9 @@ export default function MaintenanceRoomPage() {
   const [runs, setRuns] = useState<Run[]>([])
   const [plansByFinding, setPlansByFinding] = useState<Map<string, PlanRow[]>>(new Map())
   const [graphProposals, setGraphProposals] = useState<GraphProposalRow[]>([])
+  const [nodeLabels, setNodeLabels] = useState<Record<string, string>>({})
+  const [gBulkBusy, setGBulkBusy] = useState(false)
+  const [gBulkResult, setGBulkResult] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -116,7 +119,9 @@ export default function MaintenanceRoomPage() {
       const fJson = (await fRes.json()) as { findings?: Finding[] }
       const rJson = rRes.ok ? ((await rRes.json()) as { runs?: Run[] }) : { runs: [] }
       const pJson = pRes.ok ? ((await pRes.json()) as { remedy_plans?: PlanRow[] }) : { remedy_plans: [] }
-      const gJson = gRes.ok ? ((await gRes.json()) as { graph_proposals?: GraphProposalRow[] }) : { graph_proposals: [] }
+      const gJson = gRes.ok
+        ? ((await gRes.json()) as { graph_proposals?: GraphProposalRow[]; node_labels?: Record<string, string> })
+        : { graph_proposals: [], node_labels: {} }
       const byFinding = new Map<string, PlanRow[]>()
       for (const p of pJson.remedy_plans ?? []) {
         const list = byFinding.get(p.finding_id) ?? []
@@ -127,6 +132,7 @@ export default function MaintenanceRoomPage() {
       setRuns(rJson.runs ?? [])
       setPlansByFinding(byFinding)
       setGraphProposals(gJson.graph_proposals ?? [])
+      setNodeLabels(gJson.node_labels ?? {})
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load')
     } finally {
@@ -208,6 +214,35 @@ export default function MaintenanceRoomPage() {
       setBusyId(null)
     }
   }, [loadData])
+
+  // Phase 43 (graph bulk triage) — apply ONE review state to the proposals currently shown.
+  // Submits only displayed ids + a declared expected_count (server fails closed on mismatch);
+  // the route loops the same governed single-proposal RPC. Never touches graph truth.
+  const bulkReviewProposals = useCallback(async (review_state: string) => {
+    const ids = graphProposals.map((g) => g.id)
+    if (ids.length === 0) { setGBulkResult('Nothing to update — no proposals in the current view.'); return }
+    if (ids.length > 200) { setGBulkResult(`Refused: ${ids.length} proposals exceeds the bulk cap of 200.`); return }
+    if (!window.confirm(`Set review state to "${review_state}" on the ${ids.length} proposal(s) currently shown?`)) return
+    setGBulkBusy(true)
+    setGBulkResult(null)
+    try {
+      const res = await fetch('/api/agents/graph-proposals/review-state/bulk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, review_state, expected_count: ids.length }),
+      })
+      const json = (await res.json()) as { succeeded?: number; failed?: { id: string; error: string }[]; code?: string }
+      if (!res.ok) throw new Error(json.code ?? `bulk proposal review ${res.status}`)
+      const failedCount = json.failed?.length ?? 0
+      setGBulkResult(`Bulk ${review_state}: ${json.succeeded ?? 0} succeeded${failedCount > 0 ? `, ${failedCount} FAILED` : ''}.`)
+      await loadData()
+    } catch (e) {
+      setGBulkResult(null)
+      setError(e instanceof Error ? e.message : 'bulk proposal review failed')
+    } finally {
+      setGBulkBusy(false)
+    }
+  }, [graphProposals, loadData])
 
   // Phase 42.4.1 — triage a graph proposal (open/acknowledged/dismissed). Never touches graph truth.
   const reviewProposal = useCallback(async (id: string, review_state: string) => {
@@ -371,12 +406,28 @@ export default function MaintenanceRoomPage() {
         {graphProposals.length === 0 ? (
           <p className="text-sm opacity-50">No graph proposals to review.</p>
         ) : (
+          <>
+          <div className="flex flex-wrap items-center gap-2 mb-2 rounded-md border border-[var(--house-border,#1e1e2e)] bg-[var(--house-surface,#12121a)] px-3 py-2 text-xs">
+            <span className="opacity-60">
+              Bulk action · applies to the {graphProposals.length} proposal(s) currently shown:
+            </span>
+            <ReviewButton label="Acknowledge all" disabled={gBulkBusy} onClick={() => bulkReviewProposals('acknowledged')} />
+            <ReviewButton label="Dismiss all" disabled={gBulkBusy} onClick={() => bulkReviewProposals('dismissed')} />
+            <ReviewButton label="Reopen all" disabled={gBulkBusy} onClick={() => bulkReviewProposals('open')} />
+            {gBulkBusy ? <span className="opacity-50">Working…</span> : null}
+          </div>
+          {gBulkResult ? <p className="text-sm opacity-80 mb-2">{gBulkResult}</p> : null}
           <ul className="space-y-1">
             {graphProposals.map((g) => (
               <li key={g.id} className="rounded border border-[var(--house-border,#1e1e2e)] bg-[var(--house-surface,#12121a)] px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-3">
                   <span className="opacity-80">
-                    <code className="opacity-90">{g.edge_type}</code> · {g.from_node_id.slice(0, 8)} ↔ {g.to_node_id.slice(0, 8)}
+                    {/* labels are best-effort read enrichment — a missing label falls back to the short id */}
+                    <span className="opacity-95">{nodeLabels[g.from_node_id] ?? g.from_node_id.slice(0, 8)}</span>
+                    {' ↔ '}
+                    <span className="opacity-95">{nodeLabels[g.to_node_id] ?? g.to_node_id.slice(0, 8)}</span>
+                    <code className="ml-2 opacity-60">{g.edge_type}</code>
+                    <span className="ml-2 opacity-40">{g.from_node_id.slice(0, 8)} ↔ {g.to_node_id.slice(0, 8)}</span>
                     <span className="ml-2 opacity-50">[{g.review_state}]</span>
                   </span>
                   <div className="flex gap-1 shrink-0">
@@ -390,6 +441,7 @@ export default function MaintenanceRoomPage() {
               </li>
             ))}
           </ul>
+          </>
         )}
       </section>
     </div>

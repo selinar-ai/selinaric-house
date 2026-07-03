@@ -29,6 +29,10 @@ export const GENERATION_MODES = ['fixture', 'live'] as const
 export const FIXTURE_MODEL_ID = 'fixture-llm-output' as const
 export const FIXTURE_PROMPT_VERSION = 'fixture-postgate-v1' as const
 
+// Phase 43 (graph bulk triage) — hard cap on ids per bulk review request. The bulk route
+// loops the single-proposal RPC; no new SQL, no new verbs.
+export const GRAPH_BULK_REVIEW_MAX_IDS = 200
+
 // Triage-only review vocab (reused from the Maintenance Room). NO approve/promote/crown.
 export const GRAPH_REVIEW_STATES = ['open', 'acknowledged', 'dismissed'] as const
 export function isValidGraphReviewState(x: unknown): x is (typeof GRAPH_REVIEW_STATES)[number] {

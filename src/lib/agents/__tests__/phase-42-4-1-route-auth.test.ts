@@ -24,8 +24,14 @@ for (const rel of [list, review]) {
   assert(authIdx >= 0 && (rpcIdx < 0 || authIdx < rpcIdx), `${rel}: auth before any .rpc()`)
   assert(s.includes('!auth.ok') && s.includes('auth.status'), `${rel}: returns 401/503 from auth first`)
   assert(s.includes('SUPABASE_SERVICE_ROLE_KEY') && !s.includes('NEXT_PUBLIC_SUPABASE_ANON_KEY'), `${rel}: service-role only, never anon`)
-  // routes write/read ONLY via governed RPCs — no direct table access
-  for (const tok of ['.insert(', '.update(', '.delete(', '.upsert(', ".from('", '.from("']) assert(!s.includes(tok), `${rel}: no direct table access (${tok})`)
+  // No direct table WRITES anywhere; the governed proposals table is RPC-only. The ONE
+  // sanctioned direct read is the Phase-43 legibility enrichment: the list route may
+  // .from('archive_graph_nodes').select('id, label') (Ari-authorised, read-only, fail-soft).
+  for (const tok of ['.insert(', '.update(', '.delete(', '.upsert(', ".from('agent_graph_proposals'"]) assert(!s.includes(tok), `${rel}: no direct table write/table-bypass (${tok})`)
+  {
+    const froms = [...s.matchAll(/\.from\(['"]([\w]+)['"]\)/g)].map((m) => m[1])
+    assert(froms.every((t) => t === 'archive_graph_nodes'), `${rel}: only sanctioned direct read is archive_graph_nodes labels (saw: ${[...new Set(froms)].join(', ') || 'none'})`)
+  }
 }
 
 section('list route: production excludes test-owned; archive_graph target')
