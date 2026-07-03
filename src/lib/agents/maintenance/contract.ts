@@ -20,6 +20,10 @@ export const FINDINGS_RPC = 'agent_findings_list'
 export const RUNS_RPC = 'agent_runs_list'
 export const SET_REVIEW_STATE_RPC = 'agent_finding_set_review_state'
 
+// Phase 43 (bulk triage) — hard cap on ids per bulk review request. The bulk route
+// loops the single-finding RPC; it introduces no new SQL and no new verbs.
+export const BULK_REVIEW_MAX_IDS = 200
+
 // Phase 42.3.4a — remedy-plan representation (read + record + test cleanup only; NO apply).
 export const REMEDY_PLANS_LIST_RPC = 'agent_remedy_plans_list'
 export const REMEDY_PLAN_RECORD_RPC = 'agent_remedy_plan_record'

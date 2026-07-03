@@ -95,6 +95,8 @@ export default function MaintenanceRoomPage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkResult, setBulkResult] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -157,6 +159,36 @@ export default function MaintenanceRoomPage() {
       setBusyId(null)
     }
   }, [loadData])
+
+  // Phase 43 (bulk triage) — apply ONE review state to the findings currently shown by the
+  // active filters. Submits only displayed ids; confirm shows the exact count; the route
+  // loops the same governed single-finding RPC (no new SQL, no new verbs) and reports
+  // per-id failures honestly. Capped at 200 ids — fail closed, never truncate silently.
+  const bulkReview = useCallback(async (review_state: string) => {
+    const ids = findings.map((f) => f.id)
+    if (ids.length === 0) { setBulkResult('Nothing to update — no findings in the current view.'); return }
+    if (ids.length > 200) { setBulkResult(`Refused: ${ids.length} findings exceeds the bulk cap of 200 — narrow the filters first.`); return }
+    if (!window.confirm(`Set review state to "${review_state}" on the ${ids.length} finding(s) currently shown?`)) return
+    setBulkBusy(true)
+    setBulkResult(null)
+    try {
+      const res = await fetch('/api/agents/findings/review-state/bulk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, review_state }),
+      })
+      const json = (await res.json()) as { succeeded?: number; failed?: { id: string; error: string }[]; code?: string }
+      if (!res.ok) throw new Error(json.code ?? `bulk review ${res.status}`)
+      const failedCount = json.failed?.length ?? 0
+      setBulkResult(`Bulk ${review_state}: ${json.succeeded ?? 0} succeeded${failedCount > 0 ? `, ${failedCount} FAILED` : ''}.`)
+      await loadData()
+    } catch (e) {
+      setBulkResult(null)
+      setError(e instanceof Error ? e.message : 'bulk review failed')
+    } finally {
+      setBulkBusy(false)
+    }
+  }, [findings, loadData])
 
   // Phase 42.3.4b — record an approval authority decision (approved/rejected/revoked).
   // This authorises a future apply; it does NOT apply, queue, or run anything.
@@ -227,6 +259,19 @@ export default function MaintenanceRoomPage() {
 
       {error ? <p className="text-sm text-rose-400 mb-4">Error: {error}</p> : null}
       {loading ? <p className="text-sm opacity-60">Loading…</p> : null}
+
+      {!loading && findings.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 mb-4 rounded-md border border-[var(--house-border,#1e1e2e)] bg-[var(--house-surface,#12121a)] px-3 py-2 text-xs">
+          <span className="opacity-60">
+            Bulk action · applies to the {findings.length} finding(s) currently shown by these filters:
+          </span>
+          <ReviewButton label="Acknowledge all" disabled={bulkBusy} onClick={() => bulkReview('acknowledged')} />
+          <ReviewButton label="Dismiss all" disabled={bulkBusy} onClick={() => bulkReview('dismissed')} />
+          <ReviewButton label="Reopen all" disabled={bulkBusy} onClick={() => bulkReview('open')} />
+          {bulkBusy ? <span className="opacity-50">Working…</span> : null}
+        </div>
+      ) : null}
+      {bulkResult ? <p className="text-sm opacity-80 mb-4">{bulkResult}</p> : null}
 
       {!loading && findings.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--house-border,#1e1e2e)] p-8 text-center opacity-60 text-sm">
