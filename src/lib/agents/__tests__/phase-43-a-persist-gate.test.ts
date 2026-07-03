@@ -83,8 +83,11 @@ assert(!readCode('src/lib/agents/persistence/gate.ts').includes('.rpc('), 'gate.
 
 section('no migration needed for 43.A (patch is code-only)')
 {
-  const migs = fs.readdirSync('supabase-migrations').filter((f) => f.endsWith('.sql')).sort()
-  assert(migs[migs.length - 1].startsWith('089'), `latest migration is still 089 (found ${migs[migs.length - 1]})`)
+  // Durable form of the original intent (the gate ships without schema change) — later
+  // phases legitimately add their own migrations, so "latest is 089" was time-bound.
+  const migs = fs.readdirSync('supabase-migrations').filter((f) => f.endsWith('.sql'))
+  assert(!migs.some((f) => /persist|deposit/i.test(f)), 'no migration exists for the persist-real gate (43.A stayed code-only)')
+  assert(!migs.some((f) => /persist[-_]real/i.test(fs.readFileSync(`supabase-migrations/${f}`, 'utf8'))), 'no migration references the persist-real gate')
 }
 
 console.log(`\n  Passed: ${passed}  Failed: ${failed}`)

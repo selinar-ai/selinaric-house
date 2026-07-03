@@ -132,8 +132,11 @@ function fileRef(f: SourceRefFileSnapshot): HelperSourceRef {
  * Whether a string is a valid http/https URL. PURE — parses with `new URL`, never
  * makes a request. A relative path, a bare word, or a non-http(s) scheme is not a
  * valid source URL.
+ * Exported (Phase 43.C): the remedy builder reuses THIS predicate directly so there is
+ * exactly one JS definition of "malformed source_url"; the migration's SQL twin is
+ * parity-locked to it by shared test vectors.
  */
-function isValidHttpUrl(s: string): boolean {
+export function isValidHttpUrl(s: string): boolean {
   try {
     const u = new URL(s)
     return u.protocol === 'http:' || u.protocol === 'https:'
