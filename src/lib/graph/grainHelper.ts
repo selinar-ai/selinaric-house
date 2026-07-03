@@ -145,11 +145,14 @@ async function readCanonicalArchiveItems(): Promise<Array<{
   ownerPresence: string
   sensitivity: string
 }>> {
+  // Gate A-R wiring: ontology intake requires canonical AND Tara's explicit
+  // eligible_for_graph mark (canonical_candidate items are no longer grain sources)
   const { data } = await supabase
     .from('archive_items')
     .select('id, title, category, archive_name, owner_presence, sensitivity')
     .is('deleted_at', null)
-    .in('canonical_status', ['canonical', 'canonical_candidate'])
+    .eq('canonical_status', 'canonical')
+    .eq('eligible_for_graph', true)
     .not('sensitivity', 'in', '("sacred","sensitive","technical")')
     .limit(MAX_SOURCES_PER_RUN)
 

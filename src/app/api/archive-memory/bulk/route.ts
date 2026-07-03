@@ -177,6 +177,13 @@ export async function POST(request: NextRequest) {
   if (typedAction === 'confirm_memory') {
     updatePayload.eligible_for_recall = true
   }
+  // Gate A-R consistency fix: leaving 'canonical' clears ALL eligibility flags,
+  // exactly like the single-item PATCH — bulk and single demotion must not diverge.
+  if (toStatus !== 'canonical') {
+    updatePayload.eligible_for_recall = false
+    updatePayload.eligible_for_embedding = false
+    updatePayload.eligible_for_graph = false
+  }
 
   const { error: updateError } = await supabase
     .from('archive_items')

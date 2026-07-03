@@ -12,10 +12,14 @@
 //   Candidates require Tara approval.
 //   Edge approval blocked if either endpoint node is rejected.
 //
-// Corpus (v1):
-//   archive_items WHERE canonical_status IN ('canonical','canonical_candidate')
-//   AND deleted_at IS NULL
-//   eligible_for_graph NOT used as filter (metadata only).
+// Corpus (Gate A-R wiring, Jul 2026):
+//   archive_items WHERE canonical_status = 'canonical'
+//   AND eligible_for_graph = true AND deleted_at IS NULL
+//   eligible_for_graph IS the intake gate — Tara's explicit per-item mark. The processed
+//   ledger remains the idempotency mechanism; selection = flagged ∩ canonical ∩ unprocessed.
+//   The flag governs FUTURE selection only; historical ledger/node/event rows are never rewritten.
+//   (canonical_candidate items are no longer extraction-eligible — they enter only after
+//   confirmation + explicit marking.)
 //
 // Node types (v1): concept | person | phase | rule_or_law | ritual | thread
 // Edge types (v1): anchors | shaped_by | contrasts_with | precedes | extends
@@ -146,12 +150,13 @@ export async function getGraphExtractionPreview(
 ): Promise<GraphExtractionPreview> {
   const supabase = getSupabase()
 
-  // Fetch eligible items
+  // Fetch eligible items — Gate A-R: intake requires canonical AND Tara's explicit flag
   const { data: eligible, error: eligErr } = await supabase
     .from('archive_items')
     .select('id, sensitivity')
     .is('deleted_at', null)
-    .in('canonical_status', ['canonical', 'canonical_candidate'])
+    .eq('canonical_status', 'canonical')
+    .eq('eligible_for_graph', true)
     .eq('archive_name', archiveName)
 
   if (eligErr || !eligible) {
@@ -354,12 +359,13 @@ export async function runGraphExtractionLogic(
   const supabase   = getSupabase()
   const anthropic  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  // ── 1. Fetch eligible items ───────────────────────────────────────────────
+  // ── 1. Fetch eligible items — Gate A-R: canonical AND explicitly graph-eligible only ──
   const { data: eligible, error: eligErr } = await supabase
     .from('archive_items')
     .select('id, title, excerpt, raw_content, sensitivity, category')
     .is('deleted_at', null)
-    .in('canonical_status', ['canonical', 'canonical_candidate'])
+    .eq('canonical_status', 'canonical')
+    .eq('eligible_for_graph', true)
     .eq('archive_name', archiveName)
 
   if (eligErr || !eligible) {

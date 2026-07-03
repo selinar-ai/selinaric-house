@@ -94,7 +94,7 @@ export async function createCandidateSuggestion(
     for (const src of input.supporting_archive_sources) {
       const { data: item, error: fetchErr } = await supabase
         .from('archive_items')
-        .select('id, canonical_status, deleted_at')
+        .select('id, canonical_status, deleted_at, eligible_for_graph')
         .eq('id', src.archive_item_id)
         .single()
 
@@ -103,6 +103,11 @@ export async function createCandidateSuggestion(
       }
       if (item.deleted_at) {
         return { ok: false, error: `Archive item is deleted: ${src.archive_item_id}` }
+      }
+      // Gate A-R wiring: ontology intake is flag-gated with no side door — a supporting
+      // archive source must be explicitly marked graph-eligible by Tara first
+      if (item.eligible_for_graph !== true) {
+        return { ok: false, error: `Archive item is not graph-eligible (eligible_for_graph=false): ${src.archive_item_id} — mark it eligible before using it as an ontology source` }
       }
 
       // Server derives canonical_status_snapshot — client value ignored
@@ -196,7 +201,7 @@ export async function createCandidateSuggestion(
   if (input.target_archive_item_id) {
     const { data: target, error: tErr } = await supabase
       .from('archive_items')
-      .select('id, canonical_status, deleted_at')
+      .select('id, canonical_status, deleted_at, eligible_for_graph')
       .eq('id', input.target_archive_item_id)
       .single()
 
@@ -205,6 +210,10 @@ export async function createCandidateSuggestion(
     }
     if (target.deleted_at) {
       return { ok: false, error: `Target archive item is deleted: ${input.target_archive_item_id}` }
+    }
+    // Gate A-R wiring: the target item must be explicitly graph-eligible — no side door
+    if (target.eligible_for_graph !== true) {
+      return { ok: false, error: `Target archive item is not graph-eligible (eligible_for_graph=false): ${input.target_archive_item_id} — mark it eligible before proposing it into the ontology layer` }
     }
     canonicalStatusBefore = target.canonical_status
   }

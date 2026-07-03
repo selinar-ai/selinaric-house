@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireHouseApiAuth } from '@/lib/server/houseAuth'
 import { canToggleEligibility, type ArchiveItem, type CanonicalStatus } from '@/lib/archives'
 import { deriveMemoryAuditAction } from '@/lib/archive-memory'
 
@@ -51,6 +52,11 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  // Gate A-R hardening: this route controls an ontology intake boundary
+  // (eligible_for_graph). House auth FIRST — before params, body parsing, or any DB read.
+  const auth = requireHouseApiAuth(request)
+  if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status })
+
   const supabase = getSupabase()
   const { id } = await context.params
 
@@ -66,7 +72,7 @@ export async function PATCH(
   // Fetch current item to enforce eligibility guard + capture before-values for edit audit
   const { data: current, error: fetchError } = await supabase
     .from('archive_items')
-    .select('canonical_status, deleted_at, title, raw_content, excerpt, review_notes, import_label, source_document, source_date')
+    .select('canonical_status, deleted_at, title, raw_content, excerpt, review_notes, import_label, source_document, source_date, eligible_for_graph')
     .eq('id', id)
     .single()
 
@@ -136,6 +142,30 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // ─── Gate A-R: audit graph-eligibility flips (single-item path) ──────────────
+  // eligible_for_graph is the ontology intake gate; every flip is auditable so the
+  // single-item and bulk paths never diverge. Audit failure never fails the PATCH.
+  if ('eligible_for_graph' in patch && patch.eligible_for_graph !== current.eligible_for_graph) {
+    const marked = patch.eligible_for_graph === true
+    const { error: eligAuditErr } = await supabase.from('archive_eligibility_events').insert({
+      event_type: marked ? 'graph_eligibility_mark' : 'graph_eligibility_unmark',
+      items_affected: 1,
+      items_scanned: 1,
+      breakdown: {
+        item_ids: [id],
+        before: current.eligible_for_graph ?? false,
+        after: patch.eligible_for_graph,
+        source: 'single_item_patch',
+      },
+      sample_titles: [current.title].filter(Boolean),
+      created_by: 'tara', // server-derived; the House is single-user
+      created_at: new Date().toISOString(),
+    })
+    if (eligAuditErr) {
+      console.error('[archives/id] graph-eligibility audit insert failed:', eligAuditErr.message)
+    }
+  }
 
   // ─── Audit log: content/metadata edit ────────────────────────────────────────
   const editedFields = Object.keys(patch).filter(k => EDIT_AUDIT_FIELDS.has(k) && patch[k] !== current[k as keyof typeof current])
