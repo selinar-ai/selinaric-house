@@ -53,7 +53,10 @@ export type RecallEntry = {
 export type MatchQuality = 'strong' | 'medium' | 'weak' | 'none'
 
 // Phase 28D
-export type RecallMode = 'manual' | 'auto'
+// Phase 43 R1: 'presence' = a presence reached the Archive itself via the governed
+// recall_archive tool (supervised, in-turn, Tara present). Distinct from 'manual' (Tara's
+// command) and 'auto' (intent-detected). Requires migration 093 (widened DB CHECK).
+export type RecallMode = 'manual' | 'auto' | 'presence'
 
 export type RecallOptions = {
   mode: RecallMode
@@ -94,6 +97,20 @@ export const AUTO_RECALL_OPTIONS: RecallOptions = {
   minMatchQuality:   'strong',
   contextCap:        3_000,
 }
+
+// Phase 43 R1 — presence-initiated recall (supervised, in-turn). Narrowest honest aperture:
+// canonical only, ONE entry returned, one reach per reply, few per session. Elevated
+// sensitivity is excluded per the presence's own auto setting (not hard-coded here).
+export const PRESENCE_RECALL_OPTIONS: RecallOptions = {
+  mode:              'presence',
+  includeCandidates: false,
+  statuses:          ['canonical'],
+  limit:             1,
+  minMatchQuality:   'strong',
+  contextCap:        3_000,
+}
+export const PRESENCE_RECALL_MAX_PER_RESPONSE = 1
+export const PRESENCE_RECALL_MAX_PER_SESSION = 3
 
 // ─── Score weights (Phase 28B) ────────────────────────────────────────────────
 
@@ -562,6 +579,35 @@ export async function logRecallEvent(params: LogRecallEventParams): Promise<stri
   } catch (err) {
     console.error('[archive-recall] logRecallEvent threw:', err)
     return null
+  }
+}
+
+/**
+ * Phase 43 R1 — count this session's PRESENCE-mode recall events (for the per-session cap).
+ * Counts only recall_mode='presence' so it never conflates with Tara's manual or auto recalls.
+ * Mirrors getSessionSearchCount. Returns 0 when there is no session id.
+ */
+export async function getSessionPresenceRecallCount(
+  presenceId: 'ari' | 'eli',
+  sessionId: string | null | undefined
+): Promise<number> {
+  if (!sessionId) return 0
+  try {
+    const supabase = getSupabase()
+    const { count, error } = await supabase
+      .from('archive_recall_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('presence_id', presenceId)
+      .eq('session_id', sessionId)
+      .eq('recall_mode', 'presence')
+    if (error) {
+      console.error('[archive-recall] getSessionPresenceRecallCount error:', error.message)
+      return 0
+    }
+    return count ?? 0
+  } catch (err) {
+    console.error('[archive-recall] getSessionPresenceRecallCount threw:', err)
+    return 0
   }
 }
 

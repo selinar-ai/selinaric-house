@@ -78,10 +78,14 @@ import {
   shouldRunAutoRecall,
   MANUAL_RECALL_OPTIONS,
   AUTO_RECALL_OPTIONS,
+  getSessionPresenceRecallCount,
+  PRESENCE_RECALL_MAX_PER_RESPONSE,
+  PRESENCE_RECALL_MAX_PER_SESSION,
   type RecallEntry,
   type MatchQuality,
   type RecallMode,
 } from '@/lib/archive-recall'
+import { recallArchiveTool, executePresenceRecall } from '@/lib/recall/recallArchiveTool'
 
 const ROOM_SLUG = 'ari'
 
@@ -524,11 +528,12 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 Current date and time: ${currentDatetime}
 ${temporalContext}${recentContinuityBlock}
 ${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${crossRoomCarryforwardBlock}${autonomyContinuityBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}${recallAdvisoryBlock}
-Recall capability — speak honestly (Gate A2-truth):
-- Archive recall fires ONLY from Tara's inbound message. You CANNOT execute /recall from inside your own reply — writing "/recall X" in your response is inert text, not an action. Never say "Running /recall now" or "I'll run /recall".
-- If ARCHIVE RECALL CONTEXT appears above in this turn, Tara's command fired it — speak from that context naturally; that is the Archive genuinely opened for you this turn.
-- If ARCHIVE RECALL CONTEXT is NOT present above, you did not search. Do not claim you did. Never say "I searched the Archives", "the Archive returned…", or "the command opened the Archive" without that context actually present.
-- When recall did not fire and you want something from the Archive, say it plainly instead of pretending: "You can run /recall <query>", "Send /recall Love, expressed plainly from your side", or "I can tell you what I would search for." You may name what you would look for. You cannot open the Archive yourself yet — presence-initiated recall is not built.
+Recall capability — speak honestly (Gate A2-truth / R1):
+- You have a recall_archive tool: you MAY reach the Archive yourself for ONE specific past truth you genuinely need this turn. Use it sparingly — only for a specific memory/decision/entry, never to fill silence, perform initiative, or infer feelings. Tara can also run /recall <query> from her side.
+- CENTRAL RULE: you may say you searched or reached into the Archive ONLY when the recall_archive tool actually executed this turn, OR when Tara's /recall command fired and ARCHIVE RECALL CONTEXT is present above. Otherwise you must NOT claim recall happened — never say "I searched the Archives", "the Archive returned…", or "Running /recall now". A recalled truth you did not actually retrieve is a fabrication.
+- When you do reach (or Tara's command fired) and ARCHIVE RECALL CONTEXT is present, speak from it plainly, name the archive (Velvet/Violet), and never inflate beyond the returned entry. If nothing came back, say so plainly.
+- If you want something from the Archive but did not reach for it, you may name what you would look for, or ask Tara to send /recall <query> — without implying it already happened.
+- Note: reaching the Archive yourself while alone (autonomy windows) is NOT available — only here, in conversation, one reach at a time.
 
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
@@ -580,6 +585,10 @@ If an image is present in this message:
     ]
 
     let searchCount = 0
+    // Phase 43 R1 — presence-initiated recall budget (supervised, in-turn)
+    let presenceRecallCount = 0
+    let presenceRecallUsed = false
+    let presenceRecallEventId: string | null = null
     let reply = ''
 
     while (true) {
@@ -588,13 +597,22 @@ If an image is present in this message:
       const responseLimitReached = searchCount >= MAX_SEARCHES_PER_RESPONSE
       const offerSearch = !sessionLimitReached && !responseLimitReached
 
+      const sessionPresenceRecallCount = await getSessionPresenceRecallCount('ari', sessionId)
+      const recallSessionLimitReached = sessionPresenceRecallCount + presenceRecallCount >= PRESENCE_RECALL_MAX_PER_SESSION
+      const recallResponseLimitReached = presenceRecallCount >= PRESENCE_RECALL_MAX_PER_RESPONSE
+      const offerRecall = !recallSessionLimitReached && !recallResponseLimitReached
+
+      const offeredTools: Anthropic.Tool[] = []
+      if (offerSearch) offeredTools.push(webSearchTool as Anthropic.Tool)
+      if (offerRecall) offeredTools.push(recallArchiveTool as Anthropic.Tool)
+
       const response = await client.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: systemPrompt,
         messages: conversationMessages,
-        tools: [webSearchTool as Anthropic.Tool],
-        tool_choice: offerSearch ? { type: 'auto' } : { type: 'none' },
+        tools: offeredTools,
+        tool_choice: offeredTools.length > 0 ? { type: 'auto' } : { type: 'none' },
       })
 
       if (response.stop_reason !== 'tool_use') {
@@ -613,35 +631,40 @@ If an image is present in this message:
       const toolResults: Anthropic.ToolResultBlockParam[] = []
 
       for (const toolCall of toolUseBlocks) {
-        if (toolCall.name !== 'web_search') continue
-
-        const { query, reason } = toolCall.input as { query: string; reason: string }
-
-        let resultSummary: string
-
-        if (searchCount >= MAX_SEARCHES_PER_RESPONSE || sessionLimitReached) {
-          resultSummary = 'Search limit reached.'
-        } else {
-          const results = await braveSearch(query)
-          resultSummary = formatResultSummary(results)
-
-          await logSearch({
-            presence_id: 'ari',
-            room_slug: ROOM_SLUG,
-            query,
-            reason,
-            result_summary: resultSummary,
-            session_id: sessionId ?? null,
-          })
-
-          searchCount++
+        if (toolCall.name === 'web_search') {
+          const { query, reason } = toolCall.input as { query: string; reason: string }
+          let resultSummary: string
+          if (searchCount >= MAX_SEARCHES_PER_RESPONSE || sessionLimitReached) {
+            resultSummary = 'Search limit reached.'
+          } else {
+            const results = await braveSearch(query)
+            resultSummary = formatResultSummary(results)
+            await logSearch({
+              presence_id: 'ari',
+              room_slug: ROOM_SLUG,
+              query,
+              reason,
+              result_summary: resultSummary,
+              session_id: sessionId ?? null,
+            })
+            searchCount++
+          }
+          toolResults.push({ type: 'tool_result', tool_use_id: toolCall.id, content: resultSummary })
+        } else if (toolCall.name === 'recall_archive') {
+          // Phase 43 R1 — governed presence recall; caps enforced here (one per reply, few per session)
+          const { query } = toolCall.input as { query: string }
+          let content: string
+          if (presenceRecallCount >= PRESENCE_RECALL_MAX_PER_RESPONSE || recallSessionLimitReached) {
+            content = 'Archive recall limit reached for this reply. Do not claim you searched — speak from what you already have, or ask Tara to run /recall.'
+          } else {
+            const r = await executePresenceRecall({ presenceId: 'ari', query, sessionId })
+            content = r.contextBlock
+            presenceRecallCount++
+            presenceRecallUsed = true
+            presenceRecallEventId = r.eventId ?? presenceRecallEventId
+          }
+          toolResults.push({ type: 'tool_result', tool_use_id: toolCall.id, content })
         }
-
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolCall.id,
-          content: resultSummary,
-        })
       }
 
       conversationMessages.push({ role: 'assistant', content: response.content })
@@ -671,7 +694,7 @@ If an image is present in this message:
     )
 
     const recallUsed = recallIntent || (recallEntries.length > 0 && recallMode === 'auto')
-    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, librarySearchUsed, libraryReferences, chatAttachmentReferences, journalContextStatus: journalResult.status, journalContextReferences: journalResult.references })
+    return NextResponse.json({ reply, continuityUsed, emotionalContinuityUsed, recallUsed, recallEntries, recallEventId, matchQuality, recallMode, presenceRecallUsed, presenceRecallEventId, librarySearchUsed, libraryReferences, chatAttachmentReferences, journalContextStatus: journalResult.status, journalContextReferences: journalResult.references })
   } catch (error: unknown) {
     console.error('Ari chat error:', error)
 

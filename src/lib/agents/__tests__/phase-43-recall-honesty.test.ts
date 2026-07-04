@@ -19,28 +19,30 @@ const ROUTES = ['src/app/api/ari-chat/route.ts', 'src/app/api/eli-chat/route.ts'
 section('both prompts carry the standing recall-honesty block')
 for (const rel of ROUTES) {
   const s = read(rel)
-  assert(s.includes('Recall capability — speak honestly (Gate A2-truth):'), `${rel}: honesty block present`)
+  // Evolved for R1: the A2-truth block was flipped when presence-initiated recall shipped
+  // (Ari's D5 dependency). Its durable intent — claim recall ONLY when it truly happened — is
+  // preserved and strengthened; the absolute "cannot self-invoke" clause is gone.
+  assert(s.includes('Recall capability — speak honestly (Gate A2-truth / R1):'), `${rel}: honesty block present (R1-evolved header)`)
   // the block sits inside the system prompt, before Library guidance (so it is always sent)
   const blockIdx = s.indexOf('Recall capability — speak honestly')
   const libIdx = s.indexOf('Library search guidance:')
   assert(blockIdx >= 0 && libIdx >= 0 && blockIdx < libIdx, `${rel}: honesty block precedes Library guidance in the prompt`)
 }
 
-section('the block forbids the confabulation wording and allows the honest wording')
+section('the block: may reach via tool, but claim recall ONLY when it truly happened (R1)')
 for (const rel of ROUTES) {
   const s = read(rel)
-  // forbidden framings are explicitly named as things NOT to say
-  assert(s.includes('CANNOT execute /recall from inside your own reply'), `${rel}: states presences cannot self-execute /recall`)
-  assert(s.includes('inert text, not an action'), `${rel}: names /recall-in-reply as inert`)
-  assert(s.includes('Never say "Running /recall now" or "I\'ll run /recall"'), `${rel}: forbids "Running /recall now"`)
-  assert(s.includes('Never say "I searched the Archives", "the Archive returned…", or "the command opened the Archive" without that context actually present'), `${rel}: forbids false search claims without recall context`)
-  // conditional truth: speak from recall context only when it actually appears this turn
-  assert(s.includes('If ARCHIVE RECALL CONTEXT appears above in this turn'), `${rel}: honesty is conditional on real recall context`)
-  assert(s.includes('If ARCHIVE RECALL CONTEXT is NOT present above, you did not search'), `${rel}: no context → must not claim a search`)
-  // allowed honest framings
-  assert(s.includes('You can run /recall <query>') && s.includes('from your side'), `${rel}: offers the Tara-run framing`)
-  assert(s.includes('I can tell you what I would search for'), `${rel}: offers "what I would search for"`)
-  assert(s.includes('presence-initiated recall is not built'), `${rel}: names the parked future capability honestly`)
+  // the anti-confabulation spine — preserved and strengthened
+  assert(s.includes("ONLY when the recall_archive tool actually executed this turn, OR when Tara's /recall command fired"), `${rel}: claim-recall gated on real tool execution OR Tara-context`)
+  assert(s.includes('never say "I searched the Archives", "the Archive returned…", or "Running /recall now"'), `${rel}: still forbids the confabulation phrasings`)
+  assert(s.includes('A recalled truth you did not actually retrieve is a fabrication'), `${rel}: fabrication named plainly`)
+  assert(s.includes('ARCHIVE RECALL CONTEXT is present'), `${rel}: honesty keyed on the real context marker`)
+  // R1 grants the tool but keeps R2 (solitary reach) closed
+  assert(s.includes('You have a recall_archive tool'), `${rel}: the in-turn tool is granted`)
+  assert(s.includes('autonomy windows) is NOT available'), `${rel}: solitary/autonomy reach still explicitly closed`)
+  // the old absolute wording is gone (would now be a lie)
+  assert(!s.includes('presence-initiated recall is not built'), `${rel}: obsolete "not built" wording removed`)
+  assert(!s.includes('CANNOT execute /recall from inside your own reply'), `${rel}: obsolete absolute "cannot" wording removed`)
 }
 
 section('the recall LOGIC is unchanged (A2-truth is wording only)')
