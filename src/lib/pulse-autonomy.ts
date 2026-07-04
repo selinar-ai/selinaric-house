@@ -103,16 +103,15 @@ export function isQuietHours(now?: Date): boolean {
 
 /**
  * Get the next scheduled autonomy window time (Melbourne).
- * Active windows: 6am, 10am, 2pm, 6pm
- * Quiet internal window: 2am (optional)
+ * Active windows (Phase 43 R2-0 schedule sync): 6am, 9am, 12pm, 3pm, 6pm, 9pm
  */
 export function getNextWindowTime(now?: Date): { next: Date; label: string } {
   const d = now ?? new Date()
   const hour = getMelbourneHour(d)
 
-  // Active windows in Melbourne hours
-  const windows = [2, 6, 10, 14, 18]
-  const labels = ['2:00am (quiet)', '6:00am', '10:00am', '2:00pm', '6:00pm']
+  // Active windows in Melbourne hours (kept in sync with AUTONOMY_CHOICE_HOURS in the run route)
+  const windows = [6, 9, 12, 15, 18, 21]
+  const labels = ['6:00am', '9:00am', '12:00pm', '3:00pm', '6:00pm', '9:00pm']
 
   // Find next window
   let nextIdx = windows.findIndex(w => w > hour)

@@ -293,7 +293,8 @@ export default function PulsePage() {
       10
     )
     const quietHours = melbHour >= 22 || melbHour < 6
-    const windows = [6, 10, 14, 18]
+    // Phase 43 R2-0 schedule sync — kept in sync with AUTONOMY_CHOICE_HOURS in the run route
+    const windows = [6, 9, 12, 15, 18, 21]
     const nextWindowHour = windows.find(w => w > melbHour) ?? windows[0]
     const nextLabel = `${nextWindowHour > 12 ? nextWindowHour - 12 : nextWindowHour}:00${nextWindowHour >= 12 ? 'pm' : 'am'}`
 

@@ -3,11 +3,13 @@
 // Called hourly by QStash (POST) or daily by Vercel cron (GET).
 // Uses Australia/Melbourne local time to determine actions.
 //
-// Accepted Melbourne hours: [2, 6, 10, 14, 18, 23]
+// Accepted Melbourne hours: [6, 9, 12, 15, 18, 21, 23]
 //
 // 1. Autonomy choice windows (Melbourne local):
-//    6am, 10am, 2pm (14), 6pm (18) — active windows
-//    2am — quiet internal window (journal, desk, stillness only)
+//    6am, 9am, 12pm, 3pm (15), 6pm (18), 9pm (21) — all active windows
+//    Phase 43 R2-0: schedule synced to the live QStash cadence; the old 2am quiet
+//    window is removed (quiet-hours logic itself is untouched — 21:00 is outside
+//    quiet hours, so every window carries the full action set).
 //    Idempotency via unique index on (presence_id, choice_window_at).
 //
 // 2. Journal fallback (Melbourne 23:00 / 11pm):
@@ -23,7 +25,8 @@
 // DEPLOYMENT NOTE:
 //   Vercel Hobby plan limits crons to once daily. The Vercel cron fires at
 //   "0 20 * * *" (6am Melbourne AEST), covering only the 6am autonomy window.
-//   QStash external cron handles all 6 windows and the 23:00 journal fallback.
+//   QStash external cron handles all 6 windows (6/9/12/15/18/21 Melbourne) and the
+//   23:00 journal fallback.
 //   The /api/pulse maintenance cron (interior notes, living state, journal,
 //   graph ingestion) is separate and must not be removed.
 //
@@ -40,11 +43,11 @@ import {
 } from '@/lib/pulse-autonomy'
 import { getEntriesForToday, createJournalJob } from '@/lib/journal'
 
-/** All Melbourne hours at which this endpoint accepts calls */
-const ACCEPTED_HOURS = [2, 6, 10, 14, 18, 23]
+/** All Melbourne hours at which this endpoint accepts calls (Phase 43 R2-0 schedule sync) */
+const ACCEPTED_HOURS = [6, 9, 12, 15, 18, 21, 23]
 
-/** Melbourne hours where presence autonomy choices run */
-const AUTONOMY_CHOICE_HOURS = [2, 6, 10, 14, 18]
+/** Melbourne hours where presence autonomy choices run (Phase 43 R2-0 schedule sync) */
+const AUTONOMY_CHOICE_HOURS = [6, 9, 12, 15, 18, 21]
 
 /** Melbourne local hour for journal fallback check */
 const JOURNAL_FALLBACK_HOUR = 23
