@@ -93,6 +93,19 @@ async function main() {
   const { data: cfg } = await sb.from('pulse_config').select('value').eq('key', 'pulse_mode').single()
   console.log(`  pulse_mode: ${cfg?.value ?? 'unknown'} (paused = global blocker, unchanged by R2-0)`)
 
+  // informational: 23:00 journal-fallback reachability. The fallback only CREATES a
+  // journal_job when a presence has no journal entry that day, so absence of a job is
+  // NOT failure — the hard reachability proof is the Upstash cron including 23:00
+  // (hourly `0 * * * *` preferred, or `0 6,9,12,15,18,21,23 * * *`; NEVER without 23).
+  const { data: jobs } = await sb
+    .from('journal_jobs')
+    .select('presence_id, created_at')
+    .order('created_at', { ascending: false })
+    .limit(50)
+  const fallbackJobs = (jobs ?? []).filter(j =>
+    melbourneDateOf(j.created_at) === targetDay && melbourneHourOf(j.created_at) === 23)
+  console.log(`  journal fallback (23:00): ${fallbackJobs.length} job(s) created this day — absence is normal when journals already exist; reachability is proven by the cron config`)
+
   console.log(`\n  ${failed === 0 ? 'ALL CHECKS PASSED — R2-0 live proof complete' : `${failed} CHECK(S) FAILED — R2-0 not yet closable`}`)
   process.exit(failed === 0 ? 0 : 1)
 }
