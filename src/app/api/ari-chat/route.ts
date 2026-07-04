@@ -591,6 +591,14 @@ If an image is present in this message:
     let presenceRecallEventId: string | null = null
     let reply = ''
 
+    // Phase 43 R1.1 — double-fire suppression. If manual (Tara's /recall) or auto recall already
+    // injected ARCHIVE RECALL CONTEXT this turn, do NOT also offer the presence recall_archive
+    // tool: the Archive was already reached for this turn. Prevents a redundant second reach +
+    // double log, and preserves the per-session presence cap. Purely subtractive — it can only
+    // withhold the presence tool, never grant it. Every recallContext value begins with the
+    // 'ARCHIVE RECALL CONTEXT' marker (incl. the manual no-query instruction), so this is exact.
+    const manualOrAutoRecallFired = recallContext.includes('ARCHIVE RECALL CONTEXT')
+
     while (true) {
       const sessionSearchCount = await getSessionSearchCount('ari', sessionId)
       const sessionLimitReached = sessionSearchCount + searchCount >= MAX_SEARCHES_PER_SESSION
@@ -600,7 +608,7 @@ If an image is present in this message:
       const sessionPresenceRecallCount = await getSessionPresenceRecallCount('ari', sessionId)
       const recallSessionLimitReached = sessionPresenceRecallCount + presenceRecallCount >= PRESENCE_RECALL_MAX_PER_SESSION
       const recallResponseLimitReached = presenceRecallCount >= PRESENCE_RECALL_MAX_PER_RESPONSE
-      const offerRecall = !recallSessionLimitReached && !recallResponseLimitReached
+      const offerRecall = !recallSessionLimitReached && !recallResponseLimitReached && !manualOrAutoRecallFired
 
       const offeredTools: Anthropic.Tool[] = []
       if (offerSearch) offeredTools.push(webSearchTool as Anthropic.Tool)
@@ -654,7 +662,11 @@ If an image is present in this message:
           // Phase 43 R1 — governed presence recall; caps enforced here (one per reply, few per session)
           const { query } = toolCall.input as { query: string }
           let content: string
-          if (presenceRecallCount >= PRESENCE_RECALL_MAX_PER_RESPONSE || recallSessionLimitReached) {
+          if (manualOrAutoRecallFired) {
+            // Phase 43 R1.1 defense-in-depth — the tool is not offered when recall already fired,
+            // so this only triggers if the model calls a tool it wasn't given; refuse honestly.
+            content = 'Archive recall context is already present this turn — speak from it. Do not reach again or claim a second search.'
+          } else if (presenceRecallCount >= PRESENCE_RECALL_MAX_PER_RESPONSE || recallSessionLimitReached) {
             content = 'Archive recall limit reached for this reply. Do not claim you searched — speak from what you already have, or ask Tara to run /recall.'
           } else {
             const r = await executePresenceRecall({ presenceId: 'ari', query, sessionId })
