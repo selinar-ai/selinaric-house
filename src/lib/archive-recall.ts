@@ -652,20 +652,36 @@ export async function getRecallableArchiveEntries(
   // Statuses: auto-recall uses ['canonical'] only; manual uses both
   const statuses = options?.statuses ?? ['canonical', 'canonical_candidate']
 
-  const { data: raw, error } = await supabase
-    .from('archive_items')
-    .select(
-      'id, title, excerpt, raw_content, archive_name, owner_presence, source_origin, ' +
-      'visibility, category, canonical_status, sensitivity, source_document, source_date, ' +
-      'source_id, import_label, created_at'
-    )
-    .is('deleted_at', null)
-    .in('canonical_status', statuses)
-    .limit(500)
+  // Phase 43 R1.3 — Recall Corpus Coverage Fix.
+  // Fetch the COMPLETE eligible corpus before scoring. The prior `.limit(500)` (no ORDER BY)
+  // truncated an 858-item corpus to an arbitrary heap-ordered 500, leaving ~358 confirmed
+  // memories structurally unreachable regardless of match strength. We now page through the
+  // full eligible set via `.range()`, ordered by `id` PURELY as a stable pagination key (NOT a
+  // relevance order — relevance is still 100% the existing scoreItem below). Every downstream
+  // step — scope filter, scoring/weights, textScore gate, two-pass sensitivity gate, caps,
+  // logging, modes — is unchanged. Coverage only.
+  const PAGE = 1000
+  const raw: unknown[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('archive_items')
+      .select(
+        'id, title, excerpt, raw_content, archive_name, owner_presence, source_origin, ' +
+        'visibility, category, canonical_status, sensitivity, source_document, source_date, ' +
+        'source_id, import_label, created_at'
+      )
+      .is('deleted_at', null)
+      .in('canonical_status', statuses)
+      .order('id', { ascending: true })   // stable pagination key only — not relevance
+      .range(from, from + PAGE - 1)
 
-  if (error || !raw) {
-    console.error('[archive-recall] fetch error:', error?.message)
-    return []
+    if (error) {
+      console.error('[archive-recall] fetch error:', error.message)
+      return []
+    }
+    if (!data || data.length === 0) break
+    raw.push(...data)
+    if (data.length < PAGE) break        // last page reached
   }
 
   const inScope = (raw as unknown as RawArchiveItem[]).filter(item => isInScope(item, presenceId))
