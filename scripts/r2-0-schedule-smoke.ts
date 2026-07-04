@@ -4,10 +4,10 @@
  *   npx tsx scripts/r2-0-schedule-smoke.ts              — check TODAY (Melbourne)
  *   npx tsx scripts/r2-0-schedule-smoke.ts 2026-07-05   — check a specific Melbourne date
  *
- * Ari's R2-0 closure conditions, checked against pulse_autonomy_events for the day:
+ * Ari's amended R2-0 closure conditions, checked against pulse_autonomy_events for the day:
  *   • only new-schedule hours appear (6/9/12/15/18/21 Melbourne)
  *   • 21:00 produced autonomy events
- *   • 02:00 did not; 10:00 and 14:00 did not
+ *   • 02:00 / 10:00 / 14:00 / 23:00 did not (23:00 journal fallback intentionally retired)
  *   • each fired window has rows for BOTH presences (ari + eli)
  *   • reports pulse_mode (paused remains the global blocker — informational here)
  *
@@ -24,7 +24,7 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const NEW_HOURS = [6, 9, 12, 15, 18, 21]
-const REMOVED_HOURS = [2, 10, 14]
+const REMOVED_HOURS = [2, 10, 14, 23]   // 23:00 = the intentionally retired journal fallback
 
 function loadEnv() {
   const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -92,19 +92,8 @@ async function main() {
   // informational: pulse_mode (paused remains the global blocker above everything)
   const { data: cfg } = await sb.from('pulse_config').select('value').eq('key', 'pulse_mode').single()
   console.log(`  pulse_mode: ${cfg?.value ?? 'unknown'} (paused = global blocker, unchanged by R2-0)`)
-
-  // informational: 23:00 journal-fallback reachability. The fallback only CREATES a
-  // journal_job when a presence has no journal entry that day, so absence of a job is
-  // NOT failure — the hard reachability proof is the Upstash cron including 23:00
-  // (hourly `0 * * * *` preferred, or `0 6,9,12,15,18,21,23 * * *`; NEVER without 23).
-  const { data: jobs } = await sb
-    .from('journal_jobs')
-    .select('presence_id, created_at')
-    .order('created_at', { ascending: false })
-    .limit(50)
-  const fallbackJobs = (jobs ?? []).filter(j =>
-    melbourneDateOf(j.created_at) === targetDay && melbourneHourOf(j.created_at) === 23)
-  console.log(`  journal fallback (23:00): ${fallbackJobs.length} job(s) created this day — absence is normal when journals already exist; reachability is proven by the cron config`)
+  // Note: the 23:00 journal fallback is INTENTIONALLY RETIRED (R2-0 amendment) — its
+  // absence is asserted above via REMOVED_HOURS, not reported as reachability.
 
   console.log(`\n  ${failed === 0 ? 'ALL CHECKS PASSED — R2-0 live proof complete' : `${failed} CHECK(S) FAILED — R2-0 not yet closable`}`)
   process.exit(failed === 0 ? 0 : 1)

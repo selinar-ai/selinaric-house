@@ -3,19 +3,18 @@
 // Called hourly by QStash (POST) or daily by Vercel cron (GET).
 // Uses Australia/Melbourne local time to determine actions.
 //
-// Accepted Melbourne hours: [6, 9, 12, 15, 18, 21, 23]
+// Accepted Melbourne hours: [6, 9, 12, 15, 18, 21]
 //
-// 1. Autonomy choice windows (Melbourne local):
+// Autonomy choice windows (Melbourne local):
 //    6am, 9am, 12pm, 3pm (15), 6pm (18), 9pm (21) — all active windows
 //    Phase 43 R2-0: schedule synced to the live QStash cadence; the old 2am quiet
 //    window is removed (quiet-hours logic itself is untouched — 21:00 is outside
 //    quiet hours, so every window carries the full action set).
+//    R2-0 amendment: the 23:00 journal fallback is INTENTIONALLY RETIRED — it was
+//    Phase 18A-era (pre-autonomy) and is superseded by autonomous choice (presences
+//    journal daily through their own windows). journal_jobs itself remains live for
+//    manual invites (Tara) and cross-room invites (36H) — only the cron producer died.
 //    Idempotency via unique index on (presence_id, choice_window_at).
-//
-// 2. Journal fallback (Melbourne 23:00 / 11pm):
-//    If no journal entry exists for a presence today, creates a journal_job.
-//    This is invitation-only — no final journal content is written here.
-//    Final journal entries remain presence-authored.
 //
 // Request sources:
 //   - qstash: POST with valid Upstash-Signature header (hourly, all windows)
@@ -25,8 +24,7 @@
 // DEPLOYMENT NOTE:
 //   Vercel Hobby plan limits crons to once daily. The Vercel cron fires at
 //   "0 20 * * *" (6am Melbourne AEST), covering only the 6am autonomy window.
-//   QStash external cron handles all 6 windows (6/9/12/15/18/21 Melbourne) and the
-//   23:00 journal fallback.
+//   QStash external cron handles all 6 windows (6/9/12/15/18/21 Melbourne).
 //   The /api/pulse maintenance cron (interior notes, living state, journal,
 //   graph ingestion) is separate and must not be removed.
 //
@@ -41,19 +39,11 @@ import {
   buildWindowTimestamp,
   getPulseMode,
 } from '@/lib/pulse-autonomy'
-import { getEntriesForToday, createJournalJob } from '@/lib/journal'
-
-/** All Melbourne hours at which this endpoint accepts calls (Phase 43 R2-0 schedule sync) */
-const ACCEPTED_HOURS = [6, 9, 12, 15, 18, 21, 23]
+/** All Melbourne hours at which this endpoint accepts calls (Phase 43 R2-0 schedule sync; 23:00 fallback intentionally retired) */
+const ACCEPTED_HOURS = [6, 9, 12, 15, 18, 21]
 
 /** Melbourne hours where presence autonomy choices run (Phase 43 R2-0 schedule sync) */
 const AUTONOMY_CHOICE_HOURS = [6, 9, 12, 15, 18, 21]
-
-/** Melbourne local hour for journal fallback check */
-const JOURNAL_FALLBACK_HOUR = 23
-
-const JOURNAL_FALLBACK_CONTEXT =
-  'No journal entry has been written today. This is an invitation only — not a journal entry.'
 
 type RequestSource = 'qstash' | 'vercel_cron' | 'manual' | 'unknown'
 
@@ -119,7 +109,6 @@ interface RunReport {
   skipped?: boolean
   skipped_reason?: string
   pulse_mode?: string
-  journal_fallback?: { ari: string; eli: string }
   autonomy?: {
     window_at: string
     quiet_hours_active: boolean
@@ -177,33 +166,15 @@ async function handleRequest(
     window_matched: ACCEPTED_HOURS.includes(melbHour),
   }
 
-  // Journal fallback: at 11pm Melbourne, check if presences wrote today
-  if (melbHour === JOURNAL_FALLBACK_HOUR || bypassHourGate) {
-    if (melbHour === JOURNAL_FALLBACK_HOUR) {
-      report.journal_fallback = { ari: 'skipped', eli: 'skipped' }
-      for (const presenceId of ['ari', 'eli'] as const) {
-        const todayEntries = await getEntriesForToday(presenceId)
-        if (todayEntries.length > 0) {
-          report.journal_fallback[presenceId] = 'has_entries'
-        } else {
-          const job = await createJournalJob(presenceId, 'no_entry_today', JOURNAL_FALLBACK_CONTEXT, 'cron')
-          report.journal_fallback[presenceId] = job ? 'job_created' : 'job_already_pending'
-        }
-      }
-    }
-  }
+  // R2-0 amendment: the 23:00 journal fallback that lived here is intentionally
+  // retired — superseded by autonomous choice (presences journal daily through
+  // their own windows; journal_jobs had never held a fallback-created row).
 
   // Hour gate: skip if Melbourne hour is not an accepted window
   if (!bypassHourGate && !ACCEPTED_HOURS.includes(melbHour)) {
     report.skipped = true
     report.skipped_reason = `Melbourne hour ${melbHour} is not an accepted window`
     console.log(`[pulse-autonomy] ${source}: skipped — hour ${melbHour} not in windows`)
-    return NextResponse.json(report)
-  }
-
-  // Journal-only window (23): no autonomy choices to run
-  if (melbHour === JOURNAL_FALLBACK_HOUR && !bypassHourGate) {
-    console.log(`[pulse-autonomy] ${source}: journal fallback only at hour ${melbHour}`)
     return NextResponse.json(report)
   }
 

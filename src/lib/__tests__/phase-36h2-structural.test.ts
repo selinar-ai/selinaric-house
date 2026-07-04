@@ -446,11 +446,18 @@ assert(
   'InsideView still shows generic text for manual invites'
 )
 
-// Verify cron paths are unchanged
-const fallbackRoute = readFile('src/app/api/journal/fallback/route.ts')
+// Phase 43 R2-0 amendment (sanctioned evolution): the Phase 18A journal-fallback cron
+// route is INTENTIONALLY RETIRED — superseded by autonomous choice (presences journal
+// daily through their own windows). The assert flips: the route must be ABSENT, and
+// no cron producer of 'no_entry_today' jobs may remain in the active system.
 assert(
-  fallbackRoute.includes("'no_entry_today'"),
-  'Journal fallback cron still uses no_entry_today reason'
+  !fs.existsSync(path.join(ROOT, 'src/app/api/journal/fallback/route.ts')),
+  'Retired journal fallback route is absent (R2-0 amendment)'
+)
+const autonomyRoute = readFile('src/app/api/pulse/autonomy/run/route.ts')
+assert(
+  !autonomyRoute.includes("'no_entry_today'"),
+  'Autonomy route no longer produces no_entry_today jobs (fallback retired)'
 )
 
 // ═══════════════════════════════════════════════════════

@@ -22,24 +22,44 @@ const ROUTE = 'src/app/api/pulse/autonomy/run/route.ts'
 const LIB = 'src/lib/pulse-autonomy.ts'
 const PAGE = 'src/app/(house)/pulse/page.tsx'
 
-section('the corrected schedule is in the route gate')
+section('the corrected schedule is in the route gate (23:00 fallback intentionally retired)')
 {
   const s = read(ROUTE)
-  assert(s.includes('const ACCEPTED_HOURS = [6, 9, 12, 15, 18, 21, 23]'), `${ROUTE}: ACCEPTED_HOURS exactly [6,9,12,15,18,21,23]`)
+  assert(s.includes('const ACCEPTED_HOURS = [6, 9, 12, 15, 18, 21]'), `${ROUTE}: ACCEPTED_HOURS exactly [6,9,12,15,18,21]`)
   assert(s.includes('const AUTONOMY_CHOICE_HOURS = [6, 9, 12, 15, 18, 21]'), `${ROUTE}: AUTONOMY_CHOICE_HOURS exactly [6,9,12,15,18,21]`)
-  assert(s.includes('const JOURNAL_FALLBACK_HOUR = 23'), `${ROUTE}: JOURNAL_FALLBACK_HOUR = 23 kept`)
+  // R2-0 amendment: the 23:00 journal fallback is retired, not preserved
+  assert(!s.includes('JOURNAL_FALLBACK_HOUR'), `${ROUTE}: JOURNAL_FALLBACK_HOUR removed (fallback retired)`)
+  assert(!s.includes('JOURNAL_FALLBACK_CONTEXT'), `${ROUTE}: JOURNAL_FALLBACK_CONTEXT removed`)
+  assert(!s.includes("'no_entry_today'"), `${ROUTE}: no no_entry_today producer remains`)
+  assert(!s.includes('getEntriesForToday') && !s.includes('createJournalJob'), `${ROUTE}: unused journal imports removed`)
+  assert(!s.includes('journal_fallback'), `${ROUTE}: journal_fallback report field removed`)
 }
 
-section('9pm is accepted; 2am is not')
+section('9pm is accepted; 2/10/14/23 are not')
 {
   const s = read(ROUTE)
   const accepted = s.match(/const ACCEPTED_HOURS = \[([^\]]+)\]/)?.[1]?.split(',').map(x => Number(x.trim())) ?? []
   const choice = s.match(/const AUTONOMY_CHOICE_HOURS = \[([^\]]+)\]/)?.[1]?.split(',').map(x => Number(x.trim())) ?? []
   assert(accepted.includes(21) && choice.includes(21), `${ROUTE}: 21:00 (9pm) accepted and an autonomy choice hour`)
-  assert(!accepted.includes(2) && !choice.includes(2), `${ROUTE}: 2am no longer accepted anywhere`)
-  assert(!accepted.includes(10) && !accepted.includes(14), `${ROUTE}: old 10am/2pm hours removed`)
+  for (const h of [2, 10, 14, 23]) {
+    assert(!accepted.includes(h) && !choice.includes(h), `${ROUTE}: ${h}:00 rejected (not an accepted hour)`)
+  }
   // the gate actually consumes ACCEPTED_HOURS (not a decorative constant)
   assert(s.includes('!ACCEPTED_HOURS.includes(melbHour)'), `${ROUTE}: hour gate consumes ACCEPTED_HOURS`)
+}
+
+section('retired fallback route is absent; journal_jobs consumers untouched')
+{
+  assert(!fs.existsSync('src/app/api/journal/fallback/route.ts'), `orphaned Phase 18A /api/journal/fallback route deleted`)
+  // the LIVING journal_jobs mechanisms stay exactly as they were:
+  const jobsRoute = read('src/app/api/journal-jobs/route.ts')
+  assert(jobsRoute.includes("createJournalJob(presenceId, 'manual_invite', finalContext, 'tara')"), `manual journal invites (Tara) untouched`)
+  const writeRoute = read('src/app/api/journal-jobs/[id]/write/route.ts')
+  assert(writeRoute.includes("'presence_generated_from_job'"), `presence journal write route untouched`)
+  const hooks = read('src/lib/journal-invitation-hooks.ts')
+  assert(hooks.includes('createJournalJob'), `Phase 36H cross-room invite hooks untouched`)
+  const journalLib = read('src/lib/journal.ts')
+  assert(journalLib.includes('export async function createJournalJob'), `createJournalJob itself remains (living mechanism)`)
 }
 
 section('secondary schedule tables synced (no stale window lists left)')
