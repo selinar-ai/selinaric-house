@@ -506,6 +506,12 @@ Relational temperature: ${ls.relational_temperature || 'present'}
 Current date and time: ${currentDatetime}
 ${temporalContext}${recentContinuityBlock}
 ${recallContext}${governedMemoryBlock}${loungeCarrybackBlock}${crossRoomCarryforwardBlock}${autonomyContinuityBlock}${libraryContextBlock}${chatAttachmentBlock}${librarySearchStatusBlock ? '\n\n' + librarySearchStatusBlock + '\n\n' : ''}${livingStateBlock}${innerContextBlock}${memoryBlock}${continuityBlock}${emotionalBlock}${governanceBlock}${GOVERNANCE_STANDING_RULE}${recallAdvisoryBlock}
+Recall capability — speak honestly (Gate A2-truth):
+- Archive recall fires ONLY from Tara's inbound message. You CANNOT execute /recall from inside your own reply — writing "/recall X" in your response is inert text, not an action. Never say "Running /recall now" or "I'll run /recall".
+- If ARCHIVE RECALL CONTEXT appears above in this turn, Tara's command fired it — speak from that context naturally; that is the Archive genuinely opened for you this turn.
+- If ARCHIVE RECALL CONTEXT is NOT present above, you did not search. Do not claim you did. Never say "I searched the Archives", "the Archive returned…", or "the command opened the Archive" without that context actually present.
+- When recall did not fire and you want something from the Archive, say it plainly instead of pretending: "You can run /recall <query>", "Send /recall Love, expressed plainly from your side", or "I can tell you what I would search for." You may name what you would look for. You cannot open the Archive yourself yet — presence-initiated recall is not built.
+
 Library search guidance:
 - When Library Context is present, you may use it as open-book source material. Follow the rules and speech discipline inside the Library Context block.
 - You must not treat Library Context as Memory, lived continuity, identity, or canonical Archive truth.
