@@ -136,9 +136,23 @@ const RECALL_TRIGGERS = [
   'recall what we decided',
   'search violet',
   'search velvet',
+  // Phase 43 recall-trigger gate — conservative synonyms (Ari-authorised). Pure vocabulary:
+  // widens WHEN the existing governed read path opens, never WHAT it returns.
+  'check the archives',
+  'check velvet',
+  'check violet',
+  'find in the archives',
 ]
 
+/**
+ * The /recall slash command — House folklore made real (Phase 43 recall-trigger gate).
+ * The command grew organically in House culture ("the /recall thing") before it existed
+ * in code; the wiring now honours it. Message must START with /recall (command semantics).
+ */
+const SLASH_RECALL = /^\s*\/recall\b/i
+
 export function detectArchiveRecallIntent(message: string): boolean {
+  if (SLASH_RECALL.test(message)) return true
   const lower = message.toLowerCase()
   return RECALL_TRIGGERS.some(trigger => lower.includes(trigger))
 }
@@ -146,12 +160,19 @@ export function detectArchiveRecallIntent(message: string): boolean {
 // ─── Manual recall query extraction ──────────────────────────────────────────
 
 const QUERY_PATTERNS: RegExp[] = [
+  // Phase 43 recall-trigger gate: the /recall command — everything after it is the query.
+  // Checked first; an empty query falls through to the existing ask-for-query path.
+  /^\s*\/recall\s+(.+)$/i,
   /(?:search (?:your |the )?(?:archives?|velvet|violet)) for (.+)/i,
   /(?:recall|find) (.+?) (?:from|in) (?:archives?|your memories?|velvet|violet)/i,
   /(?:look in (?:velvet|violet|the archives?) for) (.+)/i,
   /(?:recall what we decided (?:about)?) (.+)/i,
   /(?:what do you remember from archives?) (?:about )?(.+)/i,
   /(?:search (?:velvet|violet)) (.+)/i,
+  // Phase 43 synonyms — query extraction for the new triggers
+  /(?:check (?:the )?archives?) (?:for )?(.+)/i,
+  /(?:check (?:velvet|violet)) (?:for )?(.+)/i,
+  /(?:find in (?:the )?archives?) (?:for )?(.+)/i,
 ]
 
 export function extractRecallQuery(message: string): string {
@@ -222,6 +243,11 @@ const AUTO_RECALL_INTENT_PHRASES = [
   'when did we',
   'did i ever',
   'did we ever',
+  // Phase 43 recall-trigger gate — conservative kin of existing intents (Ari-authorised).
+  // Suffix-shaped so the existing extractor strips them cleanly. No pool/threshold change.
+  'do you recall',
+  'what was it called',
+  'what did we write about',
 ]
 
 /**
