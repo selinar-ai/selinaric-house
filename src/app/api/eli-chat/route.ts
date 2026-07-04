@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireHouseApiAuth } from '@/lib/server/houseAuth'
 import { loadPresenceForRoom } from '@/lib/presence-loader'
 import { loadRoomMemory, updateRoomMemoryIfNeeded } from '@/lib/memory'
 import { loadTimelineForPrompt } from '@/lib/timeline'
@@ -85,6 +86,13 @@ import {
 const ROOM_SLUG = 'eli'
 
 export async function POST(request: NextRequest) {
+  // Gate A2-sec: living chat endpoint — House auth FIRST, before body parsing, any Supabase
+  // read, context/recall/journal/continuity/library/advisory hydration, or the Anthropic call.
+  // The authenticated UI sends the HttpOnly cookie same-origin automatically; a direct
+  // unauthenticated POST (curl) gets 401 and triggers no paid LLM call and no context assembly.
+  const auth = requireHouseApiAuth(request)
+  if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status })
+
   try {
     const body = await request.json()
     const { message, history = [], liveState: clientLiveState, imageUrl, imageUrls, sessionId, chatAttachments } = body
