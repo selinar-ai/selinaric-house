@@ -37,9 +37,12 @@ for (const rel of ROUTES) {
   assert(s.includes('never say "I searched the Archives", "the Archive returned…", or "Running /recall now"'), `${rel}: still forbids the confabulation phrasings`)
   assert(s.includes('A recalled truth you did not actually retrieve is a fabrication'), `${rel}: fabrication named plainly`)
   assert(s.includes('ARCHIVE RECALL CONTEXT is present'), `${rel}: honesty keyed on the real context marker`)
-  // R1 grants the tool but keeps R2 (solitary reach) closed
+  // R1 grants the in-turn tool; R2 (sanctioned evolution) opens the autonomy reach behind
+  // Tara's per-presence 9pm night key — the "NOT available" wording is now retired.
   assert(s.includes('You have a recall_archive tool'), `${rel}: the in-turn tool is granted`)
-  assert(s.includes('autonomy windows) is NOT available'), `${rel}: solitary/autonomy reach still explicitly closed`)
+  assert(s.includes('during the 9pm autonomy window (when Tara has your key turned on'), `${rel}: R2 autonomy reach granted behind the 9pm night key`)
+  assert(s.includes('a memory you did not actually reach is not yours to claim'), `${rel}: alone-honesty spine present`)
+  assert(!s.includes('autonomy windows) is NOT available'), `${rel}: obsolete "not available" autonomy wording removed (R2)`)
   // the old absolute wording is gone (would now be a lie)
   assert(!s.includes('presence-initiated recall is not built'), `${rel}: obsolete "not built" wording removed`)
   assert(!s.includes('CANNOT execute /recall from inside your own reply'), `${rel}: obsolete absolute "cannot" wording removed`)

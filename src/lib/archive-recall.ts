@@ -56,7 +56,7 @@ export type MatchQuality = 'strong' | 'medium' | 'weak' | 'none'
 // Phase 43 R1: 'presence' = a presence reached the Archive itself via the governed
 // recall_archive tool (supervised, in-turn, Tara present). Distinct from 'manual' (Tara's
 // command) and 'auto' (intent-detected). Requires migration 093 (widened DB CHECK).
-export type RecallMode = 'manual' | 'auto' | 'presence'
+export type RecallMode = 'manual' | 'auto' | 'presence' | 'autonomy'
 
 export type RecallOptions = {
   mode: RecallMode
@@ -111,6 +111,20 @@ export const PRESENCE_RECALL_OPTIONS: RecallOptions = {
 }
 export const PRESENCE_RECALL_MAX_PER_RESPONSE = 1
 export const PRESENCE_RECALL_MAX_PER_SESSION = 3
+
+// Phase 43 R2 — autonomy-window recall (unsupervised, alone, behind Tara's night key).
+// Strictest aperture: canonical only, ONE entry, strong-only, and elevated sensitivity
+// HARD-EXCLUDED (not a per-presence setting — sacred/sensitive/technical stay sealed when
+// no one is present). One reach per eligible window, one per presence per day (enforced in
+// the autonomy pre-step, not here). Logged recall_mode='autonomy'.
+export const AUTONOMY_RECALL_OPTIONS: RecallOptions = {
+  mode:              'autonomy',
+  includeCandidates: false,
+  statuses:          ['canonical'],
+  limit:             1,
+  minMatchQuality:   'strong',
+  contextCap:        3_000,
+}
 
 // ─── Score weights (Phase 28B) ────────────────────────────────────────────────
 
@@ -364,6 +378,40 @@ export async function getAutoRecallSettings(presenceId: 'ari' | 'eli'): Promise<
   }
 }
 
+// Phase 43 R2 — the night key. Per-presence on/off switch for autonomy-window recall,
+// read server-side via the service-role client (getSupabase); the table is deny-by-default
+// (migration 094: RLS on, SELECT-only to service_role, Tara-owner writes). Fail-closed:
+// any error / missing row / non-service-role path returns null → the caller treats it as OFF.
+export type AutonomyRecallSettings = {
+  presence_id: 'ari' | 'eli'
+  mode: 'off' | 'trial'
+  updated_by: string
+  created_at: string
+  updated_at: string
+}
+
+export async function getAutonomyRecallSettings(
+  presenceId: 'ari' | 'eli'
+): Promise<AutonomyRecallSettings | null> {
+  try {
+    const supabase = getSupabase()
+    const { data, error } = await supabase
+      .from('archive_autonomy_recall_settings')
+      .select('presence_id, mode, updated_by, created_at, updated_at')
+      .eq('presence_id', presenceId)
+      .single()
+
+    if (error || !data) {
+      console.error('[archive-recall] getAutonomyRecallSettings error:', error?.message)
+      return null
+    }
+    return data as AutonomyRecallSettings
+  } catch (err) {
+    console.error('[archive-recall] getAutonomyRecallSettings threw:', err)
+    return null
+  }
+}
+
 /**
  * Master gate. Returns true only if ALL of:
  * - settings.mode === 'trial'
@@ -608,6 +656,32 @@ export async function getSessionPresenceRecallCount(
   } catch (err) {
     console.error('[archive-recall] getSessionPresenceRecallCount threw:', err)
     return 0
+  }
+}
+
+// Phase 43 R2 — count a presence's AUTONOMY-mode recall events since a UTC instant (the
+// per-presence daily cap). Returns null on error so the caller can FAIL CLOSED (cannot verify
+// the budget ⇒ no reach). Never conflates with manual/auto/presence — recall_mode='autonomy' only.
+export async function getAutonomyRecallCountSince(
+  presenceId: 'ari' | 'eli',
+  sinceUtc: Date
+): Promise<number | null> {
+  try {
+    const supabase = getSupabase()
+    const { count, error } = await supabase
+      .from('archive_recall_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('presence_id', presenceId)
+      .eq('recall_mode', 'autonomy')
+      .gte('created_at', sinceUtc.toISOString())
+    if (error) {
+      console.error('[archive-recall] getAutonomyRecallCountSince error:', error.message)
+      return null
+    }
+    return count ?? 0
+  } catch (err) {
+    console.error('[archive-recall] getAutonomyRecallCountSince threw:', err)
+    return null
   }
 }
 

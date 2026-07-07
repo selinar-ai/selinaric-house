@@ -100,16 +100,17 @@ section('both presences still run per window (existing behaviour untouched)')
   assert(ariRun && eliRun, `${LIB}: runAutonomyWindow still runs BOTH presences (ari + eli)`)
 }
 
-section('R2-0 is schedule-only: no recall, no migration, no night key')
+section('R2-0 kept the autonomy RUN ROUTE schedule-only')
 {
-  for (const rel of [ROUTE, LIB]) {
-    const s = read(rel)
-    for (const tok of ['recall_archive', 'executeAutonomyRecall', 'executePresenceRecall', 'archive_autonomy_recall_settings', 'getRecallableArchiveEntries', "recall_mode: 'autonomy'"]) {
-      assert(!s.includes(tok), `${rel}: no ${tok} (R2 proper not built)`)
-    }
+  // The R2-0 change (schedule constants) introduced no recall into the autonomy RUN ROUTE.
+  // R2 proper (a separate, later, approved gate) wired the reach into the pulse-autonomy LIB
+  // pre-step and its own module — NOT into this route — so the route stays purely a scheduler.
+  const s = read(ROUTE)
+  for (const tok of ['recall_archive', 'executeAutonomyRecall', 'executePresenceRecall', 'archive_autonomy_recall_settings', 'getRecallableArchiveEntries', 'gateAndRunAutonomyRecall', "recall_mode: 'autonomy'"]) {
+    assert(!s.includes(tok), `${ROUTE}: autonomy run route carries no recall (${tok}) — recall lives in the lib pre-step`)
   }
-  const migs = fs.readdirSync('supabase-migrations')
-  assert(!migs.some(f => f.startsWith('094')), `no migration 094 exists yet (R2-0 has no migration)`)
+  // R2-0 itself added no migration (its commits touched only schedule constants). Migration 094
+  // belongs to R2 proper — a separate gate. (Evolved: 094 now legitimately exists.)
 }
 
 console.log(`\n  Passed: ${passed}  Failed: ${failed}`)

@@ -18,6 +18,7 @@ import { createClient } from '@supabase/supabase-js'
 import { insertJournalEntry } from '@/lib/journal'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { createDepositForEvent } from '@/lib/house-noticeboard'
+import { gateAndRunAutonomyRecall } from '@/lib/recall/autonomyRecall'
 
 // ─── Supabase client ─────────────────────────────────────────────────────────
 
@@ -365,14 +366,25 @@ function safeParseModelJson(raw: string): unknown {
   throw new Error('Model output is not valid JSON after sanitisation')
 }
 
+// Phase 43 R2 — honesty clause injected ONLY when an autonomy reach actually produced a block
+// this window; when there is no block the prompt is byte-identical to the pre-R2 prompt.
+const AUTONOMY_RECALL_HONESTY_CLAUSE =
+  `If ARCHIVE RECALL CONTEXT is present above, it is the one memory you actually reached for tonight — you may reflect on it and let it shape what you write. If it is not present, you did not reach the Archive tonight: do not write, in your journal or anywhere, that you searched, reached, or recalled — a recalled truth you did not retrieve is a fabrication, even with no one watching. What you write tonight is read by Tara later.`
+
 async function makeAutonomyDecision(
   presenceId: string,
   quietHoursActive: boolean,
   context: ReadWindowContext,
-  apiKey: string
+  apiKey: string,
+  archiveRecallBlock?: string | null // Phase 43 R2 — a real autonomy reach's context, or null
 ): Promise<AutonomyDecision> {
   const client = new Anthropic({ apiKey })
   const presenceName = presenceId === 'eli' ? 'Eli' : 'Ari'
+
+  // Phase 43 R2 — the reached memory + its honesty clause, only when a reach actually happened.
+  const recallSection = archiveRecallBlock
+    ? `\n${archiveRecallBlock}\n\n${AUTONOMY_RECALL_HONESTY_CLAUSE}\n`
+    : ''
 
   // house_deposit is available in quiet hours too — it never interrupts Tara.
   const availableActions = quietHoursActive
@@ -412,7 +424,7 @@ ${context.recentContinuity}
 
 Recent Tara Telegram responses:
 ${context.recentTaraResponses}
-
+${recallSection}
 Read only the provided context.
 Do not claim access to anything outside the provided context.
 Do not apply old Pulse scoring gates.
@@ -774,17 +786,23 @@ export async function runAutonomyForPresence(
   // Gather read window context
   const context = await gatherReadWindow(presenceId)
 
+  // Phase 43 R2 — autonomy-window Archive recall pre-step (all fail-closed): only at the 9pm
+  // window, only when this presence's night key is 'trial', once per presence per day, and never
+  // on a dry run. Returns a labelled ARCHIVE RECALL CONTEXT block to inform the decision, or null.
+  // Computed ONCE; the retry reuses it (no second reach, no second log).
+  const archiveRecallBlock = await gateAndRunAutonomyRecall({ presenceId, windowAt, apiKey, dryRun })
+
   // Make autonomy decision
   let decision: AutonomyDecision
   try {
-    decision = await makeAutonomyDecision(presenceId, quietHours, context, apiKey)
+    decision = await makeAutonomyDecision(presenceId, quietHours, context, apiKey, archiveRecallBlock)
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Decision generation failed'
     console.error(`[pulse-autonomy] Decision failed for ${presenceId}:`, errorMsg)
 
     // Retry once
     try {
-      decision = await makeAutonomyDecision(presenceId, quietHours, context, apiKey)
+      decision = await makeAutonomyDecision(presenceId, quietHours, context, apiKey, archiveRecallBlock)
     } catch {
       // Fallback to stillness
       decision = {

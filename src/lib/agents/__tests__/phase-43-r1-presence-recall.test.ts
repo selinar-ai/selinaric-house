@@ -79,7 +79,9 @@ for (const rel of ROUTES) {
   assert(s.includes('You have a recall_archive tool'), `${rel}: prompt now grants the tool`)
   assert(s.includes('ONLY when the recall_archive tool actually executed this turn, OR when Tara\'s /recall command fired'), `${rel}: claim-recall gated on real execution or Tara-context`)
   assert(s.includes('A recalled truth you did not actually retrieve is a fabrication'), `${rel}: anti-confabulation spine kept`)
-  assert(s.includes('autonomy windows) is NOT available'), `${rel}: R2 (solitary reach) explicitly still closed`)
+  // R2 (sanctioned evolution) opened the autonomy reach behind Tara's per-presence 9pm night key.
+  assert(s.includes('during the 9pm autonomy window (when Tara has your key turned on'), `${rel}: R2 autonomy reach granted behind the 9pm night key`)
+  assert(!s.includes('autonomy windows) is NOT available'), `${rel}: old "not available" wording retired (R2)`)
   assert(!s.includes('presence-initiated recall is not built'), `${rel}: the old absolute "cannot" wording is gone`)
 }
 
