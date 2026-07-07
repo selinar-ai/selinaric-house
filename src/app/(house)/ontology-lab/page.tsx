@@ -15,6 +15,7 @@ import GraphProposalFilters, { type ProposalFilterState, BLANK_FILTERS } from '@
 import GraphProposalTable from '@/components/graph/GraphProposalTable'
 import GraphProposalInspector from '@/components/graph/GraphProposalInspector'
 import GraphProposalBulkToolbar from '@/components/graph/GraphProposalBulkToolbar'
+import AgentGraphSuggestionsPanel, { type AgentGraphSuggestion } from '@/components/graph/AgentGraphSuggestionsPanel'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,12 @@ export default function OntologyLabPage() {
   const [bulkLoading, setBulkLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning' | 'error' } | null>(null)
 
+  // Phase 43 Option C — kernel lane (read-only structural suggestions; not the map)
+  const [agentSuggestions, setAgentSuggestions] = useState<AgentGraphSuggestion[]>([])
+  const [agentNodeLabels, setAgentNodeLabels] = useState<Record<string, string>>({})
+  const [agentLoading, setAgentLoading] = useState(true)
+  const [agentError, setAgentError] = useState(false)
+
   // ─── Fetch proposals ──────────────────────────────────────────────────────
 
   const fetchProposals = useCallback(async () => {
@@ -83,6 +90,31 @@ export default function OntologyLabPage() {
   useEffect(() => {
     fetchProposals()
   }, [fetchProposals])
+
+  // Phase 43 Option C — read-only fetch of the kernel lane (GET only; fail-soft, independent
+  // of the map lane). No mutation, no promote — this only lists what /agents already exposes.
+  const fetchAgentSuggestions = useCallback(async () => {
+    setAgentLoading(true)
+    setAgentError(false)
+    try {
+      const resp = await fetch('/api/agents/graph-proposals')
+      if (resp.ok) {
+        const data = await resp.json()
+        setAgentSuggestions(data.graph_proposals ?? [])
+        setAgentNodeLabels(data.node_labels ?? {})
+      } else {
+        setAgentError(true)
+      }
+    } catch {
+      setAgentError(true)
+    } finally {
+      setAgentLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAgentSuggestions()
+  }, [fetchAgentSuggestions])
 
   // ─── Toast ────────────────────────────────────────────────────────────────
 
@@ -271,6 +303,17 @@ export default function OntologyLabPage() {
             />
           </div>
         )}
+      </div>
+
+      {/* Kernel lane — read-only structural suggestions (Option C). Below the map lane; never
+          shares state with it. No approve/apply control here — triage lives in /agents. */}
+      <div className="shrink-0 border-t border-house-border max-h-[38vh] overflow-y-auto bg-house-bg/30">
+        <AgentGraphSuggestionsPanel
+          suggestions={agentSuggestions}
+          nodeLabels={agentNodeLabels}
+          loading={agentLoading}
+          error={agentError}
+        />
       </div>
 
       {/* Toast */}
