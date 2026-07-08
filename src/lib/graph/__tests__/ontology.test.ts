@@ -66,9 +66,9 @@ for (const edgeType of GRAPH_EDGE_TYPES) {
 
 section('Edge type validation — invalid types fail')
 
-// Phase 43 Option A: shaped_by + precedes are now VALID (admitted for archive-edge promotion).
-// 'anchors' / 'extends' remain invalid (not added) — kept as genuine negative examples.
-const invalidEdgeTypes = ['invalid', 'RELATES_TO', 'links_to', '', 'anchors', 'extends']
+// Phase 43: shaped_by + precedes (Option A) and anchors (Wave 1) are now VALID.
+// 'extends' remains invalid (not yet added) — kept as a genuine negative example.
+const invalidEdgeTypes = ['invalid', 'RELATES_TO', 'links_to', '', 'extends']
 for (const bad of invalidEdgeTypes) {
   assert(!isValidGraphEdgeType(bad), `"${bad}" is not valid edge type`)
 }
@@ -138,7 +138,7 @@ for (const bad of invalidSources) {
 section('Array completeness checks')
 
 assert(GRAPH_NODE_TYPES.length === 24, `Node types count is 24 (got ${GRAPH_NODE_TYPES.length})`)
-assert(GRAPH_EDGE_TYPES.length === 31, `Edge types count is 31 (got ${GRAPH_EDGE_TYPES.length})`)
+assert(GRAPH_EDGE_TYPES.length === 32, `Edge types count is 32 (got ${GRAPH_EDGE_TYPES.length})`)
 assert(GRAPH_AUTHORITY_STATUSES.length === 9, `Authority statuses count is 9 (got ${GRAPH_AUTHORITY_STATUSES.length})`)
 assert(GRAPH_REVIEW_STATUSES.length === 7, `Review statuses count is 7 (got ${GRAPH_REVIEW_STATUSES.length})`)
 assert(GRAPH_PRESENCE_SCOPES.length === 5, `Presence scopes count is 5 (got ${GRAPH_PRESENCE_SCOPES.length})`)

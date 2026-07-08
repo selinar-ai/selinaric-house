@@ -72,6 +72,9 @@ export const GRAPH_EDGE_TYPES = [
   //   precedes  = "X precedes Y" in chronological/relational sequence — NOT superiority/ranking.
   'shaped_by',
   'precedes',
+  // Phase 43 Wave 1 — another recurring archive_graph semantic type (governed TS-const, no migration).
+  //   anchors = "X anchors/grounds Y" (a relationship of grounding/support the archive extracted).
+  'anchors',
 ] as const
 
 export type GraphEdgeType = typeof GRAPH_EDGE_TYPES[number]
