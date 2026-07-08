@@ -1,6 +1,10 @@
 /**
- * Phase 42.4.2a — proves NO live LLM, no provider SDK, no graph-truth/Memory/prompt write,
- * no scheduler/daemon/queue; the slice is a deterministic fixture-only cage.
+ * Phase 42.4.2a — proves the FIXTURE CAGE has no provider SDK / model call / graph-truth / Memory /
+ * prompt write / scheduler. Updated for Phase 43.B (= 42.4.2b): the live model is admitted as a
+ * proposal SOURCE, but ONLY in src/lib/agents/graph_proposals/llm_live.ts (the one provider-call
+ * module) and its CLI runner — both OUTSIDE this cage slice. The fixture cage (llm_postgate.ts +
+ * the fixture runner) stays model-free; shared contract.ts may now NAME the live model id as a
+ * governed constant but must never CALL a model or import an SDK.
  * Run: npx tsx src/lib/agents/__tests__/phase-42-4-2a-no-execution.test.ts
  */
 
@@ -19,13 +23,25 @@ const slice = [
   'scripts/agent-graph-llm-fixture.ts',
 ]
 
-section('NO provider SDK / model endpoint / LLM call anywhere in the 42.4.2a slice')
-for (const rel of slice) {
+// The fixture cage EXECUTION surfaces (post-gate + fixture runner) stay fully model-free — no
+// provider SDK, no model call, not even a model-id string. (contract.ts is checked separately
+// below: 43.B lets it NAME the live model, but it still must never CALL one.)
+const executionSlice = ['src/lib/agents/graph_proposals/llm_postgate.ts', 'scripts/agent-graph-llm-fixture.ts']
+section('NO provider SDK / model endpoint / LLM call in the fixture cage (post-gate + fixture runner)')
+for (const rel of executionSlice) {
   const s = readCode(rel).toLowerCase()
   for (const tok of ['@anthropic', 'anthropic', '@openai', 'openai', 'chat.completions', 'responses.create', 'messages.create', 'api.openai.com', 'api.anthropic.com', 'gpt-', 'claude-', 'embedding']) {
     assert(!s.includes(tok), `${rel}: no "${tok}"`)
   }
   assert(!/fetch\((["'`])https?:\/\//.test(readCode(rel)), `${rel}: no fetch to an external model endpoint`)
+}
+
+section('contract.ts (43.B): may NAME the live model constant, but never CALLS a model or imports an SDK')
+{
+  const c = readCode('src/lib/agents/graph_proposals/contract.ts').toLowerCase()
+  for (const tok of ['@anthropic', '@openai', 'new anthropic', 'messages.create', 'chat.completions', 'responses.create', 'api.anthropic.com', 'api.openai.com', 'fetch(']) {
+    assert(!c.includes(tok), `contract.ts: no "${tok}" (constants only — names the model, never calls it)`)
+  }
 }
 
 section('post-gate is pure — no DB / no I/O')

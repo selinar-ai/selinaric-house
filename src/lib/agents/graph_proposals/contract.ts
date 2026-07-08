@@ -29,6 +29,15 @@ export const GENERATION_MODES = ['fixture', 'live'] as const
 export const FIXTURE_MODEL_ID = 'fixture-llm-output' as const
 export const FIXTURE_PROMPT_VERSION = 'fixture-postgate-v1' as const
 
+// Phase 43.B (= 42.4.2b) — LIVE-mode policy constants (Ari-ruled). A live model is a proposal
+// SOURCE only; rows stay suggest-only + test_owned. These are string/number constants (no SDK).
+export const LLM_LIVE_MODEL_ID = 'claude-sonnet-5' as const
+export const LLM_LIVE_PROMPT_VERSION = 'llm_edge_live_v1' as const
+export const LLM_LIVE_MAX_NODES = 30 // bounded pre-gate context per run
+export const LLM_LIVE_MAX_OUTPUT_TOKENS = 1024 // it's a small JSON array
+export const LLM_LIVE_MAX_PROPOSALS = 20 // accepted cap per run (WAVE spirit)
+export const LLM_LIVE_COST_CEILING_USD = 0.2 // hard fail-before-call budget ceiling
+
 // Phase 43 (graph bulk triage) — hard cap on ids per bulk review request. The bulk route
 // loops the single-proposal RPC; no new SQL, no new verbs.
 export const GRAPH_BULK_REVIEW_MAX_IDS = 200
