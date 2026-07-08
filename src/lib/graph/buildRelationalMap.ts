@@ -160,6 +160,7 @@ function processNodeProposal(
     nodeType,
     label: proposal.proposed_label,
     proposedPayload: proposal.proposed_payload as unknown as Record<string, unknown> | undefined,
+    sourceTypes, // Phase 43 5A — archive-sourced concept/ritual stay midlevel (no overview promotion)
   })
 
   return {
@@ -260,7 +261,7 @@ function processEdgeProposal(
       proposalIds: [proposal.id],
       derivedFromEdge: true,
       promptEligible: false,
-      grainLevel: classifyGrain({ nodeType: fromNodeType, label: fromLabel }),
+      grainLevel: classifyGrain({ nodeType: fromNodeType, label: fromLabel, sourceTypes }),
     })
   } else {
     // Existing node — add this proposal ID
@@ -286,7 +287,7 @@ function processEdgeProposal(
       proposalIds: [proposal.id],
       derivedFromEdge: true,
       promptEligible: false,
-      grainLevel: classifyGrain({ nodeType: toNodeType, label: toLabel }),
+      grainLevel: classifyGrain({ nodeType: toNodeType, label: toLabel, sourceTypes }),
     })
   } else {
     const existing = nodeMap.get(toKey)!

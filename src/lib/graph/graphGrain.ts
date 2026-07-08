@@ -136,6 +136,17 @@ export interface GrainClassificationInput {
   nodeType: string
   label: string
   proposedPayload?: Record<string, unknown>
+  /**
+   * Phase 43 5A — the node's source types (from graph_proposal_sources / primary_source_type).
+   * Archive-sourced concept/ritual nodes must NOT be promoted into overview by the label heuristic:
+   * the overview stays the curated identity/room/project layer; archive concepts live in midlevel.
+   */
+  sourceTypes?: string[]
+}
+
+/** True if the node was promoted from the archive_graph (a Phase-29B extraction node/edge). */
+export function isArchiveSourced(sourceTypes?: string[]): boolean {
+  return !!sourceTypes?.some((t) => t === 'archive_graph_node' || t === 'archive_graph_edge')
 }
 
 /**
@@ -163,8 +174,11 @@ export function classifyGrain(input: GrainClassificationInput): GraphGrainLevel 
     return 'midlevel'
   }
 
-  // 3. For midlevel node types, promote to overview if the label is stable
-  if (defaultGrain === 'midlevel' && isOverviewLabel(input.label)) {
+  // 3. For midlevel node types, promote to overview if the label is stable — BUT NOT for
+  //    archive-sourced concept/ritual nodes (Phase 43 5A): the overview must stay the curated
+  //    identity/room/project layer, so archive-derived concepts remain at their midlevel default
+  //    even when their label is short/clean. They live in the drilldown, not the overview.
+  if (defaultGrain === 'midlevel' && isOverviewLabel(input.label) && !isArchiveSourced(input.sourceTypes)) {
     return 'overview'
   }
 
