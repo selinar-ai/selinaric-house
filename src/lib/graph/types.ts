@@ -75,6 +75,9 @@ export const GRAPH_EDGE_TYPES = [
   // Phase 43 Wave 1 — another recurring archive_graph semantic type (governed TS-const, no migration).
   //   anchors = "X anchors/grounds Y" (a relationship of grounding/support the archive extracted).
   'anchors',
+  // Phase 43 Map Growth Queue — the last recurring archive_graph semantic type in the eligible landscape.
+  //   extends = "X extends Y" (X builds upon / continues / elaborates Y). Governed TS-const, no migration.
+  'extends',
 ] as const
 
 export type GraphEdgeType = typeof GRAPH_EDGE_TYPES[number]
