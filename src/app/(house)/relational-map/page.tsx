@@ -30,6 +30,7 @@ import RelationalMapTableView from '@/components/graph/RelationalMapTableView'
 import RelationalMapWorkspaceBar from '@/components/graph/RelationalMapWorkspaceBar'
 import { SuggestNodeForm } from '@/components/graph/RelationalMapSuggestPanel'
 import type { RelationalMapResponse, GraphMapNode, GraphMapEdge } from '@/lib/graph/relationalMapTypes'
+import { arrangeVisible } from '@/lib/graph/arrangeVisible'
 import type { RelationalMapCanvasHandle } from '@/components/graph/RelationalMapCanvas'
 import type {
   RelationalMapWorkspace,
@@ -367,6 +368,28 @@ export default function RelationalMapPage() {
     setArrangeMode(prev => !prev)
   }, [arrangeMode, isDirty, activeWorkspaceId, handleSelectWorkspace])
 
+  // Phase 43 5B — explicit pin-aware "Arrange Visible" (layout only).
+  // Deterministically repositions the currently-visible, UNPINNED nodes; pinned
+  // and hidden nodes are untouched. Writes localLayout client state only —
+  // Save persists via the existing workspace PATCH to layout_data.
+  const handleArrangeVisible = useCallback(() => {
+    const positions = arrangeVisible(filteredNodes, filteredEdges, localLayout)
+    if (Object.keys(positions).length === 0) return
+    setLocalLayout(prev => {
+      const next = deepCloneLayout(prev)
+      for (const [nodeId, pos] of Object.entries(positions)) {
+        const existing = next.nodes[nodeId]
+        next.nodes[nodeId] = {
+          x: pos.x,
+          y: pos.y,
+          pinned: existing?.pinned ?? false,
+        }
+      }
+      return next
+    })
+    setIsDirty(true)
+  }, [filteredNodes, filteredEdges, localLayout])
+
   const handleNodeDragStop = useCallback((nodeId: string, x: number, y: number) => {
     setLocalLayout(prev => {
       const next = deepCloneLayout(prev)
@@ -517,11 +540,13 @@ export default function RelationalMapPage() {
           isDirty={isDirty}
           onSelectWorkspace={handleSelectWorkspace}
           onToggleArrangeMode={handleToggleArrangeMode}
+          onArrangeVisible={handleArrangeVisible}
           onSave={handleSave}
           onSaveAs={handleSaveAs}
           onResetLayout={handleResetLayout}
           onArchiveWorkspace={handleArchiveWorkspace}
           disabled={loading || workspaceLoading}
+          canArrange={filteredNodes.length > 0}
         />
 
         {/* Phase 37F.1 — grain mode toggle with strict overview */}

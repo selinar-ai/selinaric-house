@@ -22,11 +22,14 @@ interface WorkspaceBarProps {
   isDirty: boolean
   onSelectWorkspace: (id: string | null) => void
   onToggleArrangeMode: () => void
+  onArrangeVisible: () => void
   onSave: () => void
   onSaveAs: (name: string, scope: RelationalMapWorkspaceScope) => void
   onResetLayout: () => void
   onArchiveWorkspace: (id: string) => void
   disabled: boolean
+  /** True when there are visible nodes to arrange (disables the button otherwise). */
+  canArrange: boolean
 }
 
 // ─── Component ────────────────────────────────────────────────────────────
@@ -38,11 +41,13 @@ export default function RelationalMapWorkspaceBar({
   isDirty,
   onSelectWorkspace,
   onToggleArrangeMode,
+  onArrangeVisible,
   onSave,
   onSaveAs,
   onResetLayout,
   onArchiveWorkspace,
   disabled,
+  canArrange,
 }: WorkspaceBarProps) {
   const [showSaveAs, setShowSaveAs] = useState(false)
   const [saveAsName, setSaveAsName] = useState('')
@@ -103,6 +108,23 @@ export default function RelationalMapWorkspaceBar({
       >
         {arrangeMode ? '✦ Arranging' : '↕ Arrange'}
       </button>
+
+      {/* Arrange visible — layout-only action, Arrange Mode only (Phase 43 5B) */}
+      {arrangeMode && (
+        <button
+          onClick={onArrangeVisible}
+          disabled={disabled || !canArrange}
+          className="
+            px-3 py-1.5 text-xs font-body rounded border transition-colors
+            bg-house-surface border-purple-600/40 text-purple-300
+            hover:border-purple-500/70 hover:text-purple-200
+            disabled:opacity-30 disabled:hover:border-purple-600/40
+          "
+          title="Arrange the currently visible nodes (skips pinned; layout only, not graph meaning)"
+        >
+          ✦ Arrange visible
+        </button>
+      )}
 
       {/* Arrange mode warning */}
       {arrangeMode && (
