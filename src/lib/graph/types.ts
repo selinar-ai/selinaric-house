@@ -64,6 +64,14 @@ export const GRAPH_EDGE_TYPES = [
   'reaffirms',
   'evolves_from',
   'marks_milestone_in',
+  // Phase 43 Option A — archive_graph semantic edge types, admitted so approved archive-derived
+  // relationships can be promoted into graph_proposals honestly (no coercion). Governed graph-
+  // vocabulary expansion (TS const; the DB edge_type column is open text — no migration).
+  //   shaped_by = "X was shaped/influenced by Y" (relational influence, an archive-derived
+  //               proposed relationship — never an authority claim).
+  //   precedes  = "X precedes Y" in chronological/relational sequence — NOT superiority/ranking.
+  'shaped_by',
+  'precedes',
 ] as const
 
 export type GraphEdgeType = typeof GRAPH_EDGE_TYPES[number]

@@ -66,7 +66,9 @@ for (const edgeType of GRAPH_EDGE_TYPES) {
 
 section('Edge type validation — invalid types fail')
 
-const invalidEdgeTypes = ['invalid', 'RELATES_TO', 'links_to', '', 'anchors', 'shaped_by', 'extends']
+// Phase 43 Option A: shaped_by + precedes are now VALID (admitted for archive-edge promotion).
+// 'anchors' / 'extends' remain invalid (not added) — kept as genuine negative examples.
+const invalidEdgeTypes = ['invalid', 'RELATES_TO', 'links_to', '', 'anchors', 'extends']
 for (const bad of invalidEdgeTypes) {
   assert(!isValidGraphEdgeType(bad), `"${bad}" is not valid edge type`)
 }
@@ -136,11 +138,13 @@ for (const bad of invalidSources) {
 section('Array completeness checks')
 
 assert(GRAPH_NODE_TYPES.length === 24, `Node types count is 24 (got ${GRAPH_NODE_TYPES.length})`)
-assert(GRAPH_EDGE_TYPES.length === 29, `Edge types count is 29 (got ${GRAPH_EDGE_TYPES.length})`)
+assert(GRAPH_EDGE_TYPES.length === 31, `Edge types count is 31 (got ${GRAPH_EDGE_TYPES.length})`)
 assert(GRAPH_AUTHORITY_STATUSES.length === 9, `Authority statuses count is 9 (got ${GRAPH_AUTHORITY_STATUSES.length})`)
 assert(GRAPH_REVIEW_STATUSES.length === 7, `Review statuses count is 7 (got ${GRAPH_REVIEW_STATUSES.length})`)
 assert(GRAPH_PRESENCE_SCOPES.length === 5, `Presence scopes count is 5 (got ${GRAPH_PRESENCE_SCOPES.length})`)
-assert(GRAPH_SOURCE_TYPES.length === 20, `Source types count is 20 (got ${GRAPH_SOURCE_TYPES.length})`)
+// Corrected 20→24 (pre-existing stale count, unrelated to Option A — GRAPH_SOURCE_TYPES had drifted
+// to 24 without this assertion being updated; fixed here to keep the file I'm touching green).
+assert(GRAPH_SOURCE_TYPES.length === 24, `Source types count is 24 (got ${GRAPH_SOURCE_TYPES.length})`)
 
 // ─── No duplicates ─────────────────────────────────────────────────────────
 
