@@ -87,7 +87,7 @@ async function main() {
   console.log(`\n== live LLM proposal run (archive="${archive}", nodes=${liveNodes.length}, ceiling=$${costCeilingUsd}) ==`)
 
   // ONE bounded model call — cost ceiling checked BEFORE the call inside generateLiveProposals.
-  const gen = await generateLiveProposals(liveNodes, { apiKey, maxOutputTokens, costCeilingUsd })
+  const gen = await generateLiveProposals(liveNodes, { apiKey, maxOutputTokens, costCeilingUsd, maxProposals: maxProposalsN })
   if (gen.refused) { console.error(`Refused: ${gen.reason} (projected $${gen.projectedUsd.toFixed(4)})`); process.exit(1); return }
   console.log(`model responded (projected $${gen.projectedUsd.toFixed(4)}; usage in=${gen.usage?.inputTokens ?? '?'} out=${gen.usage?.outputTokens ?? '?'})`)
 

@@ -54,6 +54,8 @@ section('buildPrompt is deterministic and constrains the model')
   assert(a.system.includes('ONLY node ids from the provided list'), 'forbids inventing nodes')
   assert(a.system.includes('source_item_ids'), 'restricts evidence to endpoint source_item_ids')
   assert(a.system.includes('{"proposals": [...]}') || a.system.includes('"proposals"'), 'asks for the JSON object shape only')
+  const c = buildPrompt(NODES, 5)
+  assert(c.system.includes('AT MOST 5'), 'states an explicit proposal cap in-prompt (self-bounds output → no truncation)')
 }
 
 section('computeLiveInputHash: sha256 hex, deterministic, input-sensitive')
