@@ -23,7 +23,6 @@ import {
   LLM_LIVE_MODEL_ID,
   LLM_LIVE_PROMPT_VERSION,
   LLM_LIVE_MAX_OUTPUT_TOKENS,
-  LLM_LIVE_MAX_PROPOSALS,
   LLM_LIVE_COST_CEILING_USD,
   LLM_EDGE_WHITELIST,
   LLM_MIN_CONFIDENCE,
@@ -92,10 +91,7 @@ export function projectCostUsd(promptText: string, maxOutputTokens: number): num
  * Instructs the model to propose ONLY whitelisted edges between the GIVEN node ids, with rationale
  * and source_refs drawn ONLY from the provided evidence, as the LIVE_OUTPUT_SCHEMA object. No prose.
  */
-export function buildPrompt(
-  nodes: LiveContextNode[],
-  maxProposals: number = LLM_LIVE_MAX_PROPOSALS,
-): { system: string; user: string } {
+export function buildPrompt(nodes: LiveContextNode[]): { system: string; user: string } {
   const sorted = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const whitelist = LLM_EDGE_WHITELIST.join(', ')
   const system = [
@@ -109,7 +105,6 @@ export function buildPrompt(
     `- confidence is a number in [${LLM_MIN_CONFIDENCE}, 1]. Only propose edges you are at least ${LLM_MIN_CONFIDENCE} confident in.`,
     '- source_refs must be a non-empty subset of the two endpoints’ source_item_ids shown below. Never cite anything else.',
     '- rationale: one plain sentence grounded in the provided evidence. No authority, memory, or prompt claims.',
-    `- Propose AT MOST ${maxProposals} edges — the highest-confidence ones only. Fewer is fine; do not pad to reach the limit.`,
     '- Output ONLY the JSON object {"proposals": [...]}. No prose, no markdown, no extra fields.',
     'If no edge meets the bar, return {"proposals": []}.',
   ].join('\n')
@@ -167,7 +162,6 @@ export type GenerateLiveOptions = {
   apiKey: string
   maxOutputTokens?: number
   costCeilingUsd?: number
-  maxProposals?: number
 }
 
 /**
@@ -182,9 +176,8 @@ export async function generateLiveProposals(
 ): Promise<LiveGenerationResult> {
   const maxOutputTokens = opts.maxOutputTokens ?? LLM_LIVE_MAX_OUTPUT_TOKENS
   const ceiling = opts.costCeilingUsd ?? LLM_LIVE_COST_CEILING_USD
-  const maxProposals = opts.maxProposals ?? LLM_LIVE_MAX_PROPOSALS
 
-  const { system, user } = buildPrompt(nodes, maxProposals)
+  const { system, user } = buildPrompt(nodes)
   const projectedUsd = projectCostUsd(`${system}\n${user}`, maxOutputTokens)
   const inputHash = computeLiveInputHash(system, user)
 
