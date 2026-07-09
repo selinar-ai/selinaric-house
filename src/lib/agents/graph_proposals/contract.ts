@@ -24,6 +24,25 @@ export const LLM_RULE_ID = 'llm_edge_v1' as const
 /** v1 LLM edge whitelist — narrow, low-authority, reviewable; NO truthy/canonical relations. */
 export const LLM_EDGE_WHITELIST = ['contrasts_with', 'precedes', 'extends'] as const
 export const LLM_MIN_CONFIDENCE = 0.7
+
+// Phase 43 — Asymmetric Edge Direction Semantics (registry ONLY; read-only annotation support).
+// Canonical pair storage (from_node_id < to_node_id) is a DEDUP identity, not semantic direction.
+// Symmetric edge types have no meaningful direction; asymmetric types do and must carry a
+// HUMAN-CONFIRMED semantic direction before any persist-real action (inference is advisory only).
+// Fail-closed: an edge_type absent from this registry returns null from edgeSymmetry() and is
+// never assumed safe. This is a pure constant + lookup — no I/O, no DB, no migration, no CHECK.
+export type EdgeSymmetry = 'symmetric' | 'asymmetric'
+export const EDGE_TYPE_SYMMETRY = {
+  contrasts_with: 'symmetric',
+  precedes: 'asymmetric',
+  extends: 'asymmetric',
+} as const satisfies Record<string, EdgeSymmetry>
+/** Symmetry of an edge_type, or null if undeclared (fail-closed — caller must treat null as unsafe). */
+export function edgeSymmetry(edgeType: string): EdgeSymmetry | null {
+  return Object.prototype.hasOwnProperty.call(EDGE_TYPE_SYMMETRY, edgeType)
+    ? (EDGE_TYPE_SYMMETRY as Record<string, EdgeSymmetry>)[edgeType]
+    : null
+}
 export const GENERATION_MODES = ['fixture', 'live'] as const
 // Fixture provenance — clearly marks 42.4.2a rows as fixture/test, never live.
 export const FIXTURE_MODEL_ID = 'fixture-llm-output' as const

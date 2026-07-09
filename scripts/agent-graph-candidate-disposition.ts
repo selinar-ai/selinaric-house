@@ -18,8 +18,8 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createClient } from '@supabase/supabase-js'
 import {
-  reverifyCandidate, archiveEdgeKey, dedupeKey,
-  type DispositionCandidate, type ArchiveNodeSnapshot, type DispositionContext,
+  reverifyCandidate, archiveEdgeKey, dedupeKey, annotateDirection,
+  type DispositionCandidate, type ArchiveNodeSnapshot, type DispositionContext, type DirectionStatus,
 } from '../src/lib/agents/graph_proposals/candidate_disposition'
 import { GRAPH_PROPOSALS_LIST_RPC, GRAPH_PROPOSAL_TARGET, LLM_LIVE_WHOLE_ARCHIVE_PROFILE } from '../src/lib/agents/graph_proposals/contract'
 
@@ -73,6 +73,8 @@ async function main() {
 
   let eligible = 0
   const blockedBy: Record<string, number> = {}
+  const dirBy: Record<DirectionStatus, number> = { 'inferred-forward': 0, 'inferred-reverse': 0, symmetric: 0, ambiguous: 0, undeclared: 0 }
+  let directionPending = 0
   for (const r of candidates) {
     const cand: DispositionCandidate = {
       id: r.id, runId: r.run_id, edgeType: r.edge_type, fromNodeId: r.from_node_id, toNodeId: r.to_node_id,
@@ -83,8 +85,24 @@ async function main() {
     const fromLbl = nodesById.get(r.from_node_id)?.label ?? r.from_node_id.slice(0, 8)
     const toLbl = nodesById.get(r.to_node_id)?.label ?? r.to_node_id.slice(0, 8)
     const testOwned = !realIds.has(r.id)
-    console.log(`  [${verdict.eligible ? 'ELIGIBLE' : 'BLOCKED: ' + verdict.blockingReason}]  ${fromLbl} —${r.edge_type}→ ${toLbl}  (conf ${r.confidence})`)
-    console.log(`      candidate_id=${r.id}  run=${r.run_id.slice(0, 8)}  archive=${nodesById.get(r.from_node_id)?.archiveName ?? '?'}  test_owned=${testOwned}  generation_mode=${r.generation_mode}`)
+    // Read-only ADVISORY semantic-direction annotation (canonical order is NOT semantic; see helper).
+    const ann = annotateDirection({
+      edgeType: r.edge_type, canonicalFromId: r.from_node_id, canonicalToId: r.to_node_id,
+      canonicalFromLabel: fromLbl, canonicalToLabel: toLbl, rationale: r.rationale,
+    })
+    dirBy[ann.status]++
+    if (ann.directionPending) directionPending++
+    console.log(`  [${verdict.eligible ? 'ELIGIBLE' : 'BLOCKED: ' + verdict.blockingReason}]  candidate_id=${r.id}  (conf ${r.confidence})`)
+    console.log(`      canonical pair (NON-SEMANTIC, UUID-ordered): ${fromLbl} | ${r.edge_type} | ${toLbl}`)
+    console.log(`      symmetry=${ann.symmetry}  direction=${ann.status}${ann.reason ? ' (' + ann.reason + ')' : ''}  direction_pending=${ann.directionPending}  (inference is ADVISORY)`)
+    if (ann.status === 'inferred-forward' || ann.status === 'inferred-reverse') {
+      console.log(`      inferred semantic (advisory — needs human confirmation): ${ann.semanticFromLabel} —${r.edge_type}→ ${ann.semanticToLabel}`)
+    } else if (ann.status === 'symmetric') {
+      console.log(`      semantic: symmetric — no direction (contrasts_with)`)
+    } else {
+      console.log(`      inferred semantic: — (${ann.status}; human review required, not guessed)`)
+    }
+    console.log(`      run=${r.run_id.slice(0, 8)}  archive=${nodesById.get(r.from_node_id)?.archiveName ?? '?'}  test_owned=${testOwned}  generation_mode=${r.generation_mode}`)
     console.log(`      model=${r.model_id}  prompt_version=${LLM_LIVE_WHOLE_ARCHIVE_PROFILE.promptVersion} (known Option-B value; LIST RPC omits it)  review_state=${r.review_state}`)
     console.log(`      source_refs=[${(r.source_item_ids ?? []).join(', ')}]`)
     console.log(`      rationale: ${r.rationale}`)
@@ -93,7 +111,12 @@ async function main() {
   console.log(`\n== SUMMARY ==`)
   console.log(`  total candidates: ${candidates.length}  eligible: ${eligible}  blocked: ${candidates.length - eligible}`)
   if (Object.keys(blockedBy).length) console.log(`  blocked by: ${Object.entries(blockedBy).map(([k, n]) => `${k}=${n}`).join('  ')}`)
-  console.log(`  (READ-ONLY — nothing was flipped, promoted, or written.)`)
+
+  console.log(`\n== DIRECTION ANNOTATION (read-only, ADVISORY) ==`)
+  console.log(`  inferred-forward: ${dirBy['inferred-forward']}  inferred-reverse: ${dirBy['inferred-reverse']}  symmetric: ${dirBy.symmetric}  ambiguous: ${dirBy.ambiguous}  undeclared: ${dirBy.undeclared}`)
+  console.log(`  direction_pending (human confirmation required before any persist-real): ${directionPending}`)
+  console.log(`  (Canonical pair is a dedup identity, not semantic direction. Inferred direction is advisory; ambiguous/contradictory cases are NOT guessed.)`)
+  console.log(`  (READ-ONLY — nothing was flipped, promoted, annotated-in-DB, or written.)`)
 }
 
 main().catch((err) => { console.error('disposition view failed:', err instanceof Error ? err.message : err); process.exit(1) })
