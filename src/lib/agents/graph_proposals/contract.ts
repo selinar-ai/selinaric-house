@@ -38,6 +38,42 @@ export const LLM_LIVE_MAX_OUTPUT_TOKENS = 1024 // it's a small JSON array
 export const LLM_LIVE_MAX_PROPOSALS = 20 // accepted cap per run (WAVE spirit)
 export const LLM_LIVE_COST_CEILING_USD = 0.2 // hard fail-before-call budget ceiling
 
+// A resolved cap/prompt profile for a live run.
+export type LiveProfile = {
+  name: 'default' | 'whole-archive'
+  maxNodes: number
+  maxOutputTokens: number
+  maxProposals: number
+  costCeilingUsd: number
+  promptVersion: string
+  wholeArchive: boolean
+}
+
+// The DEFAULT profile is derived from the UNCHANGED 43.B constants above (byte-identical behaviour).
+export const LLM_LIVE_DEFAULT_PROFILE: LiveProfile = {
+  name: 'default',
+  maxNodes: LLM_LIVE_MAX_NODES,
+  maxOutputTokens: LLM_LIVE_MAX_OUTPUT_TOKENS,
+  maxProposals: LLM_LIVE_MAX_PROPOSALS,
+  costCeilingUsd: LLM_LIVE_COST_CEILING_USD,
+  promptVersion: LLM_LIVE_PROMPT_VERSION,
+  wholeArchive: false,
+}
+
+// Phase 43 Option B — governed WHOLE-ARCHIVE profile. Expanded caps live ONLY here — never the module
+// defaults above — and are reachable ONLY via BOTH --profile whole-archive and --confirm-whole-archive-live.
+// The $0.20/run ceiling is UNCHANGED. Its own prompt_version (the prompt adds an in-prompt proposal cap).
+// One archive per run, one model call, test_owned only. Ari/Tara-authorised; each live run separately gated.
+export const LLM_LIVE_WHOLE_ARCHIVE_PROFILE: LiveProfile = {
+  name: 'whole-archive',
+  maxNodes: 100,
+  maxOutputTokens: 8192,
+  maxProposals: 40,
+  costCeilingUsd: 0.2,
+  promptVersion: 'llm_edge_live_whole_v1',
+  wholeArchive: true,
+}
+
 // Phase 43 (graph bulk triage) — hard cap on ids per bulk review request. The bulk route
 // loops the single-proposal RPC; no new SQL, no new verbs.
 export const GRAPH_BULK_REVIEW_MAX_IDS = 200

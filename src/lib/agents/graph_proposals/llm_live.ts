@@ -21,11 +21,10 @@ import { createHash } from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import {
   LLM_LIVE_MODEL_ID,
-  LLM_LIVE_PROMPT_VERSION,
-  LLM_LIVE_MAX_OUTPUT_TOKENS,
-  LLM_LIVE_COST_CEILING_USD,
+  LLM_LIVE_DEFAULT_PROFILE,
   LLM_EDGE_WHITELIST,
   LLM_MIN_CONFIDENCE,
+  type LiveProfile,
 } from './contract'
 
 // ─── Bounded context node (what the model is allowed to reason over) ─────────
@@ -80,9 +79,15 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3)
 }
 
-/** Projected worst-case USD cost of one call (conservative input estimate + full output cap). */
-export function projectCostUsd(promptText: string, maxOutputTokens: number): number {
-  const inTok = estimateTokens(promptText)
+/**
+ * Projected worst-case USD cost of one call. Input tokens use a CONSERVATIVE floor:
+ * max(chars/3, nodeCount × 200). The observed live data showed chars/3 alone UNDER-estimated
+ * uuid-heavy prompts ~2× (violet ~5.8k projected vs ~11.5k actual); the per-node floor (200 tok/node
+ * is above the observed ~145–172/node) guarantees projected ≥ actual so the ceiling truly protects.
+ * nodeCount defaults to 0 (→ chars/3) so callers that only have text keep the plain estimate.
+ */
+export function projectCostUsd(promptText: string, maxOutputTokens: number, nodeCount = 0): number {
+  const inTok = Math.max(estimateTokens(promptText), nodeCount * 200)
   return (inTok / 1_000_000) * PRICE_INPUT_PER_MTOK + (maxOutputTokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK
 }
 
@@ -91,10 +96,12 @@ export function projectCostUsd(promptText: string, maxOutputTokens: number): num
  * Instructs the model to propose ONLY whitelisted edges between the GIVEN node ids, with rationale
  * and source_refs drawn ONLY from the provided evidence, as the LIVE_OUTPUT_SCHEMA object. No prose.
  */
-export function buildPrompt(nodes: LiveContextNode[]): { system: string; user: string } {
+// Shared prompt assembly. `capLine` (optional) inserts an explicit proposal cap for the whole-archive
+// profile; when omitted, the output is BYTE-IDENTICAL to the authorised v1 default prompt.
+function assemblePrompt(nodes: LiveContextNode[], capLine?: string): { system: string; user: string } {
   const sorted = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const whitelist = LLM_EDGE_WHITELIST.join(', ')
-  const system = [
+  const rules = [
     'You propose candidate relationship edges between EXISTING archive graph nodes for human review.',
     'You are a suggestion source, not an authority. Every proposal is reviewed before it means anything.',
     'Hard rules — any violation is rejected downstream, so follow them exactly:',
@@ -105,14 +112,26 @@ export function buildPrompt(nodes: LiveContextNode[]): { system: string; user: s
     `- confidence is a number in [${LLM_MIN_CONFIDENCE}, 1]. Only propose edges you are at least ${LLM_MIN_CONFIDENCE} confident in.`,
     '- source_refs must be a non-empty subset of the two endpoints’ source_item_ids shown below. Never cite anything else.',
     '- rationale: one plain sentence grounded in the provided evidence. No authority, memory, or prompt claims.',
+  ]
+  if (capLine) rules.push(capLine)
+  rules.push(
     '- Output ONLY the JSON object {"proposals": [...]}. No prose, no markdown, no extra fields.',
     'If no edge meets the bar, return {"proposals": []}.',
-  ].join('\n')
+  )
   const lines = sorted.map(
     (n) => `- id=${n.id} | archive=${n.archive_name} | label=${JSON.stringify(n.label)} | source_item_ids=[${n.source_item_ids.join(', ')}]`,
   )
-  const user = `Nodes (${sorted.length}):\n${lines.join('\n')}`
-  return { system, user }
+  return { system: rules.join('\n'), user: `Nodes (${sorted.length}):\n${lines.join('\n')}` }
+}
+
+/** v1 DEFAULT prompt (llm_edge_live_v1) — byte-identical to authorised 43.B; no in-prompt proposal cap. */
+export function buildPrompt(nodes: LiveContextNode[]): { system: string; user: string } {
+  return assemblePrompt(nodes)
+}
+
+/** Whole-archive prompt (llm_edge_live_whole_v1) — adds an explicit proposal cap to self-bound output. */
+export function buildPromptWholeArchive(nodes: LiveContextNode[], maxProposals: number): { system: string; user: string } {
+  return assemblePrompt(nodes, `- Propose AT MOST ${maxProposals} edges — the highest-confidence ones only. Fewer is fine; do not pad to reach the limit.`)
 }
 
 /** input_hash = sha256 of the ACTUAL model input (system + user), for reproducible provenance. */
@@ -160,8 +179,8 @@ export type LiveGenerationResult =
 
 export type GenerateLiveOptions = {
   apiKey: string
-  maxOutputTokens?: number
-  costCeilingUsd?: number
+  /** Resolved cap/prompt profile (43.B DEFAULT or whole-archive). Defaults to the 43.B DEFAULT profile. */
+  profile?: LiveProfile
 }
 
 /**
@@ -174,11 +193,15 @@ export async function generateLiveProposals(
   nodes: LiveContextNode[],
   opts: GenerateLiveOptions,
 ): Promise<LiveGenerationResult> {
-  const maxOutputTokens = opts.maxOutputTokens ?? LLM_LIVE_MAX_OUTPUT_TOKENS
-  const ceiling = opts.costCeilingUsd ?? LLM_LIVE_COST_CEILING_USD
+  const profile = opts.profile ?? LLM_LIVE_DEFAULT_PROFILE
+  const maxOutputTokens = profile.maxOutputTokens
+  const ceiling = profile.costCeilingUsd
 
-  const { system, user } = buildPrompt(nodes)
-  const projectedUsd = projectCostUsd(`${system}\n${user}`, maxOutputTokens)
+  const { system, user } = profile.wholeArchive
+    ? buildPromptWholeArchive(nodes, profile.maxProposals)
+    : buildPrompt(nodes)
+  // Conservative per-node floor guards the ceiling (see projectCostUsd).
+  const projectedUsd = projectCostUsd(`${system}\n${user}`, maxOutputTokens, nodes.length)
   const inputHash = computeLiveInputHash(system, user)
 
   // FAIL BEFORE CALL: refuse if the conservative projection meets or exceeds the ceiling.
@@ -191,6 +214,7 @@ export async function generateLiveProposals(
     max_tokens: maxOutputTokens,
     thinking: 'disabled',
     output: 'json_schema',
+    profile: profile.name,
   }
 
   const client = new Anthropic({ apiKey: opts.apiKey })
@@ -228,7 +252,7 @@ export async function generateLiveProposals(
     raw,
     inputHash,
     modelId: LLM_LIVE_MODEL_ID,
-    promptVersion: LLM_LIVE_PROMPT_VERSION,
+    promptVersion: profile.promptVersion,
     modelSettings,
     projectedUsd,
     usage,

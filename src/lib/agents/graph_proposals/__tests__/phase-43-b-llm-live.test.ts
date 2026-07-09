@@ -12,9 +12,10 @@
 
 import { readFileSync } from 'fs'
 import {
-  buildPrompt, estimateTokens, projectCostUsd, parseModelOutput, computeLiveInputHash,
+  buildPrompt, buildPromptWholeArchive, estimateTokens, projectCostUsd, parseModelOutput, computeLiveInputHash,
   type LiveContextNode,
 } from '../llm_live'
+import { LLM_LIVE_DEFAULT_PROFILE, LLM_LIVE_WHOLE_ARCHIVE_PROFILE } from '../contract'
 
 let passed = 0, failed = 0
 const failures: string[] = []
@@ -142,6 +143,51 @@ section('live runner: double-flag gate + required cost params + live authorisati
   assert(r.includes('runPostGate('), 'runs the unchanged post-gate over the model output')
   assert(r.includes("p_generation_mode: 'live'") && r.includes('p_live_authorized: true'), 'records generation_mode=live with authorisation')
   assert(!/JSON\.parse|repair/i.test(r) || r.includes('runPostGate'), 'no ad-hoc JSON repair in the runner')
+}
+
+// ─── Option B — governed whole-archive profile ──────────────────────────────
+
+section('Option B: DEFAULT profile unchanged; whole-archive is a SEPARATE expanded profile')
+{
+  assert(LLM_LIVE_DEFAULT_PROFILE.maxNodes === 30 && LLM_LIVE_DEFAULT_PROFILE.maxOutputTokens === 1024 && LLM_LIVE_DEFAULT_PROFILE.maxProposals === 20, 'default profile stays 30/1024/20 (authorised 43.B)')
+  assert(LLM_LIVE_DEFAULT_PROFILE.promptVersion === 'llm_edge_live_v1' && LLM_LIVE_DEFAULT_PROFILE.wholeArchive === false, 'default profile is v1, not whole-archive')
+  assert(LLM_LIVE_DEFAULT_PROFILE.costCeilingUsd === 0.2, 'default ceiling $0.20')
+  assert(LLM_LIVE_WHOLE_ARCHIVE_PROFILE.maxNodes === 100 && LLM_LIVE_WHOLE_ARCHIVE_PROFILE.maxOutputTokens === 8192 && LLM_LIVE_WHOLE_ARCHIVE_PROFILE.maxProposals === 40, 'whole-archive profile is 100/8192/40')
+  assert(LLM_LIVE_WHOLE_ARCHIVE_PROFILE.promptVersion === 'llm_edge_live_whole_v1' && LLM_LIVE_WHOLE_ARCHIVE_PROFILE.wholeArchive === true, 'whole-archive uses llm_edge_live_whole_v1')
+  assert(LLM_LIVE_WHOLE_ARCHIVE_PROFILE.costCeilingUsd === 0.2, 'whole-archive ceiling UNCHANGED at $0.20')
+}
+
+section('default prompt byte-identical (no cap line); whole-archive prompt adds the cap')
+{
+  const def = buildPrompt(NODES)
+  assert(!def.system.includes('AT MOST'), 'DEFAULT prompt has NO in-prompt proposal cap (byte-identical to authorised v1)')
+  const whole = buildPromptWholeArchive(NODES, 40)
+  assert(whole.system.includes('AT MOST 40'), 'whole-archive prompt states an explicit AT MOST 40 cap')
+  assert(whole.user === def.user, 'node/user section identical across profiles (only the cap rule differs)')
+  assert(whole.system.length > def.system.length, 'whole-archive system = default + the cap line')
+}
+
+section('Option B: conservative per-node cost floor keeps velvet/violet under $0.20')
+{
+  assert(projectCostUsd('short', 1024, 100) > projectCostUsd('short', 1024, 0), 'nodeCount×200 floor raises the projection above chars/3')
+  const velvet = projectCostUsd('x'.repeat(5000), 8192, 23)   // 23 nodes, full 8192 output
+  const violet = projectCostUsd('x'.repeat(18000), 8192, 79)  // 79 nodes, full 8192 output
+  assert(velvet < 0.2, `velvet whole-archive worst case < $0.20 (got $${velvet.toFixed(4)})`)
+  assert(violet < 0.2, `violet whole-archive worst case < $0.20 (got $${violet.toFixed(4)})`)
+  assert(projectCostUsd('', 0, 79) >= (79 * 200 / 1_000_000) * 3, 'input floor = nodeCount×200 tokens (genuinely conservative)')
+}
+
+section('Option B runner: expansion needs BOTH whole-archive flags; numbers clamp to the profile')
+{
+  const r = readFileSync('scripts/agent-graph-llm-live.ts', 'utf8')
+  assert(r.includes("arg('profile') === 'whole-archive'") && r.includes("has('confirm-whole-archive-live')"), 'whole-archive needs --profile whole-archive + --confirm-whole-archive-live')
+  assert(/--profile whole-archive requires --confirm-whole-archive-live/.test(r), '--profile whole-archive WITHOUT its confirm REFUSES')
+  assert(r.includes('const wholeArchive = wantWhole && has('), 'expanded profile selected only when BOTH flags present')
+  assert(r.includes('base.maxNodes') && r.includes('base.maxOutputTokens') && r.includes('base.maxProposals'), 'numeric --max-* CLAMP to the active profile max (clampInt)')
+  assert(r.includes('Math.min(base.costCeilingUsd, parseFloat(maxUsd))'), 'ceiling only lowerable by --max-usd, never raised above the profile')
+  assert(/refusing rather than truncating coverage/i.test(r), 'whole-archive refuses (no truncation) if approved nodes exceed the cap')
+  assert(r.includes('profile: effective'), 'runner passes the resolved profile to generateLiveProposals')
+  assert(r.includes("!wholeArchive && !arg('max-proposals')"), 'DEFAULT profile still REQUIRES --max-proposals (43.B unchanged)')
 }
 
 console.log(`\n  Passed: ${passed}  Failed: ${failed}`)
